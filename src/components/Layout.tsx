@@ -2,7 +2,7 @@ import { ReactNode, useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useTheme } from "@/context/ThemeContext";
 import { useUser } from "@/context/UserContext";
-import { Home, Search, MessageCircle, Users, Bell, Leaf, Sun, Moon } from "lucide-react";
+import { Home, Search, MessageCircle, Users, Bell, Leaf, Sun, Moon, MessageSquarePlus } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
 const NAV_PATHS = [
@@ -117,6 +117,18 @@ export default function Layout({ children }: { children: ReactNode }) {
                 : user.avatar}
             </div>
             My Profile
+          </Link>
+
+          <Link
+            to="/feedback"
+            className={`flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 ${
+              pathname === "/feedback"
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+            }`}
+          >
+            <MessageSquarePlus className="h-4 w-4 shrink-0" />
+            Feedback
           </Link>
 
           <button

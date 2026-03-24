@@ -20,6 +20,7 @@ const Groups       = lazy(() => import("./pages/Groups"));
 const Notifications = lazy(() => import("./pages/Notifications"));
 const Profile      = lazy(() => import("./pages/Profile"));
 const UserProfile  = lazy(() => import("./pages/UserProfile"));
+const Feedback     = lazy(() => import("./pages/Feedback"));
 const NotFound     = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
@@ -77,6 +78,7 @@ function AppRoutes() {
         <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
         <Route path="/profile"       element={<ProtectedRoute><Profile /></ProtectedRoute>} />
         <Route path="/profile/:id"   element={<ProtectedRoute><UserProfile /></ProtectedRoute>} />
+        <Route path="/feedback"      element={<ProtectedRoute><Feedback /></ProtectedRoute>} />
         <Route path="*"              element={<NotFound />} />
       </Routes>
     </Suspense>

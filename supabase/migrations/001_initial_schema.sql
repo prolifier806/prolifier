@@ -342,6 +342,25 @@ create policy "Users can delete connections"
   on public.connections for delete
   using (auth.uid() = requester_id or auth.uid() = receiver_id);
 
+-- ── FEEDBACK ─────────────────────────────────────────────
+create table if not exists public.feedback (
+  id          uuid default uuid_generate_v4() primary key,
+  user_id     uuid references public.profiles(id) on delete cascade not null,
+  category    text not null,
+  rating      integer not null check (rating >= 1 and rating <= 5),
+  title       text not null,
+  message     text not null,
+  created_at  timestamptz default now()
+);
+
+alter table public.feedback enable row level security;
+
+create policy "Users can view their own feedback"
+  on public.feedback for select using (auth.uid() = user_id);
+
+create policy "Users can submit feedback"
+  on public.feedback for insert with check (auth.uid() = user_id);
+
 -- ── REALTIME ─────────────────────────────────────────────
 -- Enable realtime for these tables
 alter publication supabase_realtime add table public.messages;
