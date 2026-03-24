@@ -156,6 +156,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
             (supabase as any).from("connections").delete().eq("requester_id", userId),
             (supabase as any).from("connections").delete().eq("receiver_id", userId),
             (supabase as any).from("notifications").delete().eq("user_id", userId),
+            (supabase as any).from("messages").delete().eq("sender_id", userId),
+            (supabase as any).from("messages").delete().eq("receiver_id", userId),
           ]);
           await (supabase as any).from("posts").delete().eq("user_id", userId);
           await (supabase as any).from("collabs").delete().eq("user_id", userId);

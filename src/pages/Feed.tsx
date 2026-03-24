@@ -30,13 +30,13 @@ import { createNotification } from "@/lib/notifications";
 type Comment = { id: string; author: string; avatar: string; color: string; text: string; time: string; };
 type Post = {
   id: string; user_id: string; author: string; avatar: string; avatarUrl?: string; avatarColor: string; location: string;
-  role?: string;
+  role?: string; authorDeleted?: boolean;
   tag: string; time: string; content: string; image?: string; video?: string; likes: number; isOwn: boolean;
   comments: Comment[];
 };
 type Collab = {
   id: string; user_id: string; author: string; avatar: string; avatarUrl?: string; avatarColor: string; location: string;
-  role?: string;
+  role?: string; authorDeleted?: boolean;
   title: string; looking: string; description: string; skills: string[]; image?: string; video?: string;
   isOwn: boolean;
 };
@@ -583,6 +583,7 @@ const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, onLike, 
   const [lightboxSrc, setLightboxSrc] = useState<string|null>(null);
 
   const goToProfile = () => {
+    if (post.authorDeleted) return;
     if (post.isOwn) { navigate("/profile"); return; }
     navigate(`/profile/${post.user_id}`);
   };
@@ -592,14 +593,14 @@ const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, onLike, 
       <motion.div layout initial={{opacity:0,y:16}} animate={{opacity:1,y:0}} exit={{opacity:0,scale:0.97}}
         className="rounded-xl border border-border bg-card hover:shadow-sm transition-shadow overflow-hidden">
         <div className="flex items-center gap-3 px-5 pt-5 pb-3">
-          <button onClick={goToProfile} className="shrink-0 hover:opacity-80 transition-opacity">
-            <Avatar initials={post.avatar} color={post.avatarColor} url={post.avatarUrl}/>
-          </button>
+          <div className={`shrink-0 ${!post.authorDeleted ? "cursor-pointer hover:opacity-80 transition-opacity" : ""}`} onClick={goToProfile}>
+            <Avatar initials={post.authorDeleted ? "?" : post.avatar} color={post.authorDeleted ? "bg-muted" : post.avatarColor} url={post.authorDeleted ? undefined : post.avatarUrl}/>
+          </div>
           <div className="flex-1 min-w-0">
-            <button onClick={goToProfile} className="font-semibold text-sm text-foreground hover:underline text-left">{post.author}</button>
+            <span className={`font-semibold text-sm text-left ${post.authorDeleted ? "text-muted-foreground italic" : "text-foreground cursor-pointer hover:underline"}`} onClick={goToProfile}>{post.author}</span>
             {post.role && <p className="text-[11px] text-primary font-medium leading-tight">{post.role}</p>}
             <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-              <MapPin className="h-3 w-3 shrink-0"/> {post.location} · {post.time}
+              {!post.authorDeleted && <><MapPin className="h-3 w-3 shrink-0"/> {post.location} · </>}{post.time}
             </p>
           </div>
           <Badge variant="secondary" className="text-xs shrink-0">{post.tag}</Badge>
@@ -682,6 +683,7 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
   const [lightboxSrc, setLightboxSrc] = useState<string|null>(null);
 
   const goToProfile = () => {
+    if (collab.authorDeleted) return;
     if (collab.isOwn) { navigate("/profile"); return; }
     navigate(`/profile/${collab.user_id}`);
   };
@@ -691,13 +693,13 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
       <motion.div layout initial={{opacity:0,y:16}} animate={{opacity:1,y:0}} exit={{opacity:0,scale:0.97}}
         className="rounded-xl border border-border bg-card hover:shadow-sm transition-shadow overflow-hidden">
         <div className="flex items-center gap-3 px-5 pt-5 pb-3">
-          <button onClick={goToProfile} className="shrink-0 hover:opacity-80 transition-opacity">
-            <Avatar initials={collab.avatar} color={collab.avatarColor} url={collab.avatarUrl}/>
-          </button>
+          <div className={`shrink-0 ${!collab.authorDeleted ? "cursor-pointer hover:opacity-80 transition-opacity" : ""}`} onClick={goToProfile}>
+            <Avatar initials={collab.authorDeleted ? "?" : collab.avatar} color={collab.authorDeleted ? "bg-muted" : collab.avatarColor} url={collab.authorDeleted ? undefined : collab.avatarUrl}/>
+          </div>
           <div className="flex-1 min-w-0">
-            <button onClick={goToProfile} className="font-semibold text-sm text-foreground hover:underline text-left">{collab.author}</button>
+            <span className={`font-semibold text-sm text-left ${collab.authorDeleted ? "text-muted-foreground italic" : "text-foreground cursor-pointer hover:underline"}`} onClick={goToProfile}>{collab.author}</span>
             {collab.role && <p className="text-[11px] text-primary font-medium leading-tight">{collab.role}</p>}
-            <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5"><MapPin className="h-3 w-3 shrink-0"/> {collab.location}</p>
+            {!collab.authorDeleted && <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5"><MapPin className="h-3 w-3 shrink-0"/> {collab.location}</p>}
           </div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -846,12 +848,12 @@ export default function Feed() {
       const [postsRes, collabsRes, likesRes, savedPostsRes, savedCollabsRes, interestedRes] = await Promise.all([
         (supabase as any)
           .from("posts")
-          .select(`*, profiles:user_id (name, avatar, avatar_url, color, location, roles)`)
+          .select(`*, profiles:user_id (name, avatar, avatar_url, color, location, roles, deleted_at)`)
           .order("created_at", { ascending: false })
           .limit(30),
         (supabase as any)
           .from("collabs")
-          .select(`*, profiles:user_id (name, avatar, avatar_url, color, location, roles)`)
+          .select(`*, profiles:user_id (name, avatar, avatar_url, color, location, roles, deleted_at)`)
           .order("created_at", { ascending: false })
           .limit(30),
         (supabase as any)
@@ -878,12 +880,13 @@ export default function Feed() {
       // from the critical path on every page load.
       const mappedPosts: Post[] = (postsRes.data || []).map((p: any) => ({
         id: p.id, user_id: p.user_id,
-        author: p.profiles?.name || "Unknown",
-        avatar: p.profiles?.avatar || "?",
-        avatarUrl: p.profiles?.avatar_url || undefined,
-        avatarColor: p.profiles?.color || "bg-primary",
-        location: p.profiles?.location || "",
-        role: p.profiles?.roles?.[0] || undefined,
+        author: p.profiles?.deleted_at ? "Deleted Account" : (p.profiles?.name || "Unknown"),
+        avatar: p.profiles?.deleted_at ? "?" : (p.profiles?.avatar || "?"),
+        avatarUrl: p.profiles?.deleted_at ? undefined : (p.profiles?.avatar_url || undefined),
+        avatarColor: p.profiles?.deleted_at ? "bg-muted-foreground" : (p.profiles?.color || "bg-primary"),
+        location: p.profiles?.deleted_at ? "" : (p.profiles?.location || ""),
+        role: p.profiles?.deleted_at ? undefined : (p.profiles?.roles?.[0] || undefined),
+        authorDeleted: !!p.profiles?.deleted_at,
         tag: p.tag, time: timeAgo(p.created_at), content: p.content,
         image: p.image_url || undefined, video: p.video_url || undefined,
         likes: p.likes || 0, isOwn: p.user_id === user.id,
@@ -892,12 +895,13 @@ export default function Feed() {
 
       const mappedCollabs: Collab[] = (collabsRes.data || []).map((c: any) => ({
         id: c.id, user_id: c.user_id,
-        author: c.profiles?.name || "Unknown",
-        avatar: c.profiles?.avatar || "?",
-        avatarUrl: c.profiles?.avatar_url || undefined,
-        avatarColor: c.profiles?.color || "bg-primary",
-        location: c.profiles?.location || "",
-        role: c.profiles?.roles?.[0] || undefined,
+        author: c.profiles?.deleted_at ? "Deleted Account" : (c.profiles?.name || "Unknown"),
+        avatar: c.profiles?.deleted_at ? "?" : (c.profiles?.avatar || "?"),
+        avatarUrl: c.profiles?.deleted_at ? undefined : (c.profiles?.avatar_url || undefined),
+        avatarColor: c.profiles?.deleted_at ? "bg-muted-foreground" : (c.profiles?.color || "bg-primary"),
+        location: c.profiles?.deleted_at ? "" : (c.profiles?.location || ""),
+        role: c.profiles?.deleted_at ? undefined : (c.profiles?.roles?.[0] || undefined),
+        authorDeleted: !!c.profiles?.deleted_at,
         title: c.title, looking: c.looking, description: c.description,
         skills: c.skills || [], image: c.image_url || undefined, video: c.video_url || undefined,
         isOwn: c.user_id === user.id,
@@ -927,19 +931,20 @@ export default function Feed() {
     try {
       const { data, error } = await (supabase as any)
         .from("posts")
-        .select(`*, profiles:user_id (name, avatar, avatar_url, color, location, roles)`)
+        .select(`*, profiles:user_id (name, avatar, avatar_url, color, location, roles, deleted_at)`)
         .order("created_at", { ascending: false })
         .lt("created_at", postsCursorRef.current)
         .limit(30);
       if (error) throw error;
       const more: Post[] = (data || []).map((p: any) => ({
         id: p.id, user_id: p.user_id,
-        author: p.profiles?.name || "Unknown",
-        avatar: p.profiles?.avatar || "?",
-        avatarUrl: p.profiles?.avatar_url || undefined,
-        avatarColor: p.profiles?.color || "bg-primary",
-        location: p.profiles?.location || "",
-        role: p.profiles?.roles?.[0] || undefined,
+        author: p.profiles?.deleted_at ? "Deleted Account" : (p.profiles?.name || "Unknown"),
+        avatar: p.profiles?.deleted_at ? "?" : (p.profiles?.avatar || "?"),
+        avatarUrl: p.profiles?.deleted_at ? undefined : (p.profiles?.avatar_url || undefined),
+        avatarColor: p.profiles?.deleted_at ? "bg-muted-foreground" : (p.profiles?.color || "bg-primary"),
+        location: p.profiles?.deleted_at ? "" : (p.profiles?.location || ""),
+        role: p.profiles?.deleted_at ? undefined : (p.profiles?.roles?.[0] || undefined),
+        authorDeleted: !!p.profiles?.deleted_at,
         tag: p.tag, time: timeAgo(p.created_at), content: p.content,
         image: p.image_url || undefined, video: p.video_url || undefined,
         likes: p.likes || 0, isOwn: p.user_id === user.id, comments: [],
@@ -957,19 +962,20 @@ export default function Feed() {
     try {
       const { data, error } = await (supabase as any)
         .from("collabs")
-        .select(`*, profiles:user_id (name, avatar, avatar_url, color, location, roles)`)
+        .select(`*, profiles:user_id (name, avatar, avatar_url, color, location, roles, deleted_at)`)
         .order("created_at", { ascending: false })
         .lt("created_at", collabsCursorRef.current)
         .limit(30);
       if (error) throw error;
       const more: Collab[] = (data || []).map((c: any) => ({
         id: c.id, user_id: c.user_id,
-        author: c.profiles?.name || "Unknown",
-        avatar: c.profiles?.avatar || "?",
-        avatarUrl: c.profiles?.avatar_url || undefined,
-        avatarColor: c.profiles?.color || "bg-primary",
-        location: c.profiles?.location || "",
-        role: c.profiles?.roles?.[0] || undefined,
+        author: c.profiles?.deleted_at ? "Deleted Account" : (c.profiles?.name || "Unknown"),
+        avatar: c.profiles?.deleted_at ? "?" : (c.profiles?.avatar || "?"),
+        avatarUrl: c.profiles?.deleted_at ? undefined : (c.profiles?.avatar_url || undefined),
+        avatarColor: c.profiles?.deleted_at ? "bg-muted-foreground" : (c.profiles?.color || "bg-primary"),
+        location: c.profiles?.deleted_at ? "" : (c.profiles?.location || ""),
+        role: c.profiles?.deleted_at ? undefined : (c.profiles?.roles?.[0] || undefined),
+        authorDeleted: !!c.profiles?.deleted_at,
         title: c.title, looking: c.looking, description: c.description,
         skills: c.skills || [], image: c.image_url || undefined, video: c.video_url || undefined,
         isOwn: c.user_id === user.id,
