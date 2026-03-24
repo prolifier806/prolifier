@@ -40,13 +40,18 @@ type Collab = {
 // ── Constants ──────────────────────────────────────────────────────────────
 const AVATAR_COLORS = ["bg-primary","bg-accent","bg-emerald-600","bg-violet-600","bg-sky-500","bg-rose-500","bg-amber-500","bg-teal-600"];
 const POST_TAGS = ["Launch","Progress","Question","Idea","Milestone","Feedback","Story","Resource"];
-const COLLAB_FILTERS = ["All","Frontend","Backend","Full-Stack","AI/ML","Mobile","DevOps","Design","Writing","Music","Marketing","Tech","Events","Education"];
+const COLLAB_FILTERS = ["All","Design","Marketing","Writing","Video","Music","Development","Product","AI/ML","Research","Education","Community","Events"];
 const SKILL_OPTIONS = [
-  "Frontend","Backend","Full-Stack","React","TypeScript","Node.js","Python","AI/ML",
-  "Mobile","iOS","Android","DevOps","Data Science","Product","UI/UX",
-  "Graphic Design","Video","Writing","Music","Marketing","Social Media",
-  "Community","Events","Teaching","Coaching","Content Creation","Research",
-  "Audio Engineering","Animation","Illustration","Crafts","Cooking","Photography",
+  // Creative & Media
+  "Graphic Design","UI/UX Design","Video Production","Photography","Animation","Illustration","Motion Graphics","Music","Audio Engineering","Podcasting",
+  // Business & Marketing
+  "Marketing","Social Media","Content Creation","Copywriting","Community Management","Events","Sales","PR & Communications","Brand Strategy",
+  // Tech & Product
+  "Product Management","Web Development","Mobile Development","Frontend","Backend","Full-Stack","AI/ML","Data Science","DevOps","Cloud","QA/Testing",
+  // Knowledge & People
+  "Writing","Teaching","Coaching","Research","Public Speaking","Consulting",
+  // Lifestyle
+  "Cooking","Crafts","Fashion","Fitness","Gaming",
 ];
 const REPORT_REASONS = [
   "Spam or misleading","Hate speech or discrimination","Harassment or bullying",

@@ -47,16 +47,17 @@ export default function Layout({ children }: { children: ReactNode }) {
 
   // Clear badge + mark all read in DB when the user is on the notifications page
   useEffect(() => {
-    if (!pathname.startsWith("/notifications")) return;
+    if (!pathname.startsWith("/notifications") || !user.id) return;
     setUnreadCount(0);
-    if (user.id) {
-      (supabase as any)
+    // Must be awaited inside an async wrapper — Supabase v2 queries are lazy
+    const run = async () => {
+      await (supabase as any)
         .from("notifications")
         .update({ read: true })
         .eq("user_id", user.id)
         .eq("read", false);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    };
+    run();
   }, [pathname, user.id]);
 
   return (
@@ -108,10 +109,12 @@ export default function Layout({ children }: { children: ReactNode }) {
                 : "text-muted-foreground hover:bg-secondary hover:text-foreground"
             }`}
           >
-            <div className={`h-6 w-6 rounded-full flex items-center justify-center text-xs font-semibold shrink-0 text-white ${
-              pathname === "/profile" ? "opacity-90" : ""
-            } ${user.color}`}>
-              {user.avatar}
+            <div className={`h-6 w-6 rounded-full flex items-center justify-center text-xs font-semibold shrink-0 overflow-hidden ${
+              !user.avatarUrl ? `text-white ${user.color}` : ""
+            } ${pathname === "/profile" ? "opacity-90" : ""}`}>
+              {user.avatarUrl
+                ? <img src={user.avatarUrl} alt="avatar" className="w-full h-full object-cover" />
+                : user.avatar}
             </div>
             My Profile
           </Link>
@@ -161,8 +164,10 @@ export default function Layout({ children }: { children: ReactNode }) {
               </div>
             </Link>
             <Link to="/profile">
-              <div className={`h-8 w-8 rounded-full ${user.color} flex items-center justify-center text-white text-xs font-semibold`}>
-                {user.avatar}
+              <div className={`h-8 w-8 rounded-full overflow-hidden flex items-center justify-center text-white text-xs font-semibold ${!user.avatarUrl ? user.color : ""}`}>
+                {user.avatarUrl
+                  ? <img src={user.avatarUrl} alt="avatar" className="w-full h-full object-cover" />
+                  : user.avatar}
               </div>
             </Link>
           </div>

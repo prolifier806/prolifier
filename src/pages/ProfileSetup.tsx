@@ -11,10 +11,14 @@ import { useUser } from "@/context/UserContext";
 import { toast } from "@/hooks/use-toast";
 
 const QUICK_SKILLS = [
-  "AI/ML", "Development", "Design", "Marketing", "Writing",
-  "Video", "Photography", "Community", "Product", "Research",
-  "Music", "Coding", "Data Science", "UI/UX", "Coaching",
-  "Content Creation", "DevOps", "Social Media",
+  // Creative
+  "Graphic Design","UI/UX Design","Video Production","Photography","Animation","Music","Content Creation",
+  // Business
+  "Marketing","Social Media","Copywriting","Community Management","Events","Sales","PR & Communications",
+  // Tech
+  "Product Management","Web Development","Frontend","Backend","Full-Stack","Mobile Development","AI/ML","Data Science","DevOps",
+  // Knowledge
+  "Writing","Teaching","Coaching","Research","Public Speaking",
 ];
 
 const TOTAL_STEPS = 3;

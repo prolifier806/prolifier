@@ -17,10 +17,18 @@ import { supabase } from "@/lib/supabase";
 
 
 const allSkills = [
-  "Photography","Video","Graphic Design","Writing","Music","Marketing",
-  "Social Media","Community","Events","Teaching","Cooking","Crafts",
-  "Audio Engineering","Animation","Illustration","Research","Coaching","Content Creation",
-  "React","TypeScript","Node.js","Python","UI/UX","Product",
+  // Creative & Media
+  "Graphic Design","UI/UX Design","Video Production","Photography","Animation","Illustration","Motion Graphics","Music","Audio Engineering","Podcasting",
+  // Business & Marketing
+  "Marketing","Social Media","Content Creation","Copywriting","Community Management","Events","Sales","PR & Communications","Brand Strategy",
+  // Tech & Product
+  "Product Management","Web Development","Frontend","Backend","Full-Stack","Mobile Development","AI/ML","Data Science","DevOps","Cloud","QA/Testing",
+  // Specific Tech Tools
+  "React","TypeScript","Node.js","Python","Swift","Kotlin","Flutter","AWS","Docker",
+  // Knowledge & People
+  "Writing","Teaching","Coaching","Research","Public Speaking","Consulting",
+  // Lifestyle
+  "Cooking","Crafts","Fashion","Fitness","Gaming",
 ];
 
 const DELETE_REASONS = [
