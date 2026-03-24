@@ -40,11 +40,13 @@ type Collab = {
 // ── Constants ──────────────────────────────────────────────────────────────
 const AVATAR_COLORS = ["bg-primary","bg-accent","bg-emerald-600","bg-violet-600","bg-sky-500","bg-rose-500","bg-amber-500","bg-teal-600"];
 const POST_TAGS = ["Launch","Progress","Question","Idea","Milestone","Feedback","Story","Resource"];
-const COLLAB_FILTERS = ["All","Photography","Music","Writing","Design","Marketing","Tech","Events","Education"];
+const COLLAB_FILTERS = ["All","Frontend","Backend","Full-Stack","AI/ML","Mobile","DevOps","Design","Writing","Music","Marketing","Tech","Events","Education"];
 const SKILL_OPTIONS = [
-  "Photography","Video","Graphic Design","Writing","Music","Marketing",
-  "Social Media","Community","Events","Teaching","Cooking","Crafts",
-  "Audio Engineering","Animation","Illustration","Research","Coaching","Content Creation",
+  "Frontend","Backend","Full-Stack","React","TypeScript","Node.js","Python","AI/ML",
+  "Mobile","iOS","Android","DevOps","Data Science","Product","UI/UX",
+  "Graphic Design","Video","Writing","Music","Marketing","Social Media",
+  "Community","Events","Teaching","Coaching","Content Creation","Research",
+  "Audio Engineering","Animation","Illustration","Crafts","Cooking","Photography",
 ];
 const REPORT_REASONS = [
   "Spam or misleading","Hate speech or discrimination","Harassment or bullying",
@@ -756,6 +758,7 @@ export default function Feed() {
   const [activeTab, setActiveTab] = useState("feed");
   const [search, setSearch] = useState("");
   const [activeFilter, setActiveFilter] = useState("All");
+  const [activePostTag, setActivePostTag] = useState("All");
 
   const [posts, setPosts] = useState<Post[]>([]);
   const [collabs, setCollabs] = useState<Collab[]>([]);
@@ -1243,6 +1246,7 @@ export default function Feed() {
   };
 
   const shareLink = shareTarget ? `${window.location.origin}/${shareTarget.type}/${shareTarget.id}` : "";
+  const filteredPosts = activePostTag === "All" ? posts : posts.filter(p => p.tag === activePostTag);
   const filteredCollabs = collabs.filter(c => {
     const q = search.toLowerCase();
     const ms = !search || c.author.toLowerCase().includes(q) || c.title.toLowerCase().includes(q) || c.looking.toLowerCase().includes(q) || c.description.toLowerCase().includes(q) || c.skills.some(s => s.toLowerCase().includes(q));
@@ -1313,13 +1317,27 @@ export default function Feed() {
               </DialogContent>
             </Dialog>
 
+            {/* Post tag filter */}
+            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none -mx-1 px-1">
+              {["All", ...POST_TAGS].map(t => (
+                <Badge key={t} variant={activePostTag === t ? "default" : "outline"}
+                  className="cursor-pointer shrink-0"
+                  onClick={() => setActivePostTag(t)}>
+                  {t}
+                </Badge>
+              ))}
+            </div>
+
             <AnimatePresence>
-              {loading ? <FeedSkeleton /> : posts.length === 0 ? (
+              {loading ? <FeedSkeleton /> : filteredPosts.length === 0 ? (
                 <div className="text-center py-14 text-muted-foreground">
-                  <p className="text-sm font-medium mb-1">No posts yet</p>
-                  <p className="text-xs">Be the first to share something with the community!</p>
+                  <p className="text-sm font-medium mb-1">{activePostTag === "All" ? "No posts yet" : `No "${activePostTag}" posts yet`}</p>
+                  <p className="text-xs">{activePostTag === "All" ? "Be the first to share something with the community!" : "Try a different filter or share one yourself."}</p>
+                  {activePostTag !== "All" && (
+                    <button className="text-xs text-primary hover:underline mt-1" onClick={() => setActivePostTag("All")}>Clear filter</button>
+                  )}
                 </div>
-              ) : posts.map(post => (
+              ) : filteredPosts.map(post => (
                 <PostCard key={post.id} post={post} likedPosts={likedPosts} savedPosts={savedPosts}
                   onLike={handleLike} onSave={handleSavePost} onComment={handleOpenComments}
                   onDelete={handleDeletePost} onEdit={setEditingPost} onHide={handleHidePost}

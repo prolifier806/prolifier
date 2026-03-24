@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, useRef, ReactNode } from "react";
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 
@@ -7,6 +7,7 @@ export type CurrentUser = {
   email: string;
   name: string;
   avatar: string;
+  avatarUrl: string;
   color: string;
   location: string;
   bio: string;
@@ -26,6 +27,7 @@ const DEFAULT_USER: CurrentUser = {
   email: "",
   name: "",
   avatar: "",
+  avatarUrl: "",
   color: "bg-primary",
   location: "",
   bio: "",
@@ -94,6 +96,7 @@ function profileFromRow(userId: string, email: string, row: any): CurrentUser {
     email,
     name: row.name || "",
     avatar: row.avatar || "",
+    avatarUrl: row.avatar_url || "",
     color: row.color || "bg-primary",
     location: row.location || "",
     bio: row.bio || "",
@@ -114,16 +117,22 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  // Version counter prevents stale background fetches from overwriting newer data
+  const syncVersionRef = useRef(0);
 
   // Fetches profile from DB and updates state + cache silently.
   // Never touches the loading flag — callers decide that.
   const syncProfile = async (userId: string, email: string) => {
+    const thisVersion = ++syncVersionRef.current;
     try {
       const { data: row } = await supabase
         .from("profiles")
         .select("*")
         .eq("id", userId)
         .single() as any;
+
+      // Discard result if a newer sync has started (prevents flicker from stale fetches)
+      if (thisVersion !== syncVersionRef.current) return;
 
       const next = row
         ? profileFromRow(userId, email, row)
@@ -205,6 +214,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       id: authUser.id,
       name: next.name,
       avatar: next.avatar,
+      avatar_url: next.avatarUrl || null,
       color: next.color,
       location: next.location,
       bio: next.bio,

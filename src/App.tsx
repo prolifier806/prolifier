@@ -37,10 +37,28 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+// Redirects to /feed if profile is already complete (prevents re-entering setup)
+function SetupRoute({ children }: { children: React.ReactNode }) {
+  const { session, loading, profileComplete } = useUser();
+  if (loading) return <PageLoader />;
+  if (!session) return <Navigate to="/" replace />;
+  if (profileComplete) return <Navigate to="/feed" replace />;
+  return <>{children}</>;
+}
+
+// Redirects already-authenticated users away from auth pages
 function AuthRoute({ children }: { children: React.ReactNode }) {
   const { session, loading, profileComplete } = useUser();
   if (loading) return <PageLoader />;
   if (session) return <Navigate to={profileComplete ? "/feed" : "/setup"} replace />;
+  return <>{children}</>;
+}
+
+// Redirects to / (→ feed/setup) if user already has a session
+function GuestOnlyRoute({ children }: { children: React.ReactNode }) {
+  const { session, loading } = useUser();
+  if (loading) return <PageLoader />;
+  if (session) return <Navigate to="/" replace />;
   return <>{children}</>;
 }
 
@@ -49,9 +67,9 @@ function AppRoutes() {
     <Suspense fallback={<PageLoader />}>
       <Routes>
         <Route path="/"              element={<AuthRoute><Onboarding /></AuthRoute>} />
-        <Route path="/verify-email"     element={<VerifyEmail />} />
-        <Route path="/forgot-password"  element={<ForgotPassword />} />
-        <Route path="/setup"         element={<ProtectedRoute><ProfileSetup /></ProtectedRoute>} />
+        <Route path="/verify-email"     element={<GuestOnlyRoute><VerifyEmail /></GuestOnlyRoute>} />
+        <Route path="/forgot-password"  element={<GuestOnlyRoute><ForgotPassword /></GuestOnlyRoute>} />
+        <Route path="/setup"         element={<SetupRoute><ProfileSetup /></SetupRoute>} />
         <Route path="/feed"          element={<ProtectedRoute><Feed /></ProtectedRoute>} />
         <Route path="/discover"      element={<ProtectedRoute><Discover /></ProtectedRoute>} />
         <Route path="/messages"      element={<ProtectedRoute><Messages /></ProtectedRoute>} />

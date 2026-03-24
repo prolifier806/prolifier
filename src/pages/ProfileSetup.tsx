@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { X, Plus } from "lucide-react";
 import { useUser } from "@/context/UserContext";
+import { toast } from "@/hooks/use-toast";
 
 const QUICK_SKILLS = [
   "AI/ML", "Development", "Design", "Marketing", "Writing",
@@ -100,7 +101,14 @@ export default function ProfileSetup() {
   };
 
   const next = async () => {
-    if (step === 0 && !name.trim()) return;
+    if (step === 0) {
+      if (!name.trim()) return;
+      if (!location.trim()) { toast({ title: "Location is required", variant: "destructive" }); return; }
+      if (!bio.trim()) { toast({ title: "Bio is required", variant: "destructive" }); return; }
+    }
+    if (step === 1 && haveSkills.length === 0) {
+      toast({ title: "Please add at least one skill", variant: "destructive" }); return;
+    }
     if (step < TOTAL_STEPS - 1) {
       setStep(step + 1);
     } else {
@@ -120,11 +128,11 @@ export default function ProfileSetup() {
         <Input value={name} onChange={e => setName(e.target.value)} placeholder="Jane Builder" className="h-11" />
       </div>
       <div>
-        <label className="text-sm font-medium text-foreground mb-1.5 block">Location</label>
+        <label className="text-sm font-medium text-foreground mb-1.5 block">Location <span className="text-destructive">*</span></label>
         <Input value={location} onChange={e => setLocation(e.target.value)} placeholder="San Francisco, CA" className="h-11" />
       </div>
       <div>
-        <label className="text-sm font-medium text-foreground mb-1.5 block">Bio</label>
+        <label className="text-sm font-medium text-foreground mb-1.5 block">Bio <span className="text-destructive">*</span></label>
         <Textarea value={bio} onChange={e => setBio(e.target.value)} placeholder="Tell the community a bit about yourself..." rows={3} />
       </div>
       <div>
@@ -271,7 +279,7 @@ export default function ProfileSetup() {
           )}
           <Button
             onClick={next}
-            disabled={(step === 0 && !name.trim()) || finishing}
+            disabled={(step === 0 && (!name.trim() || !location.trim() || !bio.trim())) || (step === 1 && haveSkills.length === 0) || finishing}
             className="flex-1 h-11 font-semibold"
           >
             {finishing ? "Saving…" : step === TOTAL_STEPS - 1 ? "Complete setup" : "Continue"}

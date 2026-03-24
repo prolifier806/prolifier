@@ -45,12 +45,19 @@ export default function Layout({ children }: { children: ReactNode }) {
     return () => { supabase.removeChannel(channel); };
   }, [user.id]);
 
-  // Clear badge when the user is on the notifications page
+  // Clear badge + mark all read in DB when the user is on the notifications page
   useEffect(() => {
-    if (pathname.startsWith("/notifications") && unreadCount > 0) {
-      setUnreadCount(0);
+    if (!pathname.startsWith("/notifications")) return;
+    setUnreadCount(0);
+    if (user.id) {
+      (supabase as any)
+        .from("notifications")
+        .update({ read: true })
+        .eq("user_id", user.id)
+        .eq("read", false);
     }
-  }, [pathname, unreadCount]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname, user.id]);
 
   return (
     <div className="min-h-screen flex bg-background">

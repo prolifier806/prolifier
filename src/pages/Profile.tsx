@@ -78,8 +78,10 @@ export default function Profile() {
 
   // ── Avatar ─────────────────────────────────────────────────────────────
   const avatarRef = useRef<HTMLInputElement>(null);
-  const [avatarUrl, setAvatarUrl]   = useState<string|null>(null);
+  const [avatarUrl, setAvatarUrl]   = useState<string|null>(user.avatarUrl || null);
   const [avatarUploading, setAvatarUploading] = useState(false);
+  // Keep local avatarUrl in sync when context updates (e.g. after background DB sync)
+  useEffect(() => { if (user.avatarUrl) setAvatarUrl(user.avatarUrl); }, [user.avatarUrl]);
 
   // ── Analytics ──────────────────────────────────────────────────────────
   const [analytics, setAnalytics] = useState({ views: 0, postCount: 0, collabCount: 0, connectionCount: 0 });
@@ -114,11 +116,12 @@ export default function Profile() {
   // ── Load analytics ─────────────────────────────────────────────────────
   const loadAnalytics = useCallback(async () => {
     if (!user.id) return;
+    const controller = new AbortController();
     try {
       const [postsRes, collabsRes, connsRes] = await Promise.all([
-        (supabase as any).from("posts").select("id", { count: "exact", head: true }).eq("user_id", user.id),
-        (supabase as any).from("collabs").select("id", { count: "exact", head: true }).eq("user_id", user.id),
-        (supabase as any).from("connections").select("id", { count: "exact", head: true }).eq("receiver_id", user.id),
+        (supabase as any).from("posts").select("id", { count: "exact", head: true }).eq("user_id", user.id).abortSignal(controller.signal),
+        (supabase as any).from("collabs").select("id", { count: "exact", head: true }).eq("user_id", user.id).abortSignal(controller.signal),
+        (supabase as any).from("connections").select("id", { count: "exact", head: true }).eq("receiver_id", user.id).abortSignal(controller.signal),
       ]);
       setAnalytics({
         views: Math.floor(Math.random() * 200) + 50, // placeholder — would need a views table
@@ -126,7 +129,8 @@ export default function Profile() {
         collabCount: collabsRes.count || 0,
         connectionCount: connsRes.count || 0,
       });
-    } catch { /* silent */ }
+    } catch { /* silent — includes abort */ }
+    return () => controller.abort();
   }, [user.id]);
 
   // ── Load activity ──────────────────────────────────────────────────────
@@ -136,9 +140,11 @@ export default function Profile() {
     try {
       const [postsRes, commentsRes, collabsRes, likesRes] = await Promise.all([
         (supabase as any).from("posts").select("id, content, created_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(10),
-        (supabase as any).from("comments").select("id, text, created_at, post_id").eq("user_id", user.id).order("created_at", { ascending: false }).limit(10),
+        // join with posts to auto-filter deleted post references
+        (supabase as any).from("comments").select("id, text, created_at, post_id, posts!inner(id)").eq("user_id", user.id).order("created_at", { ascending: false }).limit(10),
         (supabase as any).from("collabs").select("id, title, created_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(10),
-        (supabase as any).from("post_likes").select("post_id, created_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(10),
+        // join with posts to auto-filter deleted post references
+        (supabase as any).from("post_likes").select("post_id, created_at, posts!inner(id)").eq("user_id", user.id).order("created_at", { ascending: false }).limit(10),
       ]);
 
       const items: ActivityItem[] = [];
@@ -211,7 +217,9 @@ export default function Profile() {
     }
 
     const { data } = (supabase as any).storage.from("avatars").getPublicUrl(path);
-    setAvatarUrl(data.publicUrl + "?t=" + Date.now());
+    const url = data.publicUrl + "?t=" + Date.now();
+    setAvatarUrl(url);
+    await updateUser({ avatarUrl: data.publicUrl }); // persist to DB (without cache-bust param)
     setAvatarUploading(false);
     toast({ title: "Profile photo updated! 📸" });
   };
@@ -414,9 +422,10 @@ export default function Profile() {
               <div className="divide-y divide-border">
                 {filtered.map(item => {
                   const Icon = iconMap[item.type] || TrendingUp;
+                  const dest = item.type === "collab" ? "/feed?tab=collabs" : "/feed";
                   return (
-                    <div key={item.id}
-                      className="w-full flex items-center gap-3 px-5 py-3.5 text-left">
+                    <button key={item.id} onClick={() => navigate(dest)}
+                      className="w-full flex items-center gap-3 px-5 py-3.5 text-left hover:bg-muted transition-colors cursor-pointer">
                       <div className={`h-9 w-9 rounded-full ${colorMap[item.type] || "bg-muted"} flex items-center justify-center shrink-0`}>
                         <Icon className="h-4 w-4"/>
                       </div>
@@ -425,7 +434,7 @@ export default function Profile() {
                         <p className="text-xs text-muted-foreground mt-0.5 truncate">{item.detail}</p>
                       </div>
                       <span className="text-xs text-muted-foreground shrink-0">{item.time}</span>
-                    </div>
+                    </button>
                   );
                 })}
               </div>
