@@ -6,70 +6,57 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { X, Plus } from "lucide-react";
+import { X } from "lucide-react";
 import { useUser } from "@/context/UserContext";
 import { toast } from "@/hooks/use-toast";
-
-const QUICK_SKILLS = [
-  // Creative
-  "Graphic Design","UI/UX Design","Video Production","Photography","Animation","Music","Content Creation",
-  // Business
-  "Marketing","Social Media","Copywriting","Community Management","Events","Sales","PR & Communications",
-  // Tech
-  "Product Management","Web Development","Frontend","Backend","Full-Stack","Mobile Development","AI/ML","Data Science","DevOps",
-  // Knowledge
-  "Writing","Teaching","Coaching","Research","Public Speaking",
-];
+import { SKILL_CATEGORIES, ROLE_OPTIONS, MAX_ROLES } from "@/lib/skills";
 
 const TOTAL_STEPS = 3;
 
 export default function ProfileSetup() {
-  const [step, setStep]                   = useState(0);
-  const navigate = useNavigate();
+  const [step, setStep]     = useState(0);
+  const navigate            = useNavigate();
   const { updateUser, completeProfileSetup } = useUser();
-  const [name, setName]                   = useState("");
-  const [location, setLocation]           = useState("");
-  const [bio, setBio]                     = useState("");
-  const [building, setBuilding]           = useState("");
-  const [haveSkills, setHaveSkills]       = useState<string[]>([]);
-  const [wantSkills, setWantSkills]       = useState<string[]>([]);
-  const [available, setAvailable]         = useState(true);
-  const [github, setGithub]               = useState("");
-  const [website, setWebsite]             = useState("");
-  const [twitter, setTwitter]             = useState("");
-  const [customHaveSkill, setCustomHaveSkill] = useState("");
-  const [customWantSkill, setCustomWantSkill] = useState("");
-  const [finishing, setFinishing]         = useState(false);
+
+  const [name, setName]         = useState("");
+  const [location, setLocation] = useState("");
+  const [bio, setBio]           = useState("");
+  const [building, setBuilding] = useState("");
+  const [roles, setRoles]       = useState<string[]>([]);
+  const [haveSkills, setHaveSkills] = useState<string[]>([]);
+  const [wantSkills, setWantSkills] = useState<string[]>([]);
+  const [available, setAvailable]   = useState(true);
+  const [github, setGithub]         = useState("");
+  const [website, setWebsite]       = useState("");
+  const [twitter, setTwitter]       = useState("");
+  const [finishing, setFinishing]   = useState(false);
 
   const toggleSkill = (skill: string, list: string[], setList: (s: string[]) => void) =>
     setList(list.includes(skill) ? list.filter(s => s !== skill) : [...list, skill]);
 
-  const addCustomSkill = (val: string, list: string[], setList: (s: string[]) => void, setVal: (v: string) => void) => {
-    const trimmed = val.trim();
-    if (!trimmed || list.includes(trimmed)) return;
-    setList([...list, trimmed]);
-    setVal("");
+  const toggleRole = (role: string) => {
+    if (roles.includes(role)) {
+      setRoles(prev => prev.filter(r => r !== role));
+    } else if (roles.length < MAX_ROLES) {
+      setRoles(prev => [...prev, role]);
+    }
   };
 
-  // Saves profile data + marks profile_complete = true, then navigates to feed
+  const buildPayload = () => {
+    const initials = name.trim().split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
+    return {
+      name: name.trim(), avatar: initials,
+      location: location.trim(), bio: bio.trim(), project: building.trim(),
+      skills: haveSkills, lookingFor: wantSkills, roles,
+      github: github.trim(), website: website.trim(), twitter: twitter.trim(),
+      openToCollab: available,
+    };
+  };
+
   const finish = async () => {
     setFinishing(true);
     try {
-      const initials = name.trim().split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
-      await updateUser({
-        name: name.trim(),
-        avatar: initials,
-        location: location.trim(),
-        bio: bio.trim(),
-        project: building.trim(),
-        skills: haveSkills,
-        lookingFor: wantSkills,
-        github: github.trim(),
-        website: website.trim(),
-        twitter: twitter.trim(),
-        openToCollab: available,
-      });
-      // Mark profile setup as done — this is what gates the /setup redirect
+      await updateUser(buildPayload());
       await completeProfileSetup();
       navigate("/feed");
     } finally {
@@ -77,26 +64,10 @@ export default function ProfileSetup() {
     }
   };
 
-  // Skip to feed — still marks profile_complete so user isn't re-routed to /setup on next login
   const skipToFeed = async () => {
     setFinishing(true);
     try {
-      if (name.trim()) {
-        const initials = name.trim().split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
-        await updateUser({
-          name: name.trim(),
-          avatar: initials,
-          location: location.trim(),
-          bio: bio.trim(),
-          project: building.trim(),
-          skills: haveSkills,
-          lookingFor: wantSkills,
-          github: github.trim(),
-          website: website.trim(),
-          twitter: twitter.trim(),
-          openToCollab: available,
-        });
-      }
+      if (name.trim()) await updateUser(buildPayload());
       await completeProfileSetup();
       navigate("/feed");
     } finally {
@@ -111,7 +82,7 @@ export default function ProfileSetup() {
       if (!bio.trim()) { toast({ title: "Bio is required", variant: "destructive" }); return; }
     }
     if (step === 1 && haveSkills.length === 0) {
-      toast({ title: "Please add at least one skill", variant: "destructive" }); return;
+      toast({ title: "Please select at least one skill", variant: "destructive" }); return;
     }
     if (step < TOTAL_STEPS - 1) {
       setStep(step + 1);
@@ -123,7 +94,7 @@ export default function ProfileSetup() {
   const stepLabels = ["Basic info", "Skills", "Links"];
 
   const steps = [
-    // ── Step 1: Basic info ───────────────────────────────────
+    // ── Step 1: Basic info + Role ────────────────────────────
     <div className="space-y-5" key="s1">
       <div>
         <label className="text-sm font-medium text-foreground mb-1.5 block">
@@ -132,11 +103,15 @@ export default function ProfileSetup() {
         <Input value={name} onChange={e => setName(e.target.value)} placeholder="Jane Builder" className="h-11" />
       </div>
       <div>
-        <label className="text-sm font-medium text-foreground mb-1.5 block">Location <span className="text-destructive">*</span></label>
+        <label className="text-sm font-medium text-foreground mb-1.5 block">
+          Location <span className="text-destructive">*</span>
+        </label>
         <Input value={location} onChange={e => setLocation(e.target.value)} placeholder="San Francisco, CA" className="h-11" />
       </div>
       <div>
-        <label className="text-sm font-medium text-foreground mb-1.5 block">Bio <span className="text-destructive">*</span></label>
+        <label className="text-sm font-medium text-foreground mb-1.5 block">
+          Bio <span className="text-destructive">*</span>
+        </label>
         <Textarea value={bio} onChange={e => setBio(e.target.value)} placeholder="Tell the community a bit about yourself..." rows={3} />
       </div>
       <div>
@@ -146,73 +121,60 @@ export default function ProfileSetup() {
         </div>
         <Input value={building} onChange={e => setBuilding(e.target.value)} placeholder="A ceramics shop, a podcast, an app…" className="h-11" />
       </div>
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <label className="text-sm font-medium text-foreground">Your role</label>
+          <span className="text-xs text-muted-foreground">Pick up to {MAX_ROLES} · Optional</span>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {ROLE_OPTIONS.map(r => {
+            const selected = roles.includes(r);
+            const maxed = !selected && roles.length >= MAX_ROLES;
+            return (
+              <Badge key={r}
+                variant={selected ? "default" : "outline"}
+                className={`cursor-pointer transition-all ${maxed ? "opacity-40 cursor-not-allowed" : "hover:scale-105"}`}
+                onClick={() => toggleRole(r)}
+              >
+                {r}{selected && <X className="h-3 w-3 ml-1" />}
+              </Badge>
+            );
+          })}
+        </div>
+      </div>
     </div>,
 
     // ── Step 2: Skills ───────────────────────────────────────
     <div className="space-y-7" key="s2">
       <div>
         <label className="text-sm font-medium text-foreground mb-1 block">Skills I have</label>
-        <p className="text-xs text-muted-foreground mb-3">Pick what applies — or add your own</p>
-        <div className="flex flex-wrap gap-2 mb-3">
-          {QUICK_SKILLS.map(s => (
-            <Badge key={s} variant={haveSkills.includes(s) ? "default" : "outline"}
+        <p className="text-xs text-muted-foreground mb-3">Select your areas of expertise</p>
+        <div className="flex flex-wrap gap-2">
+          {SKILL_CATEGORIES.map(s => (
+            <Badge key={s}
+              variant={haveSkills.includes(s) ? "default" : "outline"}
               className="cursor-pointer transition-all hover:scale-105"
-              onClick={() => toggleSkill(s, haveSkills, setHaveSkills)}>
+              onClick={() => toggleSkill(s, haveSkills, setHaveSkills)}
+            >
               {s}{haveSkills.includes(s) && <X className="h-3 w-3 ml-1" />}
             </Badge>
           ))}
         </div>
-        <div className="flex gap-2">
-          <Input value={customHaveSkill} onChange={e => setCustomHaveSkill(e.target.value)}
-            placeholder="Add a custom skill…" className="h-9 text-sm"
-            onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addCustomSkill(customHaveSkill, haveSkills, setHaveSkills, setCustomHaveSkill); }}} />
-          <Button type="button" size="sm" variant="outline" className="h-9 px-3 gap-1 shrink-0"
-            onClick={() => addCustomSkill(customHaveSkill, haveSkills, setHaveSkills, setCustomHaveSkill)}>
-            <Plus className="h-3.5 w-3.5" /> Add
-          </Button>
-        </div>
-        {haveSkills.filter(s => !QUICK_SKILLS.includes(s)).length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mt-2">
-            {haveSkills.filter(s => !QUICK_SKILLS.includes(s)).map(s => (
-              <Badge key={s} variant="default" className="cursor-pointer text-xs"
-                onClick={() => toggleSkill(s, haveSkills, setHaveSkills)}>
-                {s} <X className="h-3 w-3 ml-1" />
-              </Badge>
-            ))}
-          </div>
-        )}
       </div>
       <div>
         <label className="text-sm font-medium text-foreground mb-1 block">Skills I'm looking for</label>
         <p className="text-xs text-muted-foreground mb-3">What kind of collaborator do you need?</p>
-        <div className="flex flex-wrap gap-2 mb-3">
-          {QUICK_SKILLS.map(s => (
-            <Badge key={s} variant={wantSkills.includes(s) ? "default" : "outline"}
+        <div className="flex flex-wrap gap-2">
+          {SKILL_CATEGORIES.map(s => (
+            <Badge key={s}
+              variant={wantSkills.includes(s) ? "default" : "outline"}
               className="cursor-pointer transition-all hover:scale-105"
-              onClick={() => toggleSkill(s, wantSkills, setWantSkills)}>
+              onClick={() => toggleSkill(s, wantSkills, setWantSkills)}
+            >
               {s}{wantSkills.includes(s) && <X className="h-3 w-3 ml-1" />}
             </Badge>
           ))}
         </div>
-        <div className="flex gap-2">
-          <Input value={customWantSkill} onChange={e => setCustomWantSkill(e.target.value)}
-            placeholder="Add a custom skill…" className="h-9 text-sm"
-            onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addCustomSkill(customWantSkill, wantSkills, setWantSkills, setCustomWantSkill); }}} />
-          <Button type="button" size="sm" variant="outline" className="h-9 px-3 gap-1 shrink-0"
-            onClick={() => addCustomSkill(customWantSkill, wantSkills, setWantSkills, setCustomWantSkill)}>
-            <Plus className="h-3.5 w-3.5" /> Add
-          </Button>
-        </div>
-        {wantSkills.filter(s => !QUICK_SKILLS.includes(s)).length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mt-2">
-            {wantSkills.filter(s => !QUICK_SKILLS.includes(s)).map(s => (
-              <Badge key={s} variant="default" className="cursor-pointer text-xs"
-                onClick={() => toggleSkill(s, wantSkills, setWantSkills)}>
-                {s} <X className="h-3 w-3 ml-1" />
-              </Badge>
-            ))}
-          </div>
-        )}
       </div>
     </div>,
 
@@ -296,11 +258,8 @@ export default function ProfileSetup() {
           </button>
         )}
         {step === 2 && (
-          <button
-            onClick={skipToFeed}
-            disabled={finishing}
-            className="w-full mt-3 text-center text-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
-          >
+          <button onClick={skipToFeed} disabled={finishing}
+            className="w-full mt-3 text-center text-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50">
             Skip to feed
           </button>
         )}

@@ -41,14 +41,9 @@ type Collab = {
 const AVATAR_COLORS = ["bg-primary","bg-accent","bg-emerald-600","bg-violet-600","bg-sky-500","bg-rose-500","bg-amber-500","bg-teal-600"];
 const POST_TAGS = ["Launch","Progress","Question","Idea","Milestone","Feedback","Story","Resource"];
 // Single source of truth — collab skills used everywhere (post creation + browse filters)
-const COLLAB_SKILLS = [
-  "Development","Frontend","Backend","Full-Stack","Mobile","AI/ML","Data Science","DevOps",
-  "Product Management","UI/UX Design","Graphic Design","Animation","Video Production","Photography","Music",
-  "Marketing","Social Media","Content Creation","Copywriting","Community","Events","Sales",
-  "Writing","Teaching","Coaching","Research","Public Speaking",
-];
-const COLLAB_FILTERS = ["All", ...COLLAB_SKILLS.slice(0, 12)];
-const SKILL_OPTIONS = COLLAB_SKILLS;
+import { SKILL_CATEGORIES, COLLAB_FILTERS as COLLAB_FILTERS_CONST } from "@/lib/skills";
+const COLLAB_FILTERS: string[] = [...COLLAB_FILTERS_CONST];
+const SKILL_OPTIONS: string[]  = [...SKILL_CATEGORIES];
 const REPORT_REASONS = [
   "Spam or misleading","Hate speech or discrimination","Harassment or bullying",
   "False information","Intellectual property violation","Inappropriate content","Other",

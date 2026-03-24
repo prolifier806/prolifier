@@ -14,6 +14,7 @@ export type CurrentUser = {
   project: string;
   skills: string[];
   lookingFor: string[];
+  roles: string[];
   github: string;
   website: string;
   twitter: string;
@@ -35,6 +36,7 @@ const DEFAULT_USER: CurrentUser = {
   project: "",
   skills: [],
   lookingFor: [],
+  roles: [],
   github: "",
   website: "",
   twitter: "",
@@ -105,6 +107,7 @@ function profileFromRow(userId: string, email: string, row: any): CurrentUser {
     project: row.project || "",
     skills: row.skills || [],
     lookingFor: row.looking_for || [],
+    roles: row.roles || [],
     github: row.github || "",
     website: row.website || "",
     twitter: row.twitter || "",
@@ -241,6 +244,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       project: next.project,
       skills: next.skills,
       looking_for: next.lookingFor,
+      roles: next.roles,
       github: next.github,
       website: next.website,
       twitter: next.twitter,

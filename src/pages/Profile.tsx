@@ -14,14 +14,7 @@ import { toast } from "@/hooks/use-toast";
 import { useTheme } from "@/context/ThemeContext";
 import { useUser } from "@/context/UserContext";
 import { supabase } from "@/lib/supabase";
-
-
-const allSkills = [
-  "Graphic Design","UI/UX Design","Video Production","Photography","Animation","Music","Content Creation",
-  "Marketing","Social Media","Copywriting","Community Management","Events","Sales","PR & Communications",
-  "Development","Frontend","Backend","Full-Stack","Mobile","AI/ML","Data Science","Product Management","DevOps",
-  "Writing","Teaching","Coaching","Research","Public Speaking",
-];
+import { SKILL_CATEGORIES, ROLE_OPTIONS, MAX_ROLES } from "@/lib/skills";
 
 const DELETE_REASONS = [
   "I'm not getting value from Prolifier",
@@ -72,6 +65,7 @@ export default function Profile() {
   const [draftProject, setDraftProject] = useState("");
   const [draftSkills, setDraftSkills]   = useState<string[]>([]);
   const [draftLooking, setDraftLooking] = useState<string[]>([]);
+  const [draftRoles, setDraftRoles]     = useState<string[]>([]);
   const [draftGithub, setDraftGithub]   = useState("");
   const [draftWebsite, setDraftWebsite] = useState("");
   const [draftTwitter, setDraftTwitter] = useState("");
@@ -186,6 +180,7 @@ export default function Profile() {
     setDraftProject(user.project);
     setDraftSkills([...user.skills]);
     setDraftLooking([...user.lookingFor]);
+    setDraftRoles([...user.roles]);
     setDraftGithub(user.github);
     setDraftWebsite(user.website);
     setDraftTwitter(user.twitter);
@@ -197,7 +192,7 @@ export default function Profile() {
     setSaving(true);
     await updateUser({
       name: draftName.trim(), location: draftLocation.trim(), bio: draftBio.trim(),
-      project: draftProject.trim(), skills: draftSkills, lookingFor: draftLooking,
+      project: draftProject.trim(), skills: draftSkills, lookingFor: draftLooking, roles: draftRoles,
       github: draftGithub.trim(), website: draftWebsite.trim(), twitter: draftTwitter.trim(),
     });
     setSaving(false);
@@ -537,12 +532,41 @@ export default function Profile() {
               : <p className="text-sm text-primary font-medium">{user.project || <span className="text-muted-foreground italic font-normal">Nothing listed yet</span>}</p>}
           </div>
 
+          {/* Role */}
+          <div className="mb-4">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Role <span className="font-normal normal-case">(pick up to {MAX_ROLES})</span></p>
+            {editing ? (
+              <div className="flex flex-wrap gap-1.5">
+                {ROLE_OPTIONS.map(r => {
+                  const selected = draftRoles.includes(r);
+                  const maxed = !selected && draftRoles.length >= MAX_ROLES;
+                  return (
+                    <Badge key={r}
+                      variant={selected ? "default" : "outline"}
+                      className={`text-xs ${maxed ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}
+                      onClick={() => {
+                        if (maxed) return;
+                        setDraftRoles(prev => prev.includes(r) ? prev.filter(x => x !== r) : [...prev, r]);
+                      }}
+                    >{r}</Badge>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {user.roles.length > 0
+                  ? user.roles.map(r => <Badge key={r} variant="secondary" className="text-xs">{r}</Badge>)
+                  : <span className="text-xs text-muted-foreground italic">No role set</span>}
+              </div>
+            )}
+          </div>
+
           {/* Skills */}
           <div className="mb-4">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Skills & expertise</p>
             {editing ? (
               <div className="flex flex-wrap gap-1.5">
-                {allSkills.map(s => (
+                {SKILL_CATEGORIES.map(s => (
                   <Badge key={s} variant={draftSkills.includes(s) ? "default" : "outline"} className="cursor-pointer text-xs"
                     onClick={() => toggleSkill(s, draftSkills, setDraftSkills)}>{s}</Badge>
                 ))}
@@ -561,7 +585,7 @@ export default function Profile() {
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Looking for</p>
             {editing ? (
               <div className="flex flex-wrap gap-1.5">
-                {allSkills.map(s => (
+                {SKILL_CATEGORIES.map(s => (
                   <Badge key={s} variant={draftLooking.includes(s) ? "default" : "outline"} className="cursor-pointer text-xs"
                     onClick={() => toggleSkill(s, draftLooking, setDraftLooking)}>{s}</Badge>
                 ))}
