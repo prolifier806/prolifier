@@ -56,7 +56,7 @@ type Group = {
   created_at: string;
 };
 
-const TOPICS = ["All", "AI", "Design", "Marketing", "Tech", "General"];
+const TOPICS = ["General", "AI", "Design", "Marketing", "Tech"];
 const EMOJIS = ["🤖", "🎨", "📈", "💡", "🚀", "🎵", "📚", "🌱", "⚡", "🔥", "🌍", "🎮"];
 
 function fmtTime(iso: string) {
@@ -128,7 +128,7 @@ export default function Groups() {
   const [groups, setGroups] = useState<Group[]>([]);
   const [joinedIds, setJoinedIds] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState("");
-  const [topic, setTopic] = useState("All");
+  const [topic, setTopic] = useState(""); // "" = all topics
   const [filter, setFilter] = useState<"all" | "joined">("all");
   const [loadingGroups, setLoadingGroups] = useState(true);
 
@@ -813,7 +813,7 @@ export default function Groups() {
             <div>
               <label className="text-sm font-medium block mb-2">Topic</label>
               <div className="flex flex-wrap gap-2">
-                {TOPICS.filter(t => t !== "All").map(t => (
+                {TOPICS.map(t => (
                   <Badge key={t} variant={newTopic === t ? "default" : "outline"} className="cursor-pointer" onClick={() => setNewTopic(t)}>{t}</Badge>
                 ))}
               </div>
@@ -1090,7 +1090,7 @@ export default function Groups() {
   const filtered = groups.filter(g => {
     const q = search.toLowerCase();
     return (!search || g.name.toLowerCase().includes(q) || g.topic.toLowerCase().includes(q))
-      && (topic === "All" || g.topic === topic)
+      && (topic === "" || g.topic === topic)
       && (filter === "all" || joinedIds.has(g.id) || g.owner_id === user.id);
   });
 
@@ -1117,7 +1117,7 @@ export default function Groups() {
 
         <div className="flex gap-2 flex-wrap mb-4">
           {TOPICS.map(t => (
-            <Badge key={t} variant={topic === t ? "default" : "outline"} className="cursor-pointer" onClick={() => setTopic(t)}>{t}</Badge>
+            <Badge key={t} variant={topic === t ? "default" : "outline"} className="cursor-pointer" onClick={() => setTopic(topic === t ? "" : t)}>{t}</Badge>
           ))}
         </div>
 

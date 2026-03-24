@@ -17,18 +17,10 @@ import { supabase } from "@/lib/supabase";
 
 
 const allSkills = [
-  // Creative & Media
-  "Graphic Design","UI/UX Design","Video Production","Photography","Animation","Illustration","Motion Graphics","Music","Audio Engineering","Podcasting",
-  // Business & Marketing
-  "Marketing","Social Media","Content Creation","Copywriting","Community Management","Events","Sales","PR & Communications","Brand Strategy",
-  // Tech & Product
-  "Product Management","Web Development","Frontend","Backend","Full-Stack","Mobile Development","AI/ML","Data Science","DevOps","Cloud","QA/Testing",
-  // Specific Tech Tools
-  "React","TypeScript","Node.js","Python","Swift","Kotlin","Flutter","AWS","Docker",
-  // Knowledge & People
-  "Writing","Teaching","Coaching","Research","Public Speaking","Consulting",
-  // Lifestyle
-  "Cooking","Crafts","Fashion","Fitness","Gaming",
+  "Graphic Design","UI/UX Design","Video Production","Photography","Animation","Music","Content Creation",
+  "Marketing","Social Media","Copywriting","Community Management","Events","Sales","PR & Communications",
+  "Development","Frontend","Backend","Full-Stack","Mobile","AI/ML","Data Science","Product Management","DevOps",
+  "Writing","Teaching","Coaching","Research","Public Speaking",
 ];
 
 const DELETE_REASONS = [
@@ -101,8 +93,14 @@ export default function Profile() {
   const [activityLoading, setActivityLoading] = useState(false);
 
   // ── Privacy ────────────────────────────────────────────────────────────
-  const [profilePublic, setProfilePublic]   = useState(true);
-  const [allowMessages, setAllowMessages]   = useState(true);
+  const privacyKey = user.id ? `prolifier_privacy_${user.id}` : null;
+  const loadPrivacy = () => {
+    if (!privacyKey) return { profilePublic: true, allowMessages: true };
+    try { return { profilePublic: true, allowMessages: true, ...JSON.parse(localStorage.getItem(privacyKey) || "{}") }; }
+    catch { return { profilePublic: true, allowMessages: true }; }
+  };
+  const [profilePublic, setProfilePublic]   = useState(() => loadPrivacy().profilePublic);
+  const [allowMessages, setAllowMessages]   = useState(() => loadPrivacy().allowMessages);
 
   // ── Password ───────────────────────────────────────────────────────────
   const [showChangePw, setShowChangePw]     = useState(false);
@@ -313,17 +311,23 @@ export default function Profile() {
   };
 
   // ── Privacy save to Supabase ───────────────────────────────────────────
-  const toggleProfilePublic = async () => {
+  const savePrivacyPrefs = (pub: boolean, msg: boolean) => {
+    if (!privacyKey) return;
+    try { localStorage.setItem(privacyKey, JSON.stringify({ profilePublic: pub, allowMessages: msg })); }
+    catch { /* storage full */ }
+  };
+
+  const toggleProfilePublic = () => {
     const next = !profilePublic;
     setProfilePublic(next);
-    // Store in profile metadata
-    await (supabase as any).from("profiles").update({ updated_at: new Date().toISOString() }).eq("id", user.id);
+    savePrivacyPrefs(next, allowMessages);
     toast({ title: next ? "Profile is now public" : "Profile set to private" });
   };
 
-  const toggleAllowMessages = async () => {
+  const toggleAllowMessages = () => {
     const next = !allowMessages;
     setAllowMessages(next);
+    savePrivacyPrefs(profilePublic, next);
     toast({ title: next ? "Messages enabled" : "Messages disabled" });
   };
 

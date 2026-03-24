@@ -27,12 +27,12 @@ import { createNotification } from "@/lib/notifications";
 // ── Types ──────────────────────────────────────────────────────────────────
 type Comment = { id: string; author: string; avatar: string; color: string; text: string; time: string; };
 type Post = {
-  id: string; user_id: string; author: string; avatar: string; avatarColor: string; location: string;
+  id: string; user_id: string; author: string; avatar: string; avatarUrl?: string; avatarColor: string; location: string;
   tag: string; time: string; content: string; image?: string; video?: string; likes: number; isOwn: boolean;
   comments: Comment[];
 };
 type Collab = {
-  id: string; user_id: string; author: string; avatar: string; avatarColor: string; location: string;
+  id: string; user_id: string; author: string; avatar: string; avatarUrl?: string; avatarColor: string; location: string;
   title: string; looking: string; description: string; skills: string[]; image?: string; video?: string;
   isOwn: boolean;
 };
@@ -40,19 +40,15 @@ type Collab = {
 // ── Constants ──────────────────────────────────────────────────────────────
 const AVATAR_COLORS = ["bg-primary","bg-accent","bg-emerald-600","bg-violet-600","bg-sky-500","bg-rose-500","bg-amber-500","bg-teal-600"];
 const POST_TAGS = ["Launch","Progress","Question","Idea","Milestone","Feedback","Story","Resource"];
-const COLLAB_FILTERS = ["All","Design","Marketing","Writing","Video","Music","Development","Product","AI/ML","Research","Education","Community","Events"];
-const SKILL_OPTIONS = [
-  // Creative & Media
-  "Graphic Design","UI/UX Design","Video Production","Photography","Animation","Illustration","Motion Graphics","Music","Audio Engineering","Podcasting",
-  // Business & Marketing
-  "Marketing","Social Media","Content Creation","Copywriting","Community Management","Events","Sales","PR & Communications","Brand Strategy",
-  // Tech & Product
-  "Product Management","Web Development","Mobile Development","Frontend","Backend","Full-Stack","AI/ML","Data Science","DevOps","Cloud","QA/Testing",
-  // Knowledge & People
-  "Writing","Teaching","Coaching","Research","Public Speaking","Consulting",
-  // Lifestyle
-  "Cooking","Crafts","Fashion","Fitness","Gaming",
+// Single source of truth — collab skills used everywhere (post creation + browse filters)
+const COLLAB_SKILLS = [
+  "Development","Frontend","Backend","Full-Stack","Mobile","AI/ML","Data Science","DevOps",
+  "Product Management","UI/UX Design","Graphic Design","Animation","Video Production","Photography","Music",
+  "Marketing","Social Media","Content Creation","Copywriting","Community","Events","Sales",
+  "Writing","Teaching","Coaching","Research","Public Speaking",
 ];
+const COLLAB_FILTERS = ["All", ...COLLAB_SKILLS.slice(0, 12)];
+const SKILL_OPTIONS = COLLAB_SKILLS;
 const REPORT_REASONS = [
   "Spam or misleading","Hate speech or discrimination","Harassment or bullying",
   "False information","Intellectual property violation","Inappropriate content","Other",
@@ -91,8 +87,9 @@ const SHARE_PLATFORMS = [
 ];
 
 // ── Helpers ────────────────────────────────────────────────────────────────
-function Avatar({ initials, color, size = "md" }: { initials: string; color: string; size?: "sm"|"md"|"lg" }) {
+function Avatar({ initials, color, url, size = "md" }: { initials: string; color: string; url?: string; size?: "sm"|"md"|"lg" }) {
   const sz = size==="sm" ? "h-7 w-7 text-xs" : size==="lg" ? "h-14 w-14 text-lg" : "h-10 w-10 text-sm";
+  if (url) return <div className={`${sz} rounded-full overflow-hidden shrink-0`}><img src={url} alt={initials} className="w-full h-full object-cover" /></div>;
   return <div className={`${sz} ${color} rounded-full flex items-center justify-center text-white font-semibold shrink-0`}>{initials}</div>;
 }
 
@@ -407,7 +404,7 @@ function CommentSheet({ post, onClose, onAddComment }: {
           ))}
         </div>
         <div className="px-5 py-4 border-t border-border shrink-0 flex gap-2">
-          <Avatar initials={user.avatar} color={user.color} size="sm" />
+          <Avatar initials={user.avatar} color={user.color} url={user.avatarUrl || undefined} size="sm" />
           <div className="flex-1 flex gap-2">
             <Textarea ref={inputRef} value={text} onChange={(e) => setText(e.target.value)}
               placeholder="Write a comment..." rows={1}
@@ -554,7 +551,7 @@ const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, onLike, 
         className="rounded-xl border border-border bg-card hover:shadow-sm transition-shadow overflow-hidden">
         <div className="flex items-center gap-3 px-5 pt-5 pb-3">
           <button onClick={goToProfile} className="shrink-0 hover:opacity-80 transition-opacity">
-            <Avatar initials={post.avatar} color={post.avatarColor}/>
+            <Avatar initials={post.avatar} color={post.avatarColor} url={post.avatarUrl}/>
           </button>
           <div className="flex-1 min-w-0">
             <button onClick={goToProfile} className="font-semibold text-sm text-foreground hover:underline text-left">{post.author}</button>
@@ -655,7 +652,7 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
         className="rounded-xl border border-border bg-card hover:shadow-sm transition-shadow overflow-hidden">
         <div className="flex items-center gap-3 px-5 pt-5 pb-3">
           <button onClick={goToProfile} className="shrink-0 hover:opacity-80 transition-opacity">
-            <Avatar initials={collab.avatar} color={collab.avatarColor}/>
+            <Avatar initials={collab.avatar} color={collab.avatarColor} url={collab.avatarUrl}/>
           </button>
           <div className="flex-1 min-w-0">
             <button onClick={goToProfile} className="font-semibold text-sm text-foreground hover:underline text-left">{collab.author}</button>
@@ -809,12 +806,12 @@ export default function Feed() {
       const [postsRes, collabsRes, likesRes, savedPostsRes, savedCollabsRes, interestedRes] = await Promise.all([
         (supabase as any)
           .from("posts")
-          .select(`*, profiles:user_id (name, avatar, color, location)`)
+          .select(`*, profiles:user_id (name, avatar, avatar_url, color, location)`)
           .order("created_at", { ascending: false })
           .limit(30),
         (supabase as any)
           .from("collabs")
-          .select(`*, profiles:user_id (name, avatar, color, location)`)
+          .select(`*, profiles:user_id (name, avatar, avatar_url, color, location)`)
           .order("created_at", { ascending: false })
           .limit(30),
         (supabase as any)
@@ -843,6 +840,7 @@ export default function Feed() {
         id: p.id, user_id: p.user_id,
         author: p.profiles?.name || "Unknown",
         avatar: p.profiles?.avatar || "?",
+        avatarUrl: p.profiles?.avatar_url || undefined,
         avatarColor: p.profiles?.color || "bg-primary",
         location: p.profiles?.location || "",
         tag: p.tag, time: timeAgo(p.created_at), content: p.content,
@@ -855,6 +853,7 @@ export default function Feed() {
         id: c.id, user_id: c.user_id,
         author: c.profiles?.name || "Unknown",
         avatar: c.profiles?.avatar || "?",
+        avatarUrl: c.profiles?.avatar_url || undefined,
         avatarColor: c.profiles?.color || "bg-primary",
         location: c.profiles?.location || "",
         title: c.title, looking: c.looking, description: c.description,
@@ -949,7 +948,7 @@ export default function Feed() {
           // Fetch the profile for this new post's author
           (supabase as any)
             .from("profiles")
-            .select("name, avatar, color, location")
+            .select("name, avatar, avatar_url, color, location")
             .eq("id", payload.new.user_id)
             .single()
             .then(({ data: profile }: any) => {
@@ -958,6 +957,7 @@ export default function Feed() {
                 user_id: payload.new.user_id,
                 author: profile?.name || "Unknown",
                 avatar: profile?.avatar || "?",
+                avatarUrl: profile?.avatar_url || undefined,
                 avatarColor: profile?.color || "bg-primary",
                 location: profile?.location || "",
                 tag: payload.new.tag,
