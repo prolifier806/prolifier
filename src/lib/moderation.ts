@@ -136,17 +136,17 @@ const BLOCKED_ENTRIES: WordEntry[] = [
   { word: "teri maa",         severity: "flag",  category: "sexual" },
   { word: "teri behen",       severity: "flag",  category: "sexual" },
   { word: "tere baap",        severity: "flag",  category: "sexual" },
-  { word: "haraami",          severity: "flag",  category: "harassment" },
-  { word: "harami",           severity: "flag",  category: "harassment" },
-  { word: "kutta",            severity: "flag",  category: "harassment" },
-  { word: "kutte",            severity: "flag",  category: "harassment" },
-  { word: "kamina",           severity: "flag",  category: "harassment" },
-  { word: "kamine",           severity: "flag",  category: "harassment" },
-  { word: "saala",            severity: "flag",  category: "harassment" },
-  { word: "sali",             severity: "flag",  category: "harassment" },
-  { word: "ullu",             severity: "flag",  category: "harassment" },
-  { word: "ullu ka pattha",   severity: "flag",  category: "harassment" },
-  { word: "nikamma",          severity: "flag",  category: "harassment" },
+  { word: "haraami",          severity: "block", category: "harassment" },
+  { word: "harami",           severity: "block", category: "harassment" },
+  { word: "kutta",            severity: "block", category: "harassment" },
+  { word: "kutte",            severity: "block", category: "harassment" },
+  { word: "kamina",           severity: "block", category: "harassment" },
+  { word: "kamine",           severity: "block", category: "harassment" },
+  { word: "saala",            severity: "block", category: "harassment" },
+  { word: "sali",             severity: "block", category: "harassment" },
+  { word: "ullu",             severity: "block", category: "harassment" },
+  { word: "ullu ka pattha",   severity: "block", category: "harassment" },
+  { word: "nikamma",          severity: "block", category: "harassment" },
   { word: "napunsak",         severity: "block", category: "harassment" },
   { word: "hijra",            severity: "block", category: "slur" },
   { word: "hijda",            severity: "block", category: "slur" },
@@ -367,16 +367,18 @@ const BLOCKED_ENTRIES: WordEntry[] = [
 ];
 
 // ── Pattern compiler ──────────────────────────────────────────────────────────
-// Builds a word-boundary-aware RegExp from a plain word or phrase.
+// Uses lookahead/lookbehind instead of \b so it works correctly with:
+//   - Non-ASCII characters (Turkish ı, Arabic transliterations, etc.)
+//   - Punctuation and emoji immediately adjacent to the word
+//   - Multi-word phrases with flexible whitespace
 //
-//   "ass"          → /\bass\b/gi        (won't match "grass" or "class")
-//   "kill yourself" → /\bkill\s+yourself\b/gi  (phrase, flexible whitespace)
+// "ass"           → won't match "grass" (preceded by alpha 'r')
+// "bhenchod"      → matches "bhenchod!", "...bhenchod..." etc.
+// "kill yourself" → matches "kill  yourself" (flexible whitespace)
 function makePattern(phrase: string): RegExp {
-  // Escape all regex special characters in the stored phrase
   const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  // Replace literal spaces with \s+ so "kill  yourself" still matches
   const flexible = escaped.replace(/ +/g, "\\s+");
-  return new RegExp(`\\b${flexible}\\b`, "gi");
+  return new RegExp(`(?<![a-zA-Z])${flexible}(?![a-zA-Z])`, "gi");
 }
 
 // ── Pre-compile at module load — zero runtime cost per check ─────────────────
