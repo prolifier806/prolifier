@@ -20,8 +20,9 @@ const Groups       = lazy(() => import("./pages/Groups"));
 const Notifications = lazy(() => import("./pages/Notifications"));
 const Profile      = lazy(() => import("./pages/Profile"));
 const UserProfile  = lazy(() => import("./pages/UserProfile"));
-const Feedback     = lazy(() => import("./pages/Feedback"));
-const NotFound     = lazy(() => import("./pages/NotFound"));
+const Feedback        = lazy(() => import("./pages/Feedback"));
+const AccountRecovery = lazy(() => import("./pages/AccountRecovery"));
+const NotFound        = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
 
@@ -32,9 +33,19 @@ const PageLoader = () => (
 );
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { session, loading } = useUser();
+  const { session, loading, user } = useUser();
   if (loading) return <PageLoader />;
   if (!session) return <Navigate to="/" replace />;
+  if (user.deletedAt) return <Navigate to="/recover" replace />;
+  return <>{children}</>;
+}
+
+// Only accessible when the account is in the soft-delete grace period
+function RecoverRoute({ children }: { children: React.ReactNode }) {
+  const { session, loading, user } = useUser();
+  if (loading) return <PageLoader />;
+  if (!session) return <Navigate to="/" replace />;
+  if (!user.deletedAt) return <Navigate to="/feed" replace />;
   return <>{children}</>;
 }
 
@@ -79,6 +90,7 @@ function AppRoutes() {
         <Route path="/profile"       element={<ProtectedRoute><Profile /></ProtectedRoute>} />
         <Route path="/profile/:id"   element={<ProtectedRoute><UserProfile /></ProtectedRoute>} />
         <Route path="/feedback"      element={<ProtectedRoute><Feedback /></ProtectedRoute>} />
+        <Route path="/recover"       element={<RecoverRoute><AccountRecovery /></RecoverRoute>} />
         <Route path="*"              element={<NotFound />} />
       </Routes>
     </Suspense>

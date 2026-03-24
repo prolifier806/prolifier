@@ -22,6 +22,7 @@ export type CurrentUser = {
   openToCollab: boolean;
   profileSetupDone: boolean;
   updatedAt: string; // ISO — used to prevent stale DB sync from overwriting fresh local edits
+  deletedAt: string | null; // ISO — set when account is soft-deleted; null = active
 };
 
 const DEFAULT_USER: CurrentUser = {
@@ -44,6 +45,7 @@ const DEFAULT_USER: CurrentUser = {
   openToCollab: true,
   profileSetupDone: false,
   updatedAt: "",
+  deletedAt: null,
 };
 
 interface UserContextValue {
@@ -54,6 +56,7 @@ interface UserContextValue {
   profileComplete: boolean;
   updateUser: (patch: Partial<CurrentUser>) => Promise<void>;
   completeProfileSetup: () => Promise<void>;
+  recoverAccount: () => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -65,6 +68,7 @@ const UserContext = createContext<UserContextValue>({
   profileComplete: false,
   updateUser: async () => {},
   completeProfileSetup: async () => {},
+  recoverAccount: async () => {},
   signOut: async () => {},
 });
 
@@ -115,6 +119,7 @@ function profileFromRow(userId: string, email: string, row: any): CurrentUser {
     openToCollab: row.open_to_collab ?? true,
     profileSetupDone: row.profile_complete ?? false,
     updatedAt: row.updated_at || "",
+    deletedAt: row.deleted_at || null,
   };
 }
 
@@ -139,6 +144,27 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
       // Discard result if a newer sync has started (prevents flicker from stale fetches)
       if (thisVersion !== syncVersionRef.current) return;
+
+      // Lazy permanent deletion — triggers when the grace period has expired
+      if (row?.deleted_at) {
+        const elapsed = Date.now() - new Date(row.deleted_at).getTime();
+        const sevenDays = 7 * 24 * 60 * 60 * 1000;
+        if (elapsed > sevenDays) {
+          await Promise.all([
+            (supabase as any).from("post_likes").delete().eq("user_id", userId),
+            (supabase as any).from("comments").delete().eq("user_id", userId),
+            (supabase as any).from("connections").delete().eq("requester_id", userId),
+            (supabase as any).from("connections").delete().eq("receiver_id", userId),
+            (supabase as any).from("notifications").delete().eq("user_id", userId),
+          ]);
+          await (supabase as any).from("posts").delete().eq("user_id", userId);
+          await (supabase as any).from("collabs").delete().eq("user_id", userId);
+          await (supabase as any).from("profiles").delete().eq("id", userId);
+          localStorage.removeItem(cacheKey(userId));
+          await supabase.auth.signOut();
+          return;
+        }
+      }
 
       const next = row
         ? profileFromRow(userId, email, row)
@@ -269,6 +295,18 @@ export function UserProvider({ children }: { children: ReactNode }) {
     });
   };
 
+  const recoverAccount = async () => {
+    if (!authUser) return;
+    await (supabase.from("profiles") as any)
+      .update({ deleted_at: null })
+      .eq("id", authUser.id);
+    setUser(prev => {
+      const next = { ...prev, deletedAt: null };
+      writeCache(next);
+      return next;
+    });
+  };
+
   const signOut = async () => {
     if (authUser) localStorage.removeItem(cacheKey(authUser.id));
     await supabase.auth.signOut();
@@ -286,6 +324,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       profileComplete: user.profileSetupDone,
       updateUser,
       completeProfileSetup,
+      recoverAccount,
       signOut,
     }}>
       {children}

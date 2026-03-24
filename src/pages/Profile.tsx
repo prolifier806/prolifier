@@ -284,24 +284,15 @@ export default function Profile() {
     setDeleteLoading(true);
 
     try {
-      // Delete all user data in order
-      await Promise.all([
-        (supabase as any).from("post_likes").delete().eq("user_id", user.id),
-        (supabase as any).from("comments").delete().eq("user_id", user.id),
-        (supabase as any).from("connections").delete().eq("requester_id", user.id),
-        (supabase as any).from("connections").delete().eq("receiver_id", user.id),
-        (supabase as any).from("notifications").delete().eq("user_id", user.id),
-      ]);
-
-      await (supabase as any).from("posts").delete().eq("user_id", user.id);
-      await (supabase as any).from("collabs").delete().eq("user_id", user.id);
-      await (supabase as any).from("profiles").delete().eq("id", user.id);
-
-      // Sign out — Supabase handles auth user deletion via admin API
-      // For now we sign out and show confirmation
+      await (supabase as any).from("profiles")
+        .update({ deleted_at: new Date().toISOString() })
+        .eq("id", user.id);
       await signOut();
       navigate("/");
-      toast({ title: "Account deleted", description: "We're sorry to see you go." });
+      toast({
+        title: "Account scheduled for deletion",
+        description: "You can recover it within 7 days by logging back in.",
+      });
     } catch (err: any) {
       toast({ title: "Failed to delete account", description: err.message, variant: "destructive" });
       setDeleteLoading(false);
@@ -345,7 +336,7 @@ export default function Profile() {
             <div>
               <h2 className="text-lg font-bold text-foreground">Delete your account</h2>
               <p className="text-sm text-muted-foreground mt-1">
-                This will permanently delete your profile, posts, collabs, and all your data. This cannot be undone.
+                Your account will be scheduled for deletion. You can recover it within 7 days by logging back in. After that, all your data will be permanently deleted.
               </p>
             </div>
             <div>

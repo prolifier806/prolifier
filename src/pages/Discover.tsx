@@ -110,6 +110,7 @@ export default function Discover() {
         .from("profiles")
         .select("id, name, avatar, avatar_url, color, location, bio, project, skills, open_to_collab, created_at")
         .neq("id", user.id)
+        .is("deleted_at", null)
         .not("name", "eq", "")
         .order("created_at", { ascending: false })
         .limit(PAGE_SIZE);

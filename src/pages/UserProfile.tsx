@@ -2,7 +2,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, MapPin, Github, Globe, Twitter, MessageCircle, UserPlus, Heart, Handshake, Check } from "lucide-react";
+import { ArrowLeft, MapPin, Github, Globe, Twitter, MessageCircle, UserPlus, Heart, Handshake, Check, UserX } from "lucide-react";
 import Layout from "@/components/Layout";
 import { toast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
@@ -106,6 +106,7 @@ export default function UserProfile() {
   const [collabs, setCollabs] = useState<UserCollab[]>([]);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [isDeleted, setIsDeleted] = useState(false);
   const [connected, setConnected] = useState(false);
   const [connectionLoading, setConnectionLoading] = useState(false);
 
@@ -134,6 +135,11 @@ export default function UserProfile() {
         }
 
         const p = profileRes.data;
+
+        if (p.deleted_at) {
+          setIsDeleted(true);
+          return;
+        }
         setProfile({
           id: p.id,
           name: p.name || "Unknown",
@@ -204,6 +210,21 @@ export default function UserProfile() {
         <div className="max-w-2xl mx-auto px-4 py-6 space-y-4">
           <div className="h-5 w-12 bg-muted rounded animate-pulse" />
           <ProfileSkeleton />
+        </div>
+      </Layout>
+    );
+  }
+
+  if (isDeleted) {
+    return (
+      <Layout>
+        <div className="max-w-2xl mx-auto px-4 py-12 text-center text-muted-foreground">
+          <UserX className="h-12 w-12 mx-auto mb-3 opacity-30" />
+          <p className="text-sm font-medium text-foreground mb-1">Account Deleted</p>
+          <p className="text-xs mb-4">This account has been deleted and is no longer available.</p>
+          <Button variant="outline" size="sm" onClick={() => navigate(-1)}>
+            <ArrowLeft className="h-4 w-4 mr-2" /> Go back
+          </Button>
         </div>
       </Layout>
     );
