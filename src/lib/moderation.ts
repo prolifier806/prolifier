@@ -448,62 +448,35 @@ const BLOCKED_ENTRIES: WordEntry[] = [
   { word: "mampus",           severity: "flag",  category: "harassment" },
 ];
 
-// ── Pattern compiler ──────────────────────────────────────────────────────────
-// Uses lookahead/lookbehind instead of \b so it works correctly with:
-//   - Non-ASCII characters (Turkish ı, Arabic transliterations, etc.)
-//   - Punctuation and emoji immediately adjacent to the word
-//   - Multi-word phrases with flexible whitespace
-//
-// "ass"           → won't match "grass" (preceded by alpha 'r')
-// "bhenchod"      → matches "bhenchod!", "...bhenchod..." etc.
-// "kill yourself" → matches "kill  yourself" (flexible whitespace)
-function makePattern(phrase: string): RegExp {
-  const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const flexible = escaped.replace(/ +/g, "\\s+");
-  return new RegExp(`(?<![a-zA-Z])${flexible}(?![a-zA-Z])`, "gi");
-}
-
-// ── Pre-compile at module load — zero runtime cost per check ─────────────────
-// Sort: block entries first so the first hit returns the most severe result.
-const COMPILED = BLOCKED_ENTRIES
-  .slice()
-  .sort((a, b) => (a.severity === "block" ? -1 : b.severity === "block" ? 1 : 0))
-  .map(entry => ({ ...entry, pattern: makePattern(entry.word) }));
-
-// ── User-facing messages ──────────────────────────────────────────────────────
+// ── User-facing message ───────────────────────────────────────────────────────
 const BLOCK_MESSAGE =
   "Your message contains content that isn't allowed on Prolifier. Please revise it before posting.";
 
-const FLAG_MESSAGE =
-  "Your message may contain language that goes against our community guidelines. It will be reviewed.";
-
-// ── Public API ────────────────────────────────────────────────────────────────
-
-/**
- * Synchronously checks `text` against the local blocked-word list.
- *
- * @returns ModerationResult
- *   • allowed = true  → submit to DB (may still be flagged server-side)
- *   • allowed = false → block on the client, show result.message to the user
- *
- * Usage:
- *   const result = checkContent(postText);
- *   if (!result.allowed) { toast({ title: result.message }); return; }
- */
+// ── checkContent ──────────────────────────────────────────────────────────────
+// Pads the text with spaces so word boundaries work for the first and last
+// word, then does a plain string includes() check on the lowercased text.
+// No regex, no stateful lastIndex — guaranteed to work everywhere.
+//
+// "ass"   won't match "class" because we check " ass " / start/end variants.
+// Phrases like "i kill you" are matched as substrings with space padding.
 export function checkContent(text: string): ModerationResult {
   if (!text || !text.trim()) return { allowed: true };
 
-  for (const entry of COMPILED) {
-    // Reset lastIndex on global regexes between calls
-    entry.pattern.lastIndex = 0;
+  // Normalise: lowercase, collapse multiple spaces, trim
+  const normalised = " " + text.toLowerCase().replace(/\s+/g, " ").trim() + " ";
 
-    if (entry.pattern.test(text)) {
+  // Block entries first
+  for (const entry of BLOCKED_ENTRIES) {
+    if (entry.severity !== "block") continue;
+    // Pad the word too so " ass " won't match " class "
+    const needle = " " + entry.word.toLowerCase() + " ";
+    if (normalised.includes(needle)) {
       return {
-        allowed: entry.severity !== "block",
-        severity: entry.severity,
+        allowed: false,
+        severity: "block",
         category: entry.category,
         matchedWord: entry.word,
-        message: entry.severity === "block" ? BLOCK_MESSAGE : FLAG_MESSAGE,
+        message: BLOCK_MESSAGE,
       };
     }
   }
