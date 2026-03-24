@@ -495,12 +495,12 @@ export default function Profile() {
                     <div className="flex items-center gap-2 shrink-0">
                       <button
                         onClick={() => { updateUser({ openToCollab: !user.openToCollab }); toast({ title: !user.openToCollab ? "You're open to collaborate 🤝" : "Status set to Not available" }); }}
-                        className={`h-7 px-2.5 rounded-full text-xs font-medium transition-all flex items-center gap-1.5 border ${
+                        className={`h-7 px-3 rounded-full text-xs font-semibold transition-all flex items-center gap-1.5 border ${
                           user.openToCollab
-                            ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-950 dark:text-emerald-400 dark:border-emerald-800"
-                            : "bg-muted text-muted-foreground border-border hover:bg-secondary"
+                            ? "bg-emerald-500 text-white border-emerald-500 hover:bg-emerald-600"
+                            : "bg-secondary text-muted-foreground border-border hover:bg-muted"
                         }`}>
-                        <span className={`h-1.5 w-1.5 rounded-full flex-shrink-0 ${user.openToCollab ? "bg-emerald-500" : "bg-muted-foreground"}`}/>
+                        <span className={`h-1.5 w-1.5 rounded-full flex-shrink-0 ${user.openToCollab ? "bg-white" : "bg-muted-foreground"}`}/>
                         {user.openToCollab ? "Open to collab" : "Not available"}
                       </button>
                       <Button variant="outline" size="sm" onClick={startEditing} className="h-7 text-xs gap-1 px-2.5">

@@ -254,12 +254,14 @@ export default function Discover() {
                         >
                           {p.name}
                         </button>
-                        {p.openToCollab && (
-                          <span className="inline-flex items-center gap-1 text-xs text-emerald-600 font-medium">
-                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 inline-block" />
-                            Open to collab
-                          </span>
-                        )}
+                        <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full border ${
+                          p.openToCollab
+                            ? "bg-emerald-500 text-white border-emerald-500"
+                            : "bg-secondary text-muted-foreground border-border"
+                        }`}>
+                          <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${p.openToCollab ? "bg-white" : "bg-muted-foreground"}`}/>
+                          {p.openToCollab ? "Open to collab" : "Not available"}
+                        </span>
                       </div>
                       {p.location && (
                         <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">

@@ -16,6 +16,7 @@ import {
   Heart, MessageCircle, MapPin, Search, Plus, Send, MoreHorizontal,
   Trash2, Edit3, Bookmark, Share2, Flag, EyeOff, Handshake,
   X, Check, BookmarkCheck, Users, ImageIcon, Link2, Video as VideoIcon, ZoomIn,
+  SlidersHorizontal,
 } from "lucide-react";
 import Layout from "@/components/Layout";
 import { toast } from "@/hooks/use-toast";
@@ -40,7 +41,7 @@ type Collab = {
 
 // ── Constants ──────────────────────────────────────────────────────────────
 const AVATAR_COLORS = ["bg-primary","bg-accent","bg-emerald-600","bg-violet-600","bg-sky-500","bg-rose-500","bg-amber-500","bg-teal-600"];
-const POST_TAGS = ["Launch","Progress","Question","Idea","Milestone","Feedback","Story","Resource"];
+const POST_TAGS = ["General","Launch","Progress","Question","Idea","Milestone","Feedback","Story","Resource"];
 // Single source of truth — collab skills used everywhere (post creation + browse filters)
 import { SKILL_CATEGORIES, COLLAB_FILTERS as COLLAB_FILTERS_CONST } from "@/lib/skills";
 const COLLAB_FILTERS: string[] = [...COLLAB_FILTERS_CONST];
@@ -787,6 +788,7 @@ export default function Feed() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("feed");
   const [search, setSearch] = useState("");
+  const [postSearch, setPostSearch] = useState("");
   const [activeFilter, setActiveFilter] = useState("All");
   const [activePostTag, setActivePostTag] = useState("All");
 
@@ -813,7 +815,7 @@ export default function Feed() {
   // OPT: grouped compose state — fewer useState hooks, fewer re-renders when
   // one compose field changes (only the compose area re-renders, not the whole feed)
   const [postDialog, setPostDialog] = useState({
-    open: false, content: "", tag: "Progress",
+    open: false, content: "", tag: "General",
     image: undefined as string|undefined,
     video: undefined as string|undefined,
     uploading: false,
@@ -913,7 +915,7 @@ export default function Feed() {
     try {
       const { data, error } = await (supabase as any)
         .from("posts")
-        .select(`*, profiles:user_id (name, avatar, color, location)`)
+        .select(`*, profiles:user_id (name, avatar, avatar_url, color, location)`)
         .order("created_at", { ascending: false })
         .lt("created_at", postsCursorRef.current)
         .limit(30);
@@ -922,6 +924,7 @@ export default function Feed() {
         id: p.id, user_id: p.user_id,
         author: p.profiles?.name || "Unknown",
         avatar: p.profiles?.avatar || "?",
+        avatarUrl: p.profiles?.avatar_url || undefined,
         avatarColor: p.profiles?.color || "bg-primary",
         location: p.profiles?.location || "",
         tag: p.tag, time: timeAgo(p.created_at), content: p.content,
@@ -941,7 +944,7 @@ export default function Feed() {
     try {
       const { data, error } = await (supabase as any)
         .from("collabs")
-        .select(`*, profiles:user_id (name, avatar, color, location)`)
+        .select(`*, profiles:user_id (name, avatar, avatar_url, color, location)`)
         .order("created_at", { ascending: false })
         .lt("created_at", collabsCursorRef.current)
         .limit(30);
@@ -950,6 +953,7 @@ export default function Feed() {
         id: c.id, user_id: c.user_id,
         author: c.profiles?.name || "Unknown",
         avatar: c.profiles?.avatar || "?",
+        avatarUrl: c.profiles?.avatar_url || undefined,
         avatarColor: c.profiles?.color || "bg-primary",
         location: c.profiles?.location || "",
         title: c.title, looking: c.looking, description: c.description,
@@ -1296,7 +1300,12 @@ export default function Feed() {
   };
 
   const shareLink = shareTarget ? `${window.location.origin}/${shareTarget.type}/${shareTarget.id}` : "";
-  const filteredPosts = activePostTag === "All" ? posts : posts.filter(p => p.tag === activePostTag);
+  const filteredPosts = posts.filter(p => {
+    const matchTag = activePostTag === "All" || p.tag === activePostTag;
+    const q = postSearch.toLowerCase().trim();
+    const matchSearch = !q || p.author.toLowerCase().includes(q) || p.content.toLowerCase().includes(q) || p.tag.toLowerCase().includes(q);
+    return matchTag && matchSearch;
+  });
   const filteredCollabs = collabs.filter(c => {
     const q = search.toLowerCase();
     const ms = !search || c.author.toLowerCase().includes(q) || c.title.toLowerCase().includes(q) || c.looking.toLowerCase().includes(q) || c.description.toLowerCase().includes(q) || c.skills.some(s => s.toLowerCase().includes(q));
@@ -1330,14 +1339,14 @@ export default function Feed() {
                 </DialogHeader>
                 <div className="space-y-4 py-2">
                   <div>
+                    <label className="text-sm font-medium mb-1.5 block">What's on your mind?</label>
+                    <Textarea value={postDialog.content} onChange={e => setPostDialog(d => ({ ...d, content: e.target.value }))} placeholder="Share what you're working on, ask for advice, or celebrate a win..." rows={4}/>
+                  </div>
+                  <div>
                     <label className="text-sm font-medium mb-1.5 block">Category</label>
                     <div className="flex flex-wrap gap-2">
                       {POST_TAGS.map(t => <Badge key={t} variant={postDialog.tag===t?"default":"outline"} className="cursor-pointer" onClick={() => setPostDialog(d => ({ ...d, tag: t }))}>{t}</Badge>)}
                     </div>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium mb-1.5 block">What's on your mind?</label>
-                    <Textarea value={postDialog.content} onChange={e => setPostDialog(d => ({ ...d, content: e.target.value }))} placeholder="Share what you're working on, ask for advice, or celebrate a win..." rows={4}/>
                   </div>
                   {postDialog.image && <PreviewImage src={postDialog.image} alt="preview" onRemove={handleRemovePostImage} />}
                   {postDialog.video && (
@@ -1362,24 +1371,40 @@ export default function Feed() {
               </DialogContent>
             </Dialog>
 
-            {/* Post tag filter */}
-            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none -mx-1 px-1">
-              {["All", ...POST_TAGS].map(t => (
-                <Badge key={t} variant={activePostTag === t ? "default" : "outline"}
-                  className="cursor-pointer shrink-0"
-                  onClick={() => setActivePostTag(t)}>
-                  {t}
-                </Badge>
-              ))}
+            {/* Post search + filter */}
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground"/>
+                <Input placeholder="Search posts…" value={postSearch} onChange={e => setPostSearch(e.target.value)} className="pl-10 h-10"/>
+              </div>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant={activePostTag !== "All" ? "default" : "outline"} size="icon" className="h-10 w-10 shrink-0">
+                    <SlidersHorizontal className="h-4 w-4"/>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-44">
+                  {["All", ...POST_TAGS].map(t => (
+                    <DropdownMenuItem key={t} onClick={() => setActivePostTag(t)} className="flex items-center gap-2">
+                      {activePostTag === t ? <Check className="h-3.5 w-3.5 shrink-0"/> : <span className="h-3.5 w-3.5 shrink-0"/>}
+                      {t}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
 
             <AnimatePresence>
               {loading ? <FeedSkeleton /> : filteredPosts.length === 0 ? (
                 <div className="text-center py-14 text-muted-foreground">
-                  <p className="text-sm font-medium mb-1">{activePostTag === "All" ? "No posts yet" : `No "${activePostTag}" posts yet`}</p>
-                  <p className="text-xs">{activePostTag === "All" ? "Be the first to share something with the community!" : "Try a different filter or share one yourself."}</p>
-                  {activePostTag !== "All" && (
-                    <button className="text-xs text-primary hover:underline mt-1" onClick={() => setActivePostTag("All")}>Clear filter</button>
+                  <p className="text-sm font-medium mb-1">
+                    {postSearch ? `No results for "${postSearch}"` : activePostTag !== "All" ? `No "${activePostTag}" posts yet` : "No posts yet"}
+                  </p>
+                  <p className="text-xs">
+                    {postSearch || activePostTag !== "All" ? "Try a different search or filter." : "Be the first to share something with the community!"}
+                  </p>
+                  {(postSearch || activePostTag !== "All") && (
+                    <button className="text-xs text-primary hover:underline mt-1" onClick={() => { setPostSearch(""); setActivePostTag("All"); }}>Clear</button>
                   )}
                 </div>
               ) : filteredPosts.map(post => (
@@ -1447,12 +1472,26 @@ export default function Feed() {
               </DialogContent>
             </Dialog>
 
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground"/>
-              <Input placeholder="Search collaborations..." value={search} onChange={e => setSearch(e.target.value)} className="pl-10 h-10"/>
-            </div>
-            <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
-              {COLLAB_FILTERS.map(f => <Badge key={f} variant={activeFilter===f?"default":"outline"} className="cursor-pointer shrink-0" onClick={() => setActiveFilter(f)}>{f}</Badge>)}
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground"/>
+                <Input placeholder="Search collaborations…" value={search} onChange={e => setSearch(e.target.value)} className="pl-10 h-10"/>
+              </div>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant={activeFilter !== "All" ? "default" : "outline"} size="icon" className="h-10 w-10 shrink-0">
+                    <SlidersHorizontal className="h-4 w-4"/>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-44">
+                  {COLLAB_FILTERS.map(f => (
+                    <DropdownMenuItem key={f} onClick={() => setActiveFilter(f)} className="flex items-center gap-2">
+                      {activeFilter === f ? <Check className="h-3.5 w-3.5 shrink-0"/> : <span className="h-3.5 w-3.5 shrink-0"/>}
+                      {f}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
             <p className="text-xs text-muted-foreground">{filteredCollabs.length} collab{filteredCollabs.length!==1?"s":""}</p>
             {filteredCollabs.length === 0 ? (
