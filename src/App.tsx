@@ -7,22 +7,41 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/context/ThemeContext";
 import { UserProvider, useUser } from "@/context/UserContext";
 
+// Wraps lazy() and auto-reloads once when a chunk fails to load after a deploy.
+function lazyWithReload(fn: () => Promise<{ default: any }>) {
+  return lazy(async () => {
+    try {
+      return await fn();
+    } catch {
+      const reloaded = sessionStorage.getItem("chunk_reload");
+      if (!reloaded) {
+        sessionStorage.setItem("chunk_reload", "1");
+        window.location.reload();
+      }
+      return fn();
+    }
+  });
+}
+
+// Clears the reload flag once a chunk loads successfully
+sessionStorage.removeItem("chunk_reload");
+
 // Lazy-load every page so each route becomes its own chunk.
 // Only the code for the current route is downloaded on first load.
-const Onboarding      = lazy(() => import("./pages/Onboarding"));
-const VerifyEmail     = lazy(() => import("./pages/VerifyEmail"));
-const ForgotPassword  = lazy(() => import("./pages/ForgotPassword"));
-const ProfileSetup = lazy(() => import("./pages/ProfileSetup"));
-const Feed         = lazy(() => import("./pages/Feed"));
-const Discover     = lazy(() => import("./pages/Discover"));
-const Messages     = lazy(() => import("./pages/Messages"));
-const Groups       = lazy(() => import("./pages/Groups"));
-const Notifications = lazy(() => import("./pages/Notifications"));
-const Profile      = lazy(() => import("./pages/Profile"));
-const UserProfile  = lazy(() => import("./pages/UserProfile"));
-const Feedback        = lazy(() => import("./pages/Feedback"));
-const AccountRecovery = lazy(() => import("./pages/AccountRecovery"));
-const NotFound        = lazy(() => import("./pages/NotFound"));
+const Onboarding      = lazyWithReload(() => import("./pages/Onboarding"));
+const VerifyEmail     = lazyWithReload(() => import("./pages/VerifyEmail"));
+const ForgotPassword  = lazyWithReload(() => import("./pages/ForgotPassword"));
+const ProfileSetup    = lazyWithReload(() => import("./pages/ProfileSetup"));
+const Feed            = lazyWithReload(() => import("./pages/Feed"));
+const Discover        = lazyWithReload(() => import("./pages/Discover"));
+const Messages        = lazyWithReload(() => import("./pages/Messages"));
+const Groups          = lazyWithReload(() => import("./pages/Groups"));
+const Notifications   = lazyWithReload(() => import("./pages/Notifications"));
+const Profile         = lazyWithReload(() => import("./pages/Profile"));
+const UserProfile     = lazyWithReload(() => import("./pages/UserProfile"));
+const Feedback        = lazyWithReload(() => import("./pages/Feedback"));
+const AccountRecovery = lazyWithReload(() => import("./pages/AccountRecovery"));
+const NotFound        = lazyWithReload(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
 
