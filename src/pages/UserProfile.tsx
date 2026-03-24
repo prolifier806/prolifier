@@ -15,6 +15,7 @@ type ProfileData = {
   id: string;
   name: string;
   avatar: string;
+  avatarUrl?: string;
   color: string;
   location: string;
   bio: string;
@@ -137,6 +138,7 @@ export default function UserProfile() {
           id: p.id,
           name: p.name || "Unknown",
           avatar: p.avatar || "?",
+          avatarUrl: p.avatar_url || undefined,
           color: p.color || "bg-primary",
           location: p.location || "",
           bio: p.bio || "",
@@ -232,8 +234,10 @@ export default function UserProfile() {
         {/* Profile card */}
         <div className="rounded-xl border border-border bg-card p-6">
           <div className="flex items-start gap-4 mb-5">
-            <div className={`h-20 w-20 rounded-2xl ${profile.color} flex items-center justify-center text-white text-2xl font-bold shrink-0`}>
-              {profile.avatar}
+            <div className={`h-20 w-20 rounded-2xl ${profile.avatarUrl ? "" : profile.color} flex items-center justify-center text-white text-2xl font-bold shrink-0 overflow-hidden`}>
+              {profile.avatarUrl
+                ? <img src={profile.avatarUrl} alt={profile.avatar} className="w-full h-full object-cover" />
+                : profile.avatar}
             </div>
             <div className="flex-1 min-w-0">
               <h1 className="text-xl font-bold text-foreground">{profile.name}</h1>

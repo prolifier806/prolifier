@@ -17,6 +17,7 @@ type Profile = {
   id: string;
   name: string;
   avatar: string;
+  avatarUrl?: string;
   color: string;
   location: string;
   bio: string;
@@ -84,7 +85,7 @@ export default function Discover() {
     try {
       let query = (supabase as any)
         .from("profiles")
-        .select("id, name, avatar, color, location, bio, project, skills, open_to_collab, created_at")
+        .select("id, name, avatar, avatar_url, color, location, bio, project, skills, open_to_collab, created_at")
         .neq("id", user.id)
         .not("name", "eq", "")
         .order("created_at", { ascending: false })
@@ -109,6 +110,7 @@ export default function Discover() {
         id: p.id,
         name: p.name || "Unknown",
         avatar: p.avatar || "?",
+        avatarUrl: p.avatar_url || undefined,
         color: p.color || "bg-primary",
         location: p.location || "",
         bio: p.bio || "",
@@ -238,9 +240,11 @@ export default function Discover() {
                   <div className="flex items-start gap-3 mb-3">
                     <button
                       onClick={() => navigate(`/profile/${p.id}`)}
-                      className={`h-12 w-12 rounded-full ${p.color} flex items-center justify-center text-white font-semibold shrink-0 hover:opacity-80 transition-opacity`}
+                      className={`h-12 w-12 rounded-full ${p.avatarUrl ? "" : p.color} flex items-center justify-center text-white font-semibold shrink-0 hover:opacity-80 transition-opacity overflow-hidden`}
                     >
-                      {p.avatar}
+                      {p.avatarUrl
+                        ? <img src={p.avatarUrl} alt={p.avatar} className="w-full h-full object-cover" />
+                        : p.avatar}
                     </button>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">

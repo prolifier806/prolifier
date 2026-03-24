@@ -16,6 +16,7 @@ type Conversation = {
   id: string;          // the other user's id
   name: string;
   avatar: string;
+  avatarUrl?: string;
   color: string;
   lastMsg: string;
   lastTime: string;
@@ -127,7 +128,7 @@ export default function Messages() {
   const [mediaPreview, setMediaPreview] = useState<{ type: string; url: string } | null>(null);
   const [showNewConvo, setShowNewConvo] = useState(false);
   const [newConvoSearch, setNewConvoSearch] = useState("");
-  const [allUsers, setAllUsers] = useState<{ id: string; name: string; color: string }[]>([]);
+  const [allUsers, setAllUsers] = useState<{ id: string; name: string; avatarUrl?: string; color: string }[]>([]);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -183,13 +184,13 @@ export default function Messages() {
       if (convList.length > 0) {
         const { data: profiles } = await (supabase as any)
           .from("profiles")
-          .select("id, name, color")
+          .select("id, name, avatar_url, color")
           .in("id", convList.map(c => c.id));
         const profileMap: Record<string, any> = {};
         (profiles || []).forEach((p: any) => { profileMap[p.id] = p; });
         convList.forEach(c => {
           const p = profileMap[c.id];
-          if (p) { c.name = p.name; c.avatar = initials(p.name); c.color = p.color || "bg-primary"; }
+          if (p) { c.name = p.name; c.avatar = initials(p.name); c.avatarUrl = p.avatar_url || undefined; c.color = p.color || "bg-primary"; }
         });
       }
 
@@ -202,11 +203,12 @@ export default function Messages() {
         // If not in list yet, add a placeholder so it can be selected
         if (!convList.find(c => c.id === withId)) {
           const { data: profileData } = await (supabase as any)
-            .from("profiles").select("name, color").eq("id", withId).single();
+            .from("profiles").select("name, avatar_url, color").eq("id", withId).single();
           const p = profileData || {};
           const name = p.name || "User";
           convList.push({
             id: withId, name, avatar: name.split(" ").map((w: string) => w[0]).slice(0,2).join("").toUpperCase(),
+            avatarUrl: p.avatar_url || undefined,
             color: p.color || "bg-primary", lastMsg: "Start a conversation…", lastTime: "now", unread: 0,
           });
           setConversations([...convList]);
@@ -396,10 +398,10 @@ export default function Messages() {
   const fetchAllUsers = async () => {
     if (allUsers.length > 0) return;
     const { data } = await (supabase as any).from("profiles")
-      .select("id, name, color")
+      .select("id, name, avatar_url, color")
       .neq("id", user.id)
       .limit(50);
-    setAllUsers((data || []).map((p: any) => ({ id: p.id, name: p.name, color: p.color || "bg-primary" })));
+    setAllUsers((data || []).map((p: any) => ({ id: p.id, name: p.name, avatarUrl: p.avatar_url || undefined, color: p.color || "bg-primary" })));
   };
 
   const startNewConvo = (u: typeof allUsers[0]) => {
@@ -407,6 +409,7 @@ export default function Messages() {
     if (!existing) {
       setConversations(prev => [{
         id: u.id, name: u.name, avatar: initials(u.name),
+        avatarUrl: u.avatarUrl,
         color: u.color, lastMsg: "Start a conversation…", lastTime: "now", unread: 0,
       }, ...prev]);
     }
@@ -500,7 +503,9 @@ export default function Messages() {
                   : filteredNewUsers.map(u => (
                     <button key={u.id} onClick={() => startNewConvo(u)}
                       className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-muted transition-colors text-left">
-                      <div className={`h-7 w-7 rounded-full ${u.color} flex items-center justify-center text-white text-xs font-semibold shrink-0`}>{initials(u.name)}</div>
+                      <div className={`h-7 w-7 rounded-full ${u.avatarUrl ? "" : u.color} flex items-center justify-center text-white text-xs font-semibold shrink-0 overflow-hidden`}>
+                        {u.avatarUrl ? <img src={u.avatarUrl} alt={initials(u.name)} className="w-full h-full object-cover" /> : initials(u.name)}
+                      </div>
                       <span className="text-sm text-foreground">{u.name}</span>
                     </button>
                   ))
@@ -524,7 +529,9 @@ export default function Messages() {
               <button key={c.id} onClick={() => selectConvo(c.id)}
                 className={`w-full flex items-center gap-3 px-4 py-3.5 hover:bg-muted transition-colors border-b border-border/50 ${selectedId === c.id ? "bg-muted" : ""}`}>
                 <div className="relative shrink-0">
-                  <div className={`h-10 w-10 rounded-full ${c.color} flex items-center justify-center text-white text-sm font-semibold`}>{c.avatar}</div>
+                  <div className={`h-10 w-10 rounded-full ${c.avatarUrl ? "" : c.color} flex items-center justify-center text-white text-sm font-semibold overflow-hidden`}>
+                    {c.avatarUrl ? <img src={c.avatarUrl} alt={c.avatar} className="w-full h-full object-cover" /> : c.avatar}
+                  </div>
                   {c.unread > 0 && <span className="absolute -top-0.5 -right-0.5 h-4 w-4 rounded-full bg-accent text-accent-foreground text-[9px] font-bold flex items-center justify-center border-2 border-background">{c.unread}</span>}
                 </div>
                 <div className="flex-1 min-w-0 text-left">
@@ -556,8 +563,10 @@ export default function Messages() {
                 <button className="md:hidden text-muted-foreground hover:text-foreground" onClick={() => setShowMobileChat(false)}>
                   <ArrowLeft className="h-5 w-5" />
                 </button>
-                <div className={`h-9 w-9 rounded-full ${selectedConvo.color} flex items-center justify-center text-white text-xs font-semibold shrink-0`}>
-                  {selectedConvo.avatar}
+                <div className={`h-9 w-9 rounded-full ${selectedConvo.avatarUrl ? "" : selectedConvo.color} flex items-center justify-center text-white text-xs font-semibold shrink-0 overflow-hidden`}>
+                  {selectedConvo.avatarUrl
+                    ? <img src={selectedConvo.avatarUrl} alt={selectedConvo.avatar} className="w-full h-full object-cover" />
+                    : selectedConvo.avatar}
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-sm text-foreground truncate">{selectedConvo.name}</p>
