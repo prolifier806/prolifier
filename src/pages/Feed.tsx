@@ -813,26 +813,24 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-        <div className="px-5 pb-4">
-          <h3 className="font-semibold text-foreground mb-2">{collab.title}</h3>
-          <div className="mb-3">
-            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary text-primary-foreground text-xs font-semibold">
-              <span className="opacity-75 text-[10px] uppercase tracking-wide font-semibold">Looking for</span>
-              <span className="w-px h-3 bg-primary-foreground/30 shrink-0"/>
-              {collab.looking}
-            </span>
+        <div className="px-5 pb-4 space-y-3">
+          <h3 className="font-bold text-base text-foreground leading-snug">{collab.title}</h3>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Handshake className="h-3.5 w-3.5 text-primary shrink-0" />
+            <span className="text-xs text-muted-foreground font-medium">Looking for</span>
+            <span className="text-xs font-semibold bg-primary/10 text-primary px-2.5 py-0.5 rounded-full">{collab.looking}</span>
           </div>
-          <p className="text-sm text-foreground leading-relaxed mb-3 break-words">{collab.description}</p>
-          {collab.image && (
-            <div className="mb-3">
-              <SmartImage src={collab.image} alt="collab" onClick={() => setLightboxSrc(collab.image!)} />
+          <p className="text-sm text-muted-foreground leading-relaxed break-words">{collab.description}</p>
+          {collab.image && <SmartImage src={collab.image} alt="collab" onClick={() => setLightboxSrc(collab.image!)} />}
+          {collab.video && <SmartVideo src={collab.video} />}
+          {collab.skills.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {collab.skills.map((s)=><Badge key={s} variant="secondary" className="text-xs">{s}</Badge>)}
             </div>
           )}
-          {collab.video && <div className="mb-3"><SmartVideo src={collab.video} /></div>}
-          <div className="flex flex-wrap gap-1.5">{collab.skills.map((s)=><Badge key={s} variant="secondary" className="text-xs">{s}</Badge>)}</div>
         </div>
         {!collab.isOwn && (
-          <div className="flex gap-2 px-5 pb-4">
+          <div className="flex gap-2 px-5 pb-5 pt-1 border-t border-border mt-1">
             <Button size="sm" variant={isInterested?"outline":"default"} className={`flex-1 gap-1.5 ${isInterested?"border-primary text-primary":""}`} onClick={()=>onInterest(collab.id,collab.author)}>
               <Handshake className="h-3.5 w-3.5"/>{isInterested?"Interested ✓":"I'm Interested"}
             </Button>
