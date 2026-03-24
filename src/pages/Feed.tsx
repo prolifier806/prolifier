@@ -814,14 +814,14 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
           </DropdownMenu>
         </div>
         <div className="px-5 pb-4">
-          <div className="mb-2">
+          <h3 className="font-semibold text-foreground mb-2">{collab.title}</h3>
+          <div className="mb-3">
             <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary text-primary-foreground text-xs font-semibold">
               <span className="opacity-75 text-[10px] uppercase tracking-wide font-semibold">Looking for</span>
               <span className="w-px h-3 bg-primary-foreground/30 shrink-0"/>
               {collab.looking}
             </span>
           </div>
-          <h3 className="font-semibold text-foreground mb-2">{collab.title}</h3>
           <p className="text-sm text-foreground leading-relaxed mb-3 break-words">{collab.description}</p>
           {collab.image && (
             <div className="mb-3">
@@ -1368,6 +1368,7 @@ export default function Feed() {
     // OPT: prepend new post directly to state — no refetch needed
     setPosts(p => [{
       id: data.id, user_id: user.id, author: user.name, avatar: user.avatar,
+      avatarUrl: user.avatarUrl || undefined,
       avatarColor: user.color, location: user.location, tag: postDialog.tag, time: "Just now",
       content: postDialog.content, image: postDialog.image, video: postDialog.video,
       likes: 0, commentCount: 0, isOwn: true, comments: [],
