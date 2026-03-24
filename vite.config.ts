@@ -19,44 +19,21 @@ export default defineConfig(({ mode }) => ({
     },
   },
   build: {
+    // Raise the chunk warning threshold — individual page chunks around 500KB are fine
+    chunkSizeWarningLimit: 600,
     rollupOptions: {
       output: {
-        // Split heavy vendor libraries into separate cached chunks so they are
-        // not re-downloaded when app code changes.
-        manualChunks: {
-          "vendor-react": ["react", "react-dom", "react-router-dom"],
-          "vendor-supabase": ["@supabase/supabase-js"],
-          "vendor-framer": ["framer-motion"],
-          "vendor-charts": ["recharts"],
-          "vendor-radix": [
-            "@radix-ui/react-accordion",
-            "@radix-ui/react-alert-dialog",
-            "@radix-ui/react-aspect-ratio",
-            "@radix-ui/react-avatar",
-            "@radix-ui/react-checkbox",
-            "@radix-ui/react-collapsible",
-            "@radix-ui/react-context-menu",
-            "@radix-ui/react-dialog",
-            "@radix-ui/react-dropdown-menu",
-            "@radix-ui/react-hover-card",
-            "@radix-ui/react-label",
-            "@radix-ui/react-menubar",
-            "@radix-ui/react-navigation-menu",
-            "@radix-ui/react-popover",
-            "@radix-ui/react-progress",
-            "@radix-ui/react-radio-group",
-            "@radix-ui/react-scroll-area",
-            "@radix-ui/react-select",
-            "@radix-ui/react-separator",
-            "@radix-ui/react-slider",
-            "@radix-ui/react-slot",
-            "@radix-ui/react-switch",
-            "@radix-ui/react-tabs",
-            "@radix-ui/react-toast",
-            "@radix-ui/react-toggle",
-            "@radix-ui/react-toggle-group",
-            "@radix-ui/react-tooltip",
-          ],
+        // Prevent Rollup from creating hundreds of tiny icon files.
+        // Any chunk smaller than 20KB gets merged into its importer.
+        experimentalMinChunkSize: 20_000,
+        manualChunks: (id) => {
+          // Group all Lucide icons into one chunk instead of one file per icon
+          if (id.includes("lucide-react")) return "vendor-icons";
+          if (id.includes("react-dom") || id.includes("react-router-dom") || id.includes("/react/")) return "vendor-react";
+          if (id.includes("@supabase")) return "vendor-supabase";
+          if (id.includes("framer-motion")) return "vendor-framer";
+          if (id.includes("recharts")) return "vendor-charts";
+          if (id.includes("@radix-ui")) return "vendor-radix";
         },
       },
     },
