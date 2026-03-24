@@ -216,11 +216,8 @@ create trigger trg_moderate_comments
   on public.comments
   for each row execute function public.moderate_content_trigger();
 
+-- Private messages are not moderated — users have full control over DMs.
 drop trigger if exists trg_moderate_messages on public.messages;
-create trigger trg_moderate_messages
-  before insert
-  on public.messages
-  for each row execute function public.moderate_content_trigger();
 
 
 -- ── SEED: BLOCK-LEVEL WORDS ───────────────────────────────

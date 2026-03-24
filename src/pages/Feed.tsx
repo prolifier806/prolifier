@@ -21,6 +21,7 @@ import Layout from "@/components/Layout";
 import { toast } from "@/hooks/use-toast";
 import { useUser } from "@/context/UserContext";
 import { supabase } from "@/lib/supabase";
+import { checkContent, parseModerationError } from "@/lib/moderation";
 // OPT: import from the single consolidated helper instead of defining inline
 import { createNotification } from "@/lib/notifications";
 
@@ -1111,12 +1112,18 @@ export default function Feed() {
   }, []);
 
   const handleAddComment = useCallback(async (postId: string, text: string) => {
+    const pre = checkContent(text);
+    if (!pre.allowed) { toast({ title: pre.message!, variant: "destructive" }); return; }
     const { data, error } = await (supabase as any)
       .from("comments")
       .insert({ post_id: postId, user_id: user.id, text })
       .select(`*, profiles:user_id (name, avatar, color)`)
       .single();
-    if (error) { toast({ title: "Failed to post comment", variant: "destructive" }); return; }
+    if (error) {
+      const modMsg = parseModerationError(error);
+      toast({ title: modMsg ?? "Failed to post comment", variant: "destructive" });
+      return;
+    }
     const newComment: Comment = {
       id: data.id, author: data.profiles?.name || user.name,
       avatar: data.profiles?.avatar || user.avatar,
@@ -1147,9 +1154,12 @@ export default function Feed() {
   }, [posts, user.id]);
 
   const handleEditPost = useCallback(async (id: string, content: string, tag: string, image?: string, video?: string) => {
-    await (supabase as any).from("posts")
+    const pre = checkContent(content);
+    if (!pre.allowed) { toast({ title: pre.message!, variant: "destructive" }); return; }
+    const { error } = await (supabase as any).from("posts")
       .update({ content, tag, image_url: image || null, video_url: video || null })
       .eq("id", id).eq("user_id", user.id);
+    if (error) { const modMsg = parseModerationError(error); toast({ title: modMsg ?? "Failed to update post", variant: "destructive" }); return; }
     setPosts(p => p.map(x => x.id === id ? { ...x, content, tag, image, video } : x));
     toast({ title: "Post updated ✓" });
   }, [user.id]);
@@ -1161,6 +1171,8 @@ export default function Feed() {
 
   const handleCreatePost = useCallback(async () => {
     if (!postDialog.content.trim()) return;
+    const pre = checkContent(postDialog.content);
+    if (!pre.allowed) { toast({ title: pre.message!, variant: "destructive" }); return; }
     const { data, error } = await (supabase as any)
       .from("posts")
       .insert({
@@ -1168,7 +1180,7 @@ export default function Feed() {
         image_url: postDialog.image || null, video_url: postDialog.video || null,
       })
       .select().single();
-    if (error) { toast({ title: "Failed to create post", variant: "destructive" }); return; }
+    if (error) { const modMsg = parseModerationError(error); toast({ title: modMsg ?? "Failed to create post", variant: "destructive" }); return; }
     // OPT: prepend new post directly to state — no refetch needed
     setPosts(p => [{
       id: data.id, user_id: user.id, author: user.name, avatar: user.avatar,
@@ -1234,10 +1246,14 @@ export default function Feed() {
   }, [collabs, user.id]);
 
   const handleEditCollab = useCallback(async (id: string, updates: Partial<Collab>) => {
-    await (supabase as any).from("collabs").update({
+    const textToCheck = [updates.title, updates.description].filter(Boolean).join(" ");
+    const pre = checkContent(textToCheck);
+    if (!pre.allowed) { toast({ title: pre.message!, variant: "destructive" }); return; }
+    const { error } = await (supabase as any).from("collabs").update({
       title: updates.title, looking: updates.looking, description: updates.description,
       skills: updates.skills, image_url: updates.image || null, video_url: updates.video || null,
     }).eq("id", id).eq("user_id", user.id);
+    if (error) { const modMsg = parseModerationError(error); toast({ title: modMsg ?? "Failed to update collab", variant: "destructive" }); return; }
     setCollabs(p => p.map(x => x.id === id ? { ...x, ...updates } : x));
     toast({ title: "Collab updated ✓" });
   }, [user.id]);
@@ -1249,6 +1265,8 @@ export default function Feed() {
 
   const handleCreateCollab = useCallback(async () => {
     if (!collabDialog.title.trim() || !collabDialog.looking.trim() || !collabDialog.desc.trim()) return;
+    const pre = checkContent(`${collabDialog.title} ${collabDialog.desc}`);
+    if (!pre.allowed) { toast({ title: pre.message!, variant: "destructive" }); return; }
     const { data, error } = await (supabase as any)
       .from("collabs")
       .insert({
@@ -1257,7 +1275,7 @@ export default function Feed() {
         image_url: collabDialog.image || null, video_url: collabDialog.video || null,
       })
       .select().single();
-    if (error) { toast({ title: "Failed to create collab", variant: "destructive" }); return; }
+    if (error) { const modMsg = parseModerationError(error); toast({ title: modMsg ?? "Failed to create collab", variant: "destructive" }); return; }
     setCollabs(p => [{
       id: data.id, user_id: user.id, author: user.name, avatar: user.avatar,
       avatarColor: user.color, location: user.location, title: collabDialog.title,
