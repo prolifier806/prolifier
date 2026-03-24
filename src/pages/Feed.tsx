@@ -138,6 +138,57 @@ function SmartVideo({ src, className }: { src: string; className?: string }) {
   );
 }
 
+// ── Smart Image — auto portrait/landscape sizing with optional zoom overlay ─
+function SmartImage({ src, alt, onClick }: { src: string; alt: string; onClick?: () => void }) {
+  const [portrait, setPortrait] = useState(false);
+  const handleLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    const i = e.currentTarget;
+    setPortrait(i.naturalHeight > i.naturalWidth);
+  };
+  const overlay = onClick ? (
+    <div className="absolute inset-0 rounded-xl bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+      <ZoomIn className="h-8 w-8 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-lg" />
+    </div>
+  ) : null;
+  if (portrait) {
+    return (
+      <div className={`flex justify-center ${onClick ? "cursor-pointer" : ""}`} onClick={onClick}>
+        <div className="relative group">
+          <img src={src} alt={alt} loading="lazy" className="max-h-[70vh] w-auto max-w-full rounded-xl block" onLoad={handleLoad} />
+          {overlay}
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className={`relative group ${onClick ? "cursor-pointer" : ""}`} onClick={onClick}>
+      <img src={src} alt={alt} loading="lazy" className="w-full rounded-xl block" onLoad={handleLoad} />
+      {overlay}
+    </div>
+  );
+}
+
+// ── Preview Image — for create/edit forms with remove button ───────────────
+function PreviewImage({ src, alt, onRemove }: { src: string; alt: string; onRemove: () => void }) {
+  const [portrait, setPortrait] = useState(false);
+  return (
+    <div className={`relative rounded-xl overflow-hidden ${portrait ? "flex justify-center bg-muted/40" : ""}`}>
+      <img
+        src={src}
+        alt={alt}
+        className={portrait ? "max-h-64 w-auto max-w-full rounded-xl block" : "w-full rounded-xl block"}
+        onLoad={e => { const i = e.currentTarget; setPortrait(i.naturalHeight > i.naturalWidth); }}
+      />
+      <button
+        onClick={onRemove}
+        className="absolute top-2 right-2 h-7 w-7 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-black/70 z-10"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
+}
+
 // ── Image Lightbox ─────────────────────────────────────────────────────────
 function ImageLightbox({ src, onClose }: { src: string; onClose: () => void }) {
   useEffect(() => {
@@ -377,11 +428,8 @@ function CommentSheet({ post, onClose, onAddComment }: {
           </button>
         </div>
         {post.image && (
-          <div className="px-5 pt-4 relative group cursor-pointer" onClick={() => setLightboxSrc(post.image!)}>
-            <img src={post.image} alt="post" className="w-full rounded-xl object-cover max-h-48" />
-            <div className="absolute inset-0 mx-5 rounded-xl bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
-              <ZoomIn className="h-8 w-8 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
-            </div>
+          <div className="px-5 pt-4">
+            <SmartImage src={post.image} alt="post" onClick={() => setLightboxSrc(post.image!)} />
           </div>
         )}
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
@@ -447,12 +495,7 @@ function EditPostDialog({ post, open, onClose, onSave }: {
             {POST_TAGS.map((t) => <Badge key={t} variant={tag===t?"default":"outline"} className="cursor-pointer" onClick={() => setTag(t)}>{t}</Badge>)}
           </div>
           <Textarea value={content} onChange={(e) => setContent(e.target.value)} rows={4} />
-          {image && (
-            <div className="relative rounded-xl overflow-hidden group cursor-pointer">
-              <img src={image} alt="preview" className="w-full max-h-48 object-cover" />
-              <button onClick={removeImage} className="absolute top-2 right-2 h-7 w-7 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-black/70"><X className="h-3.5 w-3.5"/></button>
-            </div>
-          )}
+          {image && <PreviewImage src={image} alt="preview" onRemove={removeImage} />}
           {video && (
             <div className="relative rounded-xl overflow-hidden">
               <video src={video} controls className="w-full max-h-48 rounded-xl" />
@@ -500,12 +543,7 @@ function EditCollabDialog({ collab, open, onClose, onSave }: {
             <label className="text-sm font-medium mb-1.5 block">Skills needed</label>
             <div className="flex flex-wrap gap-2">{SKILL_OPTIONS.map((s)=><Badge key={s} variant={skills.includes(s)?"default":"outline"} className="cursor-pointer" onClick={()=>toggle(s)}>{s}</Badge>)}</div>
           </div>
-          {image && (
-            <div className="relative rounded-xl overflow-hidden">
-              <img src={image} alt="preview" className="w-full max-h-40 object-cover"/>
-              <button onClick={removeImage} className="absolute top-2 right-2 h-7 w-7 rounded-full bg-black/50 text-white flex items-center justify-center"><X className="h-3.5 w-3.5"/></button>
-            </div>
-          )}
+          {image && <PreviewImage src={image} alt="preview" onRemove={removeImage} />}
           {video && (
             <div className="relative rounded-xl overflow-hidden">
               <video src={video} controls className="w-full max-h-40 rounded-xl"/>
@@ -591,11 +629,8 @@ const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, onLike, 
         </div>
         <p className="text-sm text-foreground leading-relaxed px-5 pb-3">{post.content}</p>
         {post.image && (
-          <div className="px-5 pb-3 relative group cursor-pointer" onClick={() => setLightboxSrc(post.image!)}>
-            <img src={post.image} alt="post" className="w-full rounded-xl object-cover max-h-72" loading="lazy"/>
-            <div className="absolute inset-0 mx-5 rounded-xl bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
-              <ZoomIn className="h-8 w-8 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
-            </div>
+          <div className="px-5 pb-3">
+            <SmartImage src={post.image} alt="post" onClick={() => setLightboxSrc(post.image!)} />
           </div>
         )}
         {post.video && <div className="px-5 pb-3"><SmartVideo src={post.video} /></div>}
@@ -692,11 +727,8 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
           <p className="text-xs font-medium text-primary mb-2 flex items-center gap-1"><Users className="h-3 w-3"/> Looking for: {collab.looking}</p>
           <p className="text-sm text-foreground leading-relaxed mb-3">{collab.description}</p>
           {collab.image && (
-            <div className="relative group cursor-pointer mb-3" onClick={() => setLightboxSrc(collab.image!)}>
-              <img src={collab.image} alt="collab" className="w-full rounded-xl object-cover max-h-48" loading="lazy"/>
-              <div className="absolute inset-0 rounded-xl bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
-                <ZoomIn className="h-8 w-8 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
-              </div>
+            <div className="mb-3">
+              <SmartImage src={collab.image} alt="collab" onClick={() => setLightboxSrc(collab.image!)} />
             </div>
           )}
           {collab.video && <div className="mb-3"><SmartVideo src={collab.video} /></div>}
@@ -1294,12 +1326,7 @@ export default function Feed() {
                     <label className="text-sm font-medium mb-1.5 block">What's on your mind?</label>
                     <Textarea value={postDialog.content} onChange={e => setPostDialog(d => ({ ...d, content: e.target.value }))} placeholder="Share what you're working on, ask for advice, or celebrate a win..." rows={4}/>
                   </div>
-                  {postDialog.image && (
-                    <div className="relative rounded-xl overflow-hidden">
-                      <img src={postDialog.image} alt="preview" className="w-full max-h-48 object-cover"/>
-                      <button onClick={handleRemovePostImage} className="absolute top-2 right-2 h-7 w-7 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-black/70"><X className="h-3.5 w-3.5"/></button>
-                    </div>
-                  )}
+                  {postDialog.image && <PreviewImage src={postDialog.image} alt="preview" onRemove={handleRemovePostImage} />}
                   {postDialog.video && (
                     <div className="relative rounded-xl overflow-hidden">
                       <video src={postDialog.video} controls className="w-full max-h-48 rounded-xl" style={{backgroundColor:"#000"}}/>
@@ -1384,12 +1411,7 @@ export default function Feed() {
                     <label className="text-sm font-medium mb-1.5 block">Relevant skills / areas</label>
                     <div className="flex flex-wrap gap-2">{SKILL_OPTIONS.map(s => <Badge key={s} variant={collabDialog.skills.includes(s)?"default":"outline"} className="cursor-pointer" onClick={() => setCollabDialog(d => ({ ...d, skills: d.skills.includes(s) ? d.skills.filter(x => x !== s) : [...d.skills, s] }))}>{s}</Badge>)}</div>
                   </div>
-                  {collabDialog.image && (
-                    <div className="relative rounded-xl overflow-hidden">
-                      <img src={collabDialog.image} alt="preview" className="w-full max-h-40 object-cover"/>
-                      <button onClick={handleRemoveCollabImage} className="absolute top-2 right-2 h-7 w-7 rounded-full bg-black/50 text-white flex items-center justify-center"><X className="h-3.5 w-3.5"/></button>
-                    </div>
-                  )}
+                  {collabDialog.image && <PreviewImage src={collabDialog.image} alt="preview" onRemove={handleRemoveCollabImage} />}
                   {collabDialog.video && (
                     <div className="relative rounded-xl overflow-hidden">
                       <video src={collabDialog.video} controls className="w-full max-h-40 rounded-xl" style={{backgroundColor:"#000"}}/>
