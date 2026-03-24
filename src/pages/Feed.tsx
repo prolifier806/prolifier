@@ -951,16 +951,15 @@ export default function Feed() {
   });
 
   // ── Deep-link: open post comment dialog when ?post=<id> is in the URL ──
-  // Use a ref so this only fires once — posts state changes (likes, comments)
-  // would otherwise re-trigger it and reopen the sheet after the user closes it
+  // After handling, strip ?post= from the URL so remounting Feed doesn't reopen it
   useEffect(() => {
-    if (deepLinkHandledRef.current) return;
     const postId = searchParams.get("post");
     if (!postId || posts.length === 0) return;
     const target = posts.find(p => p.id === postId);
     if (target) {
       setCommentingPost(target);
-      deepLinkHandledRef.current = true;
+      // Remove ?post= (and any other params) so this never fires again
+      navigate("/feed", { replace: true });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [posts]);
