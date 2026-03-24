@@ -293,34 +293,33 @@ function ShareDialog({ open, onClose, link }: { open: boolean; onClose: () => vo
   };
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="w-[calc(100vw-2rem)] max-w-sm max-h-[90vh] overflow-y-auto">
+      <DialogContent className="w-[calc(100vw-2rem)] max-w-xs overflow-hidden">
         <DialogHeader>
           <DialogTitle>Share this post</DialogTitle>
           <DialogDescription>Choose where you'd like to share it.</DialogDescription>
         </DialogHeader>
-        <div className="grid grid-cols-3 gap-2 py-2">
+        <div className="grid grid-cols-3 gap-1 py-1">
           {SHARE_PLATFORMS.map((p) => {
             const IconComp = p.icon;
-            const isGradient = p.color.includes("gradient");
             return (
               <a key={p.name} href={p.url(link)} target="_blank" rel="noreferrer" onClick={onClose}
-                className="flex flex-col items-center gap-1.5 p-2 rounded-xl hover:bg-muted transition-colors cursor-pointer overflow-hidden">
-                <div className="h-11 w-11 rounded-2xl flex items-center justify-center shadow-sm shrink-0"
-                  style={{ background: isGradient ? p.color : p.color }}>
+                className="flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-muted transition-colors cursor-pointer">
+                <div className="h-10 w-10 rounded-2xl flex items-center justify-center shadow-sm shrink-0"
+                  style={{ background: p.color }}>
                   <IconComp />
                 </div>
-                <span className="text-xs text-muted-foreground text-center leading-tight w-full truncate">{p.name}</span>
+                <span className="text-[10px] text-muted-foreground text-center leading-tight">{p.name}</span>
               </a>
             );
           })}
         </div>
         <div className="border-t border-border pt-3">
           <button onClick={copyLink}
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl bg-muted hover:bg-secondary transition-colors overflow-hidden">
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl bg-muted hover:bg-secondary transition-colors">
             <div className="h-9 w-9 rounded-xl bg-background border border-border flex items-center justify-center shrink-0">
               <Link2 className="h-4 w-4 text-foreground" />
             </div>
-            <div className="text-left min-w-0 flex-1 overflow-hidden">
+            <div className="text-left min-w-0 flex-1">
               <p className="text-sm font-medium text-foreground">Copy link</p>
               <p className="text-xs text-muted-foreground truncate">{link}</p>
             </div>
