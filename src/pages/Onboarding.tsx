@@ -73,6 +73,20 @@ export default function Onboarding() {
     return () => clearTimeout(t);
   }, [lockoutSecs]);
 
+  // Show message if the user's account was permanently deleted after the 7-day window
+  useEffect(() => {
+    if (localStorage.getItem("prolifier_perm_deleted") === "true") {
+      localStorage.removeItem("prolifier_perm_deleted");
+      toast({
+        title: "Account permanently deleted",
+        description: "Your account no longer exists. You can sign up with the same email to create a new one.",
+        variant: "destructive",
+      });
+      setShowAuth(true);
+      setAuthMode("signup");
+    }
+  }, []);
+
   const next = () => {
     if (current < slides.length - 1) setCurrent(current + 1);
     else setShowAuth(true);

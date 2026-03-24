@@ -145,6 +145,14 @@ export function UserProvider({ children }: { children: ReactNode }) {
       // Discard result if a newer sync has started (prevents flicker from stale fetches)
       if (thisVersion !== syncVersionRef.current) return;
 
+      // Account was permanently deleted by the server (pg_cron tombstone)
+      if (row?.permanently_deleted) {
+        localStorage.removeItem(cacheKey(userId));
+        localStorage.setItem("prolifier_perm_deleted", "true");
+        await supabase.auth.signOut();
+        return;
+      }
+
       // Lazy permanent deletion — triggers when the grace period has expired
       if (row?.deleted_at) {
         const elapsed = Date.now() - new Date(row.deleted_at).getTime();
