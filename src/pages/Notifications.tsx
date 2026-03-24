@@ -109,6 +109,7 @@ export default function Notifications() {
         .from("notifications")
         .select("*")
         .eq("user_id", user.id)
+        .not("type", "in", "(message,match)")
         .order("created_at", { ascending: false })
         .limit(50);
       if (error) throw error;
@@ -134,6 +135,7 @@ export default function Notifications() {
         filter: `user_id=eq.${user.id}`,
       }, (payload) => {
         if (payload.eventType === "INSERT") {
+          if (payload.new.type === "message" || payload.new.type === "match") return;
           setNotifs(prev => [payload.new as Notif, ...prev]);
         } else if (payload.eventType === "UPDATE") {
           setNotifs(prev => prev.map(n => n.id === payload.new.id ? payload.new as Notif : n));
@@ -156,7 +158,8 @@ export default function Notifications() {
     await (supabase as any).from("notifications")
       .update({ read: true })
       .eq("user_id", user.id)
-      .eq("read", false);
+      .eq("read", false)
+      .not("type", "in", "(message,match)");
     toast({ title: "All caught up ✓" });
   };
 
@@ -213,8 +216,6 @@ export default function Notifications() {
           <h1 className="text-xl font-bold mb-6">Notification Preferences</h1>
           <div className="rounded-xl border border-border bg-card divide-y divide-border">
             {([
-              { key: "matches",  label: "Connection requests", desc: "When someone wants to connect with you" },
-              { key: "messages", label: "New messages",         desc: "When you receive a direct message" },
               { key: "collabs",  label: "Collab interest",      desc: "When someone is interested in your collab" },
               { key: "likes",    label: "Likes",                desc: "When someone likes your posts" },
               { key: "comments", label: "Comments",             desc: "When someone comments on your posts" },

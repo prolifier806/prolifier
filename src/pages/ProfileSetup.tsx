@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { X } from "lucide-react";
+import { X, Plus } from "lucide-react";
 import { useUser } from "@/context/UserContext";
 import { toast } from "@/hooks/use-toast";
 import { SKILL_CATEGORIES, ROLE_OPTIONS, MAX_ROLES } from "@/lib/skills";
@@ -30,6 +30,9 @@ export default function ProfileSetup() {
   const [website, setWebsite]       = useState("");
   const [twitter, setTwitter]       = useState("");
   const [finishing, setFinishing]   = useState(false);
+  const [customRoleInput, setCustomRoleInput] = useState("");
+  const [customHaveInput, setCustomHaveInput] = useState("");
+  const [customWantInput, setCustomWantInput] = useState("");
 
   const toggleSkill = (skill: string, list: string[], setList: (s: string[]) => void) =>
     setList(list.includes(skill) ? list.filter(s => s !== skill) : [...list, skill]);
@@ -126,20 +129,51 @@ export default function ProfileSetup() {
           <label className="text-sm font-medium text-foreground">Your role</label>
           <span className="text-xs text-muted-foreground">Pick up to {MAX_ROLES} · Optional</span>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {ROLE_OPTIONS.map(r => {
-            const selected = roles.includes(r);
-            const maxed = !selected && roles.length >= MAX_ROLES;
-            return (
-              <Badge key={r}
-                variant={selected ? "default" : "outline"}
-                className={`cursor-pointer transition-all ${maxed ? "opacity-40 cursor-not-allowed" : "hover:scale-105"}`}
-                onClick={() => toggleRole(r)}
-              >
-                {r}{selected && <X className="h-3 w-3 ml-1" />}
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-2">
+            {ROLE_OPTIONS.map(r => {
+              const selected = roles.includes(r);
+              const maxed = !selected && roles.length >= MAX_ROLES;
+              return (
+                <Badge key={r}
+                  variant={selected ? "default" : "outline"}
+                  className={`cursor-pointer transition-all ${maxed ? "opacity-40 cursor-not-allowed" : "hover:scale-105"}`}
+                  onClick={() => toggleRole(r)}
+                >
+                  {r}{selected && <X className="h-3 w-3 ml-1" />}
+                </Badge>
+              );
+            })}
+            {/* Custom roles */}
+            {roles.filter(r => !(ROLE_OPTIONS as readonly string[]).includes(r)).map(r => (
+              <Badge key={r} variant="default" className="cursor-pointer gap-1 transition-all hover:scale-105"
+                onClick={() => setRoles(prev => prev.filter(x => x !== r))}>
+                {r} <X className="h-3 w-3" />
               </Badge>
-            );
-          })}
+            ))}
+          </div>
+          {roles.length < MAX_ROLES && (
+            <div className="flex gap-2">
+              <Input placeholder="Other role…" value={customRoleInput}
+                onChange={e => setCustomRoleInput(e.target.value)} className="h-9 text-sm"
+                onKeyDown={e => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    const val = customRoleInput.trim();
+                    if (val && !roles.includes(val) && roles.length < MAX_ROLES) setRoles(prev => [...prev, val]);
+                    setCustomRoleInput("");
+                  }
+                }}/>
+              <Button type="button" size="sm" variant="outline" className="h-9 px-3 shrink-0 gap-1"
+                onClick={() => {
+                  const val = customRoleInput.trim();
+                  if (val && !roles.includes(val) && roles.length < MAX_ROLES) setRoles(prev => [...prev, val]);
+                  setCustomRoleInput("");
+                }}>
+                <Plus className="h-3.5 w-3.5"/> Add
+              </Button>
+            </div>
+          )}
         </div>
       </div>
     </div>,
@@ -149,31 +183,87 @@ export default function ProfileSetup() {
       <div>
         <label className="text-sm font-medium text-foreground mb-1 block">Skills I have</label>
         <p className="text-xs text-muted-foreground mb-3">Select your areas of expertise</p>
-        <div className="flex flex-wrap gap-2">
-          {SKILL_CATEGORIES.map(s => (
-            <Badge key={s}
-              variant={haveSkills.includes(s) ? "default" : "outline"}
-              className="cursor-pointer transition-all hover:scale-105"
-              onClick={() => toggleSkill(s, haveSkills, setHaveSkills)}
-            >
-              {s}{haveSkills.includes(s) && <X className="h-3 w-3 ml-1" />}
-            </Badge>
-          ))}
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-2">
+            {SKILL_CATEGORIES.map(s => (
+              <Badge key={s}
+                variant={haveSkills.includes(s) ? "default" : "outline"}
+                className="cursor-pointer transition-all hover:scale-105"
+                onClick={() => toggleSkill(s, haveSkills, setHaveSkills)}
+              >
+                {s}{haveSkills.includes(s) && <X className="h-3 w-3 ml-1" />}
+              </Badge>
+            ))}
+            {haveSkills.filter(s => !(SKILL_CATEGORIES as readonly string[]).includes(s)).map(s => (
+              <Badge key={s} variant="default" className="cursor-pointer gap-1 transition-all hover:scale-105"
+                onClick={() => setHaveSkills(prev => prev.filter(x => x !== s))}>
+                {s} <X className="h-3 w-3" />
+              </Badge>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <Input placeholder="Other skill…" value={customHaveInput}
+              onChange={e => setCustomHaveInput(e.target.value)} className="h-9 text-sm"
+              onKeyDown={e => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  const val = customHaveInput.trim();
+                  if (val && !haveSkills.includes(val)) setHaveSkills(prev => [...prev, val]);
+                  setCustomHaveInput("");
+                }
+              }}/>
+            <Button type="button" size="sm" variant="outline" className="h-9 px-3 shrink-0 gap-1"
+              onClick={() => {
+                const val = customHaveInput.trim();
+                if (val && !haveSkills.includes(val)) setHaveSkills(prev => [...prev, val]);
+                setCustomHaveInput("");
+              }}>
+              <Plus className="h-3.5 w-3.5"/> Add
+            </Button>
+          </div>
         </div>
       </div>
       <div>
         <label className="text-sm font-medium text-foreground mb-1 block">Skills I'm looking for</label>
         <p className="text-xs text-muted-foreground mb-3">What kind of collaborator do you need?</p>
-        <div className="flex flex-wrap gap-2">
-          {SKILL_CATEGORIES.map(s => (
-            <Badge key={s}
-              variant={wantSkills.includes(s) ? "default" : "outline"}
-              className="cursor-pointer transition-all hover:scale-105"
-              onClick={() => toggleSkill(s, wantSkills, setWantSkills)}
-            >
-              {s}{wantSkills.includes(s) && <X className="h-3 w-3 ml-1" />}
-            </Badge>
-          ))}
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-2">
+            {SKILL_CATEGORIES.map(s => (
+              <Badge key={s}
+                variant={wantSkills.includes(s) ? "default" : "outline"}
+                className="cursor-pointer transition-all hover:scale-105"
+                onClick={() => toggleSkill(s, wantSkills, setWantSkills)}
+              >
+                {s}{wantSkills.includes(s) && <X className="h-3 w-3 ml-1" />}
+              </Badge>
+            ))}
+            {wantSkills.filter(s => !(SKILL_CATEGORIES as readonly string[]).includes(s)).map(s => (
+              <Badge key={s} variant="default" className="cursor-pointer gap-1 transition-all hover:scale-105"
+                onClick={() => setWantSkills(prev => prev.filter(x => x !== s))}>
+                {s} <X className="h-3 w-3" />
+              </Badge>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <Input placeholder="Other skill…" value={customWantInput}
+              onChange={e => setCustomWantInput(e.target.value)} className="h-9 text-sm"
+              onKeyDown={e => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  const val = customWantInput.trim();
+                  if (val && !wantSkills.includes(val)) setWantSkills(prev => [...prev, val]);
+                  setCustomWantInput("");
+                }
+              }}/>
+            <Button type="button" size="sm" variant="outline" className="h-9 px-3 shrink-0 gap-1"
+              onClick={() => {
+                const val = customWantInput.trim();
+                if (val && !wantSkills.includes(val)) setWantSkills(prev => [...prev, val]);
+                setCustomWantInput("");
+              }}>
+              <Plus className="h-3.5 w-3.5"/> Add
+            </Button>
+          </div>
         </div>
       </div>
     </div>,

@@ -30,11 +30,13 @@ import { createNotification } from "@/lib/notifications";
 type Comment = { id: string; author: string; avatar: string; color: string; text: string; time: string; };
 type Post = {
   id: string; user_id: string; author: string; avatar: string; avatarUrl?: string; avatarColor: string; location: string;
+  role?: string;
   tag: string; time: string; content: string; image?: string; video?: string; likes: number; isOwn: boolean;
   comments: Comment[];
 };
 type Collab = {
   id: string; user_id: string; author: string; avatar: string; avatarUrl?: string; avatarColor: string; location: string;
+  role?: string;
   title: string; looking: string; description: string; skills: string[]; image?: string; video?: string;
   isOwn: boolean;
 };
@@ -520,13 +522,14 @@ function EditCollabDialog({ collab, open, onClose, onSave }: {
   const [looking, setLooking] = useState(collab.looking);
   const [desc, setDesc] = useState(collab.description);
   const [skills, setSkills] = useState(collab.skills);
-  const [image, setImage] = useState<string|undefined>(collab.image);
-  const [video, setVideo] = useState<string|undefined>(collab.video);
-  const [editUploading, setEditUploading] = useState(false);
+  const [customSkillInput, setCustomSkillInput] = useState("");
   const toggle = (s: string) => setSkills((p) => p.includes(s)?p.filter((x)=>x!==s):[...p,s]);
 
-  const removeImage = async () => { if (image) await deleteFromStorage(image); setImage(undefined); };
-  const removeVideo = async () => { if (video) await deleteFromStorage(video); setVideo(undefined); };
+  const addCustomSkill = () => {
+    const val = customSkillInput.trim();
+    if (val && !skills.includes(val)) setSkills(p => [...p, val]);
+    setCustomSkillInput("");
+  };
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
@@ -538,20 +541,24 @@ function EditCollabDialog({ collab, open, onClose, onSave }: {
           <div><label className="text-sm font-medium mb-1.5 block">Description</label><Textarea value={desc} onChange={(e)=>setDesc(e.target.value)} rows={3}/></div>
           <div>
             <label className="text-sm font-medium mb-1.5 block">Skills needed</label>
-            <div className="flex flex-wrap gap-2">{SKILL_OPTIONS.map((s)=><Badge key={s} variant={skills.includes(s)?"default":"outline"} className="cursor-pointer" onClick={()=>toggle(s)}>{s}</Badge>)}</div>
-          </div>
-          {image && <PreviewImage src={image} alt="preview" onRemove={removeImage} />}
-          {video && (
-            <div className="relative rounded-xl overflow-hidden">
-              <video src={video} controls className="w-full max-h-40 rounded-xl"/>
-              <button onClick={removeVideo} className="absolute top-2 right-2 h-7 w-7 rounded-full bg-black/50 text-white flex items-center justify-center"><X className="h-3.5 w-3.5"/></button>
+            <div className="flex flex-wrap gap-2">
+              {SKILL_OPTIONS.map((s)=><Badge key={s} variant={skills.includes(s)?"default":"outline"} className="cursor-pointer" onClick={()=>toggle(s)}>{s}</Badge>)}
+              {skills.filter(s => !(SKILL_OPTIONS as readonly string[]).includes(s)).map(s => (
+                <Badge key={s} variant="default" className="cursor-pointer gap-1" onClick={() => setSkills(p => p.filter(x => x !== s))}>
+                  {s} <X className="h-2.5 w-2.5"/>
+                </Badge>
+              ))}
             </div>
-          )}
-          {!image && !video && <MediaUploadBar onImage={setImage} onVideo={setVideo} onUploadingChange={setEditUploading}/>}
+            <div className="flex gap-2 mt-2">
+              <Input placeholder="Other skill" value={customSkillInput} onChange={e => setCustomSkillInput(e.target.value)}
+                className="h-8 text-sm" onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addCustomSkill(); } }}/>
+              <Button type="button" size="sm" variant="outline" className="h-8 px-3 shrink-0" onClick={addCustomSkill}>Add</Button>
+            </div>
+          </div>
         </div>
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={()=>{onSave(collab.id,{title,looking,description:desc,skills,image,video});onClose();}} disabled={!title.trim() || editUploading} className="gap-1.5">
+          <Button onClick={()=>{onSave(collab.id,{title,looking,description:desc,skills});onClose();}} disabled={!title.trim()} className="gap-1.5">
             <Check className="h-4 w-4"/> Save
           </Button>
         </DialogFooter>
@@ -590,6 +597,7 @@ const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, onLike, 
           </button>
           <div className="flex-1 min-w-0">
             <button onClick={goToProfile} className="font-semibold text-sm text-foreground hover:underline text-left">{post.author}</button>
+            {post.role && <p className="text-[11px] text-primary font-medium leading-tight">{post.role}</p>}
             <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
               <MapPin className="h-3 w-3 shrink-0"/> {post.location} · {post.time}
             </p>
@@ -688,6 +696,7 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
           </button>
           <div className="flex-1 min-w-0">
             <button onClick={goToProfile} className="font-semibold text-sm text-foreground hover:underline text-left">{collab.author}</button>
+            {collab.role && <p className="text-[11px] text-primary font-medium leading-tight">{collab.role}</p>}
             <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5"><MapPin className="h-3 w-3 shrink-0"/> {collab.location}</p>
           </div>
           <DropdownMenu>
@@ -825,6 +834,7 @@ export default function Feed() {
     image: undefined as string|undefined,
     video: undefined as string|undefined,
     uploading: false,
+    customSkillInput: "",
   });
 
   // ── Fetch (OPT: parallelized — posts + collabs + likes fire simultaneously) ──
@@ -836,12 +846,12 @@ export default function Feed() {
       const [postsRes, collabsRes, likesRes, savedPostsRes, savedCollabsRes, interestedRes] = await Promise.all([
         (supabase as any)
           .from("posts")
-          .select(`*, profiles:user_id (name, avatar, avatar_url, color, location)`)
+          .select(`*, profiles:user_id (name, avatar, avatar_url, color, location, roles)`)
           .order("created_at", { ascending: false })
           .limit(30),
         (supabase as any)
           .from("collabs")
-          .select(`*, profiles:user_id (name, avatar, avatar_url, color, location)`)
+          .select(`*, profiles:user_id (name, avatar, avatar_url, color, location, roles)`)
           .order("created_at", { ascending: false })
           .limit(30),
         (supabase as any)
@@ -873,6 +883,7 @@ export default function Feed() {
         avatarUrl: p.profiles?.avatar_url || undefined,
         avatarColor: p.profiles?.color || "bg-primary",
         location: p.profiles?.location || "",
+        role: p.profiles?.roles?.[0] || undefined,
         tag: p.tag, time: timeAgo(p.created_at), content: p.content,
         image: p.image_url || undefined, video: p.video_url || undefined,
         likes: p.likes || 0, isOwn: p.user_id === user.id,
@@ -886,6 +897,7 @@ export default function Feed() {
         avatarUrl: c.profiles?.avatar_url || undefined,
         avatarColor: c.profiles?.color || "bg-primary",
         location: c.profiles?.location || "",
+        role: c.profiles?.roles?.[0] || undefined,
         title: c.title, looking: c.looking, description: c.description,
         skills: c.skills || [], image: c.image_url || undefined, video: c.video_url || undefined,
         isOwn: c.user_id === user.id,
@@ -915,7 +927,7 @@ export default function Feed() {
     try {
       const { data, error } = await (supabase as any)
         .from("posts")
-        .select(`*, profiles:user_id (name, avatar, avatar_url, color, location)`)
+        .select(`*, profiles:user_id (name, avatar, avatar_url, color, location, roles)`)
         .order("created_at", { ascending: false })
         .lt("created_at", postsCursorRef.current)
         .limit(30);
@@ -927,6 +939,7 @@ export default function Feed() {
         avatarUrl: p.profiles?.avatar_url || undefined,
         avatarColor: p.profiles?.color || "bg-primary",
         location: p.profiles?.location || "",
+        role: p.profiles?.roles?.[0] || undefined,
         tag: p.tag, time: timeAgo(p.created_at), content: p.content,
         image: p.image_url || undefined, video: p.video_url || undefined,
         likes: p.likes || 0, isOwn: p.user_id === user.id, comments: [],
@@ -944,7 +957,7 @@ export default function Feed() {
     try {
       const { data, error } = await (supabase as any)
         .from("collabs")
-        .select(`*, profiles:user_id (name, avatar, avatar_url, color, location)`)
+        .select(`*, profiles:user_id (name, avatar, avatar_url, color, location, roles)`)
         .order("created_at", { ascending: false })
         .lt("created_at", collabsCursorRef.current)
         .limit(30);
@@ -956,6 +969,7 @@ export default function Feed() {
         avatarUrl: c.profiles?.avatar_url || undefined,
         avatarColor: c.profiles?.color || "bg-primary",
         location: c.profiles?.location || "",
+        role: c.profiles?.roles?.[0] || undefined,
         title: c.title, looking: c.looking, description: c.description,
         skills: c.skills || [], image: c.image_url || undefined, video: c.video_url || undefined,
         isOwn: c.user_id === user.id,
@@ -980,7 +994,7 @@ export default function Feed() {
           // Fetch the profile for this new post's author
           (supabase as any)
             .from("profiles")
-            .select("name, avatar, avatar_url, color, location")
+            .select("name, avatar, avatar_url, color, location, roles")
             .eq("id", payload.new.user_id)
             .single()
             .then(({ data: profile }: any) => {
@@ -992,6 +1006,7 @@ export default function Feed() {
                 avatarUrl: profile?.avatar_url || undefined,
                 avatarColor: profile?.color || "bg-primary",
                 location: profile?.location || "",
+                role: profile?.roles?.[0] || undefined,
                 tag: payload.new.tag,
                 time: "just now",
                 content: payload.new.content,
@@ -1013,7 +1028,7 @@ export default function Feed() {
           if (payload.new.user_id === user.id) return;
           (supabase as any)
             .from("profiles")
-            .select("name, avatar, color, location")
+            .select("name, avatar, avatar_url, color, location, roles")
             .eq("id", payload.new.user_id)
             .single()
             .then(({ data: profile }: any) => {
@@ -1022,8 +1037,10 @@ export default function Feed() {
                 user_id: payload.new.user_id,
                 author: profile?.name || "Unknown",
                 avatar: profile?.avatar || "?",
+                avatarUrl: profile?.avatar_url || undefined,
                 avatarColor: profile?.color || "bg-primary",
                 location: profile?.location || "",
+                role: profile?.roles?.[0] || undefined,
                 title: payload.new.title,
                 looking: payload.new.looking,
                 description: payload.new.description,
@@ -1192,7 +1209,7 @@ export default function Feed() {
       content: postDialog.content, image: postDialog.image, video: postDialog.video,
       likes: 0, isOwn: true, comments: [],
     }, ...p]);
-    setPostDialog({ open: false, content: "", tag: "Progress", image: undefined, video: undefined, uploading: false });
+    setPostDialog({ open: false, content: "", tag: "General", image: undefined, video: undefined, uploading: false });
     toast({ title: "Post published! 🎉" });
   }, [postDialog, user]);
 
@@ -1286,7 +1303,7 @@ export default function Feed() {
       looking: collabDialog.looking, description: collabDialog.desc, skills: collabDialog.skills,
       image: collabDialog.image, video: collabDialog.video, isOwn: true,
     }, ...p]);
-    setCollabDialog({ open: false, title: "", looking: "", desc: "", skills: [], image: undefined, video: undefined, uploading: false });
+    setCollabDialog({ open: false, title: "", looking: "", desc: "", skills: [], image: undefined, video: undefined, uploading: false, customSkillInput: "" });
     toast({ title: "Collab posted! 🤝" });
   }, [collabDialog, user]);
 
@@ -1309,7 +1326,11 @@ export default function Feed() {
   const filteredCollabs = collabs.filter(c => {
     const q = search.toLowerCase();
     const ms = !search || c.author.toLowerCase().includes(q) || c.title.toLowerCase().includes(q) || c.looking.toLowerCase().includes(q) || c.description.toLowerCase().includes(q) || c.skills.some(s => s.toLowerCase().includes(q));
-    const mf = activeFilter === "All" || c.skills.some(s => s.toLowerCase().includes(activeFilter.toLowerCase())) || c.looking.toLowerCase().includes(activeFilter.toLowerCase());
+    const mf = activeFilter === "All"
+      ? true
+      : activeFilter === "Other"
+        ? c.skills.some(s => !(SKILL_OPTIONS as readonly string[]).includes(s))
+        : c.skills.some(s => s.toLowerCase().includes(activeFilter.toLowerCase())) || c.looking.toLowerCase().includes(activeFilter.toLowerCase());
     return ms && mf;
   });
 
@@ -1447,22 +1468,53 @@ export default function Feed() {
                   <div><label className="text-sm font-medium mb-1.5 block">Describe your project</label><Textarea value={collabDialog.desc} onChange={e => setCollabDialog(d => ({ ...d, desc: e.target.value }))} placeholder="What are you building? What kind of help do you need?" rows={3}/></div>
                   <div>
                     <label className="text-sm font-medium mb-1.5 block">Relevant skills / areas</label>
-                    <div className="flex flex-wrap gap-2">{SKILL_OPTIONS.map(s => <Badge key={s} variant={collabDialog.skills.includes(s)?"default":"outline"} className="cursor-pointer" onClick={() => setCollabDialog(d => ({ ...d, skills: d.skills.includes(s) ? d.skills.filter(x => x !== s) : [...d.skills, s] }))}>{s}</Badge>)}</div>
-                  </div>
-                  {collabDialog.image && <PreviewImage src={collabDialog.image} alt="preview" onRemove={handleRemoveCollabImage} />}
-                  {collabDialog.video && (
-                    <div className="relative rounded-xl overflow-hidden">
-                      <video src={collabDialog.video} controls className="w-full max-h-40 rounded-xl" style={{backgroundColor:"#000"}}/>
-                      <button onClick={handleRemoveCollabVideo} className="absolute top-2 right-2 h-7 w-7 rounded-full bg-black/50 text-white flex items-center justify-center"><X className="h-3.5 w-3.5"/></button>
+                    <div className="flex flex-wrap gap-2">
+                      {SKILL_OPTIONS.map(s => (
+                        <Badge key={s} variant={collabDialog.skills.includes(s)?"default":"outline"} className="cursor-pointer"
+                          onClick={() => setCollabDialog(d => ({ ...d, skills: d.skills.includes(s) ? d.skills.filter(x => x !== s) : [...d.skills, s] }))}>
+                          {s}
+                        </Badge>
+                      ))}
+                      {/* Custom skills added via "Other" */}
+                      {collabDialog.skills.filter(s => !(SKILL_OPTIONS as readonly string[]).includes(s)).map(s => (
+                        <Badge key={s} variant="default" className="cursor-pointer gap-1"
+                          onClick={() => setCollabDialog(d => ({ ...d, skills: d.skills.filter(x => x !== s) }))}>
+                          {s} <X className="h-2.5 w-2.5"/>
+                        </Badge>
+                      ))}
                     </div>
-                  )}
-                  {!collabDialog.image && !collabDialog.video && (
-                    <MediaUploadBar
-                      onImage={url => setCollabDialog(d => ({ ...d, image: url }))}
-                      onVideo={url => setCollabDialog(d => ({ ...d, video: url }))}
-                      onUploadingChange={v => setCollabDialog(d => ({ ...d, uploading: v }))}
-                    />
-                  )}
+                    {/* Other: custom skill input */}
+                    <div className="flex gap-2 mt-2">
+                      <Input
+                        placeholder="Other skill (type and press Enter)"
+                        value={collabDialog.customSkillInput}
+                        onChange={e => setCollabDialog(d => ({ ...d, customSkillInput: e.target.value }))}
+                        className="h-8 text-sm"
+                        onKeyDown={e => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            const val = collabDialog.customSkillInput.trim();
+                            if (val && !collabDialog.skills.includes(val)) {
+                              setCollabDialog(d => ({ ...d, skills: [...d.skills, val], customSkillInput: "" }));
+                            } else {
+                              setCollabDialog(d => ({ ...d, customSkillInput: "" }));
+                            }
+                          }
+                        }}
+                      />
+                      <Button type="button" size="sm" variant="outline" className="h-8 px-3 shrink-0"
+                        onClick={() => {
+                          const val = collabDialog.customSkillInput.trim();
+                          if (val && !collabDialog.skills.includes(val)) {
+                            setCollabDialog(d => ({ ...d, skills: [...d.skills, val], customSkillInput: "" }));
+                          } else {
+                            setCollabDialog(d => ({ ...d, customSkillInput: "" }));
+                          }
+                        }}>
+                        Add
+                      </Button>
+                    </div>
+                  </div>
                 </div>
                 <DialogFooter>
                   <Button onClick={handleCreateCollab} disabled={!collabDialog.title.trim()||!collabDialog.looking.trim()||!collabDialog.desc.trim()||collabDialog.uploading} className="gap-2">

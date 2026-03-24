@@ -5,7 +5,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { Search, MapPin, UserPlus, Check } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Search, MapPin, UserPlus, Check, X, UserCheck } from "lucide-react";
 import Layout from "@/components/Layout";
 import { toast } from "@/hooks/use-toast";
 import { useUser } from "@/context/UserContext";
@@ -26,11 +27,23 @@ type Profile = {
   openToCollab: boolean;
 };
 
+type Request = {
+  requesterId: string;
+  name: string;
+  avatar: string;
+  avatarUrl?: string;
+  color: string;
+  bio: string;
+  project: string;
+  location: string;
+  createdAt: string;
+};
+
 function DiscoverSkeleton() {
   return (
     <div className="grid gap-4 sm:grid-cols-2">
       {[1,2,3,4].map(i => (
-        <div key={i} className="p-5 rounded-xl border border-border bg-card animate-pulse">
+        <div key={i} className="p-5 rounded-xl border border-border bg-card animate-pulse flex flex-col">
           <div className="flex items-start gap-3 mb-3">
             <div className="h-12 w-12 rounded-full bg-muted shrink-0" />
             <div className="flex-1 space-y-2 pt-1">
@@ -47,8 +60,9 @@ function DiscoverSkeleton() {
             <div className="h-5 bg-muted rounded-full w-14" />
             <div className="h-5 bg-muted rounded-full w-20" />
           </div>
-          <div className="flex justify-end">
-            <div className="h-7 bg-muted rounded-lg w-24" />
+          <div className="flex justify-end mt-auto gap-2">
+            <div className="h-8 bg-muted rounded-lg w-24" />
+            <div className="h-8 bg-muted rounded-lg w-20" />
           </div>
         </div>
       ))}
@@ -61,6 +75,9 @@ const PAGE_SIZE = 20;
 export default function Discover() {
   const { user } = useUser();
   const navigate = useNavigate();
+  const [activeTab, setActiveTab] = useState("discover");
+
+  // ── Discover tab state ───────────────────────────────────────────────────
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [connected, setConnected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
@@ -72,7 +89,13 @@ export default function Discover() {
   const cursorRef = useRef<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
-  // Debounce search — only fires server query 300 ms after the user stops typing
+  // ── Requests tab state ───────────────────────────────────────────────────
+  const [requests, setRequests] = useState<Request[]>([]);
+  const [requestsLoading, setRequestsLoading] = useState(false);
+  const [acceptingId, setAcceptingId] = useState<string | null>(null);
+  const [decliningId, setDecliningId] = useState<string | null>(null);
+
+  // Debounce search
   useEffect(() => {
     clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => setDebouncedSearch(search), 300);
@@ -91,16 +114,13 @@ export default function Discover() {
         .order("created_at", { ascending: false })
         .limit(PAGE_SIZE);
 
-      // Server-side text search on name, bio, project, location
       if (debouncedSearch) {
         const q = `%${debouncedSearch}%`;
         query = query.or(
           `name.ilike.${q},bio.ilike.${q},project.ilike.${q},location.ilike.${q}`
         );
       }
-      // Server-side collab filter
       if (collabOnly) query = query.eq("open_to_collab", true);
-      // Cursor for pagination
       if (cursor) query = query.lt("created_at", cursor);
 
       const { data, error } = await query;
@@ -123,7 +143,6 @@ export default function Discover() {
       setHasMore((data || []).length === PAGE_SIZE);
       if ((data || []).length > 0) cursorRef.current = data[data.length - 1].created_at;
 
-      // Fetch connections only on first load (not on paginate)
       if (!cursor) {
         const { data: conns } = await (supabase as any)
           .from("connections").select("receiver_id").eq("requester_id", user.id);
@@ -136,17 +155,48 @@ export default function Discover() {
     }
   }, [user.id, debouncedSearch, collabOnly]);
 
-  // Re-fetch from scratch whenever search or filter changes
   useEffect(() => {
     if (!user.id) return;
     cursorRef.current = null;
     fetchProfiles();
   }, [user.id, debouncedSearch, collabOnly, fetchProfiles]);
 
+  const fetchRequests = useCallback(async () => {
+    if (!user.id) return;
+    setRequestsLoading(true);
+    try {
+      const { data, error } = await (supabase as any)
+        .from("connections")
+        .select("requester_id, created_at, profiles:requester_id (id, name, avatar, avatar_url, color, bio, project, location)")
+        .eq("receiver_id", user.id)
+        .eq("status", "pending")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      const mapped: Request[] = (data || []).map((r: any) => ({
+        requesterId: r.requester_id,
+        name: r.profiles?.name || "Unknown",
+        avatar: r.profiles?.avatar || "?",
+        avatarUrl: r.profiles?.avatar_url || undefined,
+        color: r.profiles?.color || "bg-primary",
+        bio: r.profiles?.bio || "",
+        project: r.profiles?.project || "",
+        location: r.profiles?.location || "",
+        createdAt: r.created_at,
+      }));
+      setRequests(mapped);
+    } catch (err: any) {
+      toast({ title: "Failed to load requests", description: err.message, variant: "destructive" });
+    } finally {
+      setRequestsLoading(false);
+    }
+  }, [user.id]);
+
+  useEffect(() => {
+    if (activeTab === "requests" && user.id) fetchRequests();
+  }, [activeTab, user.id, fetchRequests]);
+
   const handleConnect = async (id: string, name: string) => {
     const isConnected = connected.has(id);
-
-    // Optimistic update
     setConnected(prev => {
       const next = new Set(prev);
       isConnected ? next.delete(id) : next.add(id);
@@ -154,16 +204,11 @@ export default function Discover() {
     });
 
     if (isConnected) {
-      await (supabase as any)
-        .from("connections")
-        .delete()
-        .eq("requester_id", user.id)
-        .eq("receiver_id", id);
+      await (supabase as any).from("connections").delete()
+        .eq("requester_id", user.id).eq("receiver_id", id);
       toast({ title: "Connection removed", description: `You disconnected from ${name}.` });
     } else {
-      await (supabase as any)
-        .from("connections")
-        .insert({ requester_id: user.id, receiver_id: id, status: "pending" });
+      await (supabase as any).from("connections").insert({ requester_id: user.id, receiver_id: id, status: "pending" });
       toast({ title: "Connection request sent! 🤝", description: `${name} will be notified.` });
       createNotification({
         userId: id,
@@ -175,8 +220,42 @@ export default function Discover() {
     }
   };
 
-  // Server already filters by name/bio/project/location (ilike) and collabOnly.
-  // No client-side filtering needed — pagination requires all filtering to be server-side.
+  const handleAccept = async (requesterId: string, name: string) => {
+    setAcceptingId(requesterId);
+    try {
+      await (supabase as any).from("connections")
+        .update({ status: "accepted" })
+        .eq("requester_id", requesterId).eq("receiver_id", user.id);
+      setRequests(prev => prev.filter(r => r.requesterId !== requesterId));
+      toast({ title: `Connected with ${name}! 🎉` });
+      createNotification({
+        userId: requesterId,
+        type: "match",
+        text: `${user.name} accepted your connection request`,
+        action: `profile:${user.id}`,
+      });
+    } catch (err: any) {
+      toast({ title: "Failed to accept", description: err.message, variant: "destructive" });
+    } finally {
+      setAcceptingId(null);
+    }
+  };
+
+  const handleDecline = async (requesterId: string, name: string) => {
+    setDecliningId(requesterId);
+    try {
+      await (supabase as any).from("connections")
+        .delete()
+        .eq("requester_id", requesterId).eq("receiver_id", user.id);
+      setRequests(prev => prev.filter(r => r.requesterId !== requesterId));
+      toast({ title: `Request from ${name} declined` });
+    } catch (err: any) {
+      toast({ title: "Failed to decline", description: err.message, variant: "destructive" });
+    } finally {
+      setDecliningId(null);
+    }
+  };
+
   const filtered = profiles;
 
   return (
@@ -184,150 +263,249 @@ export default function Discover() {
       <div className="max-w-3xl mx-auto px-4 py-6">
         <h1 className="font-display text-2xl font-bold mb-6">Discover Builders</h1>
 
-        <div className="flex gap-3 mb-4">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search by name, skill, project..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              className="pl-10 h-11"
-            />
-          </div>
-        </div>
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList className="w-full mb-6">
+            <TabsTrigger value="discover" className="flex-1">People</TabsTrigger>
+            <TabsTrigger value="requests" className="flex-1">
+              Requests
+              {requests.length > 0 && activeTab !== "requests" && (
+                <span className="ml-1.5 h-4 min-w-4 px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold inline-flex items-center justify-center">
+                  {requests.length}
+                </span>
+              )}
+            </TabsTrigger>
+          </TabsList>
 
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-2">
-            <Switch checked={collabOnly} onCheckedChange={setCollabOnly} />
-            <span className="text-sm text-muted-foreground">Open to collaborate only</span>
-          </div>
-          <span className="text-xs text-muted-foreground">
-            {loading ? "Loading..." : `${filtered.length} builder${filtered.length !== 1 ? "s" : ""}${hasMore ? "+" : ""}`}
-          </span>
-        </div>
+          {/* ── Discover People ── */}
+          <TabsContent value="discover" className="space-y-4">
+            <div className="flex gap-3 mb-4">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search by name, skill, project..."
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  className="pl-10 h-11"
+                />
+              </div>
+            </div>
 
-        {loading ? (
-          <DiscoverSkeleton />
-        ) : filtered.length === 0 ? (
-          <div className="text-center py-14 text-muted-foreground">
-            <p className="text-sm font-medium mb-1">
-              {profiles.length === 0 ? "No other builders yet" : "No builders found"}
-            </p>
-            <p className="text-xs mb-3">
-              {profiles.length === 0
-                ? "Invite friends to join Prolifier!"
-                : "Try adjusting your search or filters."}
-            </p>
-            {(debouncedSearch || collabOnly) && (
-              <button className="text-xs text-primary hover:underline"
-                onClick={() => { setSearch(""); setCollabOnly(false); }}>
-                Clear filters
-              </button>
-            )}
-          </div>
-        ) : (
-          <div className="grid gap-4 sm:grid-cols-2">
-            {filtered.map((p, i) => {
-              const isConnected = connected.has(p.id);
-              return (
-                <motion.div
-                  key={p.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: i * 0.04 }}
-                  className="p-5 rounded-xl border border-border bg-card hover:shadow-md transition-shadow"
-                >
-                  <div className="flex items-start gap-3 mb-3">
-                    <button
-                      onClick={() => navigate(`/profile/${p.id}`)}
-                      className={`h-12 w-12 rounded-full ${p.avatarUrl ? "" : p.color} flex items-center justify-center text-white font-semibold shrink-0 hover:opacity-80 transition-opacity overflow-hidden`}
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-2">
+                <Switch checked={collabOnly} onCheckedChange={setCollabOnly} />
+                <span className="text-sm text-muted-foreground">Open to collaborate only</span>
+              </div>
+              <span className="text-xs text-muted-foreground">
+                {loading ? "Loading..." : `${filtered.length} builder${filtered.length !== 1 ? "s" : ""}${hasMore ? "+" : ""}`}
+              </span>
+            </div>
+
+            {loading ? (
+              <DiscoverSkeleton />
+            ) : filtered.length === 0 ? (
+              <div className="text-center py-14 text-muted-foreground">
+                <p className="text-sm font-medium mb-1">
+                  {profiles.length === 0 ? "No other builders yet" : "No builders found"}
+                </p>
+                <p className="text-xs mb-3">
+                  {profiles.length === 0
+                    ? "Invite friends to join Prolifier!"
+                    : "Try adjusting your search or filters."}
+                </p>
+                {(debouncedSearch || collabOnly) && (
+                  <button className="text-xs text-primary hover:underline"
+                    onClick={() => { setSearch(""); setCollabOnly(false); }}>
+                    Clear filters
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2">
+                {filtered.map((p, i) => {
+                  const isConnected = connected.has(p.id);
+                  return (
+                    <motion.div
+                      key={p.id}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: i * 0.04 }}
+                      className="p-5 rounded-xl border border-border bg-card hover:shadow-md transition-shadow flex flex-col"
                     >
-                      {p.avatarUrl
-                        ? <img src={p.avatarUrl} alt={p.avatar} className="w-full h-full object-cover" />
-                        : p.avatar}
-                    </button>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
+                      {/* Header */}
+                      <div className="flex items-start gap-3 mb-3">
                         <button
                           onClick={() => navigate(`/profile/${p.id}`)}
-                          className="font-semibold text-foreground hover:underline text-left text-sm"
+                          className={`h-12 w-12 rounded-full ${p.avatarUrl ? "" : p.color} flex items-center justify-center text-white font-semibold shrink-0 hover:opacity-80 transition-opacity overflow-hidden`}
                         >
-                          {p.name}
+                          {p.avatarUrl
+                            ? <img src={p.avatarUrl} alt={p.avatar} className="w-full h-full object-cover" />
+                            : p.avatar}
                         </button>
-                        <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full border ${
-                          p.openToCollab
-                            ? "bg-emerald-500 text-white border-emerald-500"
-                            : "bg-secondary text-muted-foreground border-border"
-                        }`}>
-                          <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${p.openToCollab ? "bg-white" : "bg-muted-foreground"}`}/>
-                          {p.openToCollab ? "Open to collab" : "Not available"}
-                        </span>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <button
+                              onClick={() => navigate(`/profile/${p.id}`)}
+                              className="font-semibold text-foreground hover:underline text-left text-sm"
+                            >
+                              {p.name}
+                            </button>
+                            <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full border ${
+                              p.openToCollab
+                                ? "bg-emerald-500 text-white border-emerald-500"
+                                : "bg-secondary text-muted-foreground border-border"
+                            }`}>
+                              <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${p.openToCollab ? "bg-white" : "bg-muted-foreground"}`}/>
+                              {p.openToCollab ? "Open to collab" : "Not available"}
+                            </span>
+                          </div>
+                          {p.location && (
+                            <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                              <MapPin className="h-3 w-3 shrink-0" /> {p.location}
+                            </p>
+                          )}
+                        </div>
                       </div>
-                      {p.location && (
+
+                      {/* Body — flex-grow so buttons always go to bottom */}
+                      <div className="flex-1">
+                        {p.bio && <p className="text-sm text-foreground mb-2 leading-relaxed line-clamp-2">{p.bio}</p>}
+                        {p.project && (
+                          <p className="text-xs text-muted-foreground mb-2">
+                            Building: <span className="text-primary font-medium">{p.project}</span>
+                          </p>
+                        )}
+                        {p.skills.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5 mb-3">
+                            {p.skills.slice(0, 4).map(s => (
+                              <Badge key={s} variant="outline" className="text-xs">{s}</Badge>
+                            ))}
+                            {p.skills.length > 4 && (
+                              <Badge variant="outline" className="text-xs text-muted-foreground">+{p.skills.length - 4}</Badge>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Actions — always at bottom */}
+                      <div className="flex items-center gap-2 mt-3 pt-3 border-t border-border/50">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="flex-1 gap-1.5 text-xs h-9"
+                          onClick={() => navigate(`/profile/${p.id}`)}
+                        >
+                          View Profile
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant={isConnected ? "outline" : "default"}
+                          className={`flex-1 gap-1.5 text-xs h-9 ${isConnected ? "border-primary text-primary" : ""}`}
+                          onClick={() => handleConnect(p.id, p.name)}
+                        >
+                          {isConnected ? <Check className="h-3.5 w-3.5" /> : <UserPlus className="h-3.5 w-3.5" />}
+                          {isConnected ? "Connected" : "Connect"}
+                        </Button>
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </div>
+            )}
+
+            {hasMore && !loading && (
+              <div className="flex justify-center pt-2">
+                <Button
+                  variant="outline"
+                  onClick={() => fetchProfiles(cursorRef.current!)}
+                  disabled={loadingMore}
+                  className="gap-2"
+                >
+                  {loadingMore
+                    ? <><div className="h-3.5 w-3.5 rounded-full border-2 border-primary border-t-transparent animate-spin" /> Loading…</>
+                    : "Load more"}
+                </Button>
+              </div>
+            )}
+          </TabsContent>
+
+          {/* ── Requests ── */}
+          <TabsContent value="requests">
+            {requestsLoading ? (
+              <div className="flex items-center justify-center py-16">
+                <div className="h-6 w-6 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+              </div>
+            ) : requests.length === 0 ? (
+              <div className="text-center py-14 text-muted-foreground">
+                <UserCheck className="h-10 w-10 mx-auto mb-3 opacity-25" />
+                <p className="text-sm font-medium mb-1">No pending requests</p>
+                <p className="text-xs">When someone sends you a connection request, it will appear here.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-xs text-muted-foreground mb-2">{requests.length} pending request{requests.length !== 1 ? "s" : ""}</p>
+                {requests.map((r, i) => (
+                  <motion.div
+                    key={r.requesterId}
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.04 }}
+                    className="flex items-center gap-4 p-4 rounded-xl border border-border bg-card"
+                  >
+                    <button
+                      onClick={() => navigate(`/profile/${r.requesterId}`)}
+                      className={`h-12 w-12 rounded-full ${r.avatarUrl ? "" : r.color} flex items-center justify-center text-white font-semibold shrink-0 hover:opacity-80 transition-opacity overflow-hidden`}
+                    >
+                      {r.avatarUrl
+                        ? <img src={r.avatarUrl} alt={r.avatar} className="w-full h-full object-cover" />
+                        : r.avatar}
+                    </button>
+
+                    <div className="flex-1 min-w-0">
+                      <button
+                        onClick={() => navigate(`/profile/${r.requesterId}`)}
+                        className="font-semibold text-sm text-foreground hover:underline text-left"
+                      >
+                        {r.name}
+                      </button>
+                      {r.location && (
                         <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-                          <MapPin className="h-3 w-3 shrink-0" /> {p.location}
+                          <MapPin className="h-3 w-3 shrink-0" /> {r.location}
                         </p>
                       )}
+                      {r.bio && <p className="text-xs text-muted-foreground mt-1 line-clamp-1">{r.bio}</p>}
                     </div>
-                  </div>
 
-                  {p.bio && <p className="text-sm text-foreground mb-2 leading-relaxed line-clamp-2">{p.bio}</p>}
-                  {p.project && (
-                    <p className="text-xs text-muted-foreground mb-2">
-                      Building: <span className="text-primary font-medium">{p.project}</span>
-                    </p>
-                  )}
-
-                  {p.skills.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 mb-3">
-                      {p.skills.slice(0, 4).map(s => (
-                        <Badge key={s} variant="outline" className="text-xs">{s}</Badge>
-                      ))}
-                      {p.skills.length > 4 && (
-                        <Badge variant="outline" className="text-xs text-muted-foreground">+{p.skills.length - 4}</Badge>
-                      )}
+                    <div className="flex flex-col gap-2 shrink-0">
+                      <Button
+                        size="sm"
+                        className="h-8 px-4 text-xs gap-1.5"
+                        disabled={acceptingId === r.requesterId}
+                        onClick={() => handleAccept(r.requesterId, r.name)}
+                      >
+                        {acceptingId === r.requesterId
+                          ? <div className="h-3 w-3 rounded-full border-2 border-primary-foreground border-t-transparent animate-spin" />
+                          : <Check className="h-3.5 w-3.5" />}
+                        Accept
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 px-4 text-xs gap-1.5"
+                        disabled={decliningId === r.requesterId}
+                        onClick={() => handleDecline(r.requesterId, r.name)}
+                      >
+                        {decliningId === r.requesterId
+                          ? <div className="h-3 w-3 rounded-full border-2 border-muted-foreground border-t-transparent animate-spin" />
+                          : <X className="h-3.5 w-3.5" />}
+                        Decline
+                      </Button>
                     </div>
-                  )}
-
-                  <div className="flex items-center gap-2 justify-end">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="gap-1.5 text-xs h-7 px-3"
-                      onClick={() => navigate(`/profile/${p.id}`)}
-                    >
-                      View profile
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant={isConnected ? "outline" : "default"}
-                      className={`gap-1.5 text-xs h-7 px-3 ${isConnected ? "border-primary text-primary" : ""}`}
-                      onClick={() => handleConnect(p.id, p.name)}
-                    >
-                      {isConnected ? <Check className="h-3 w-3" /> : <UserPlus className="h-3 w-3" />}
-                      {isConnected ? "Connected" : "Connect"}
-                    </Button>
-                  </div>
-                </motion.div>
-              );
-            })}
-          </div>
-        )}
-
-        {hasMore && !loading && (
-          <div className="flex justify-center pt-2">
-            <Button
-              variant="outline"
-              onClick={() => fetchProfiles(cursorRef.current!)}
-              disabled={loadingMore}
-              className="gap-2"
-            >
-              {loadingMore
-                ? <><div className="h-3.5 w-3.5 rounded-full border-2 border-primary border-t-transparent animate-spin" /> Loading…</>
-                : "Load more"}
-            </Button>
-          </div>
-        )}
+                  </motion.div>
+                ))}
+              </div>
+            )}
+          </TabsContent>
+        </Tabs>
       </div>
     </Layout>
   );

@@ -17,48 +17,96 @@ export default function Layout({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
   const { theme, toggleTheme } = useTheme();
   const { user } = useUser();
-  const [unreadCount, setUnreadCount] = useState(0);
 
-  // Fetch unread notification count on mount and subscribe to new ones
+  // Bell: unread notifs excluding message + match types
+  const [notifCount, setNotifCount] = useState(0);
+  // Messages icon: unread message notifications
+  const [msgCount, setMsgCount] = useState(0);
+  // Discover icon: pending incoming connection requests
+  const [discoverCount, setDiscoverCount] = useState(0);
+
   useEffect(() => {
     if (!user.id) return;
 
-    const fetchUnread = async () => {
-      const { count } = await (supabase as any)
-        .from("notifications")
-        .select("*", { count: "exact", head: true })
-        .eq("user_id", user.id)
-        .eq("read", false);
-      setUnreadCount(count ?? 0);
+    const fetchCounts = async () => {
+      const [notifRes, msgRes, discoverRes] = await Promise.all([
+        (supabase as any).from("notifications")
+          .select("*", { count: "exact", head: true })
+          .eq("user_id", user.id).eq("read", false)
+          .not("type", "in", "(message,match)"),
+        (supabase as any).from("notifications")
+          .select("*", { count: "exact", head: true })
+          .eq("user_id", user.id).eq("read", false).eq("type", "message"),
+        (supabase as any).from("connections")
+          .select("*", { count: "exact", head: true })
+          .eq("receiver_id", user.id).eq("status", "pending"),
+      ]);
+      setNotifCount(notifRes.count ?? 0);
+      setMsgCount(msgRes.count ?? 0);
+      setDiscoverCount(discoverRes.count ?? 0);
     };
 
-    fetchUnread();
+    fetchCounts();
 
-    // Realtime: increment badge when a new notification arrives
+    const refreshDiscoverCount = () => {
+      (supabase as any).from("connections")
+        .select("*", { count: "exact", head: true })
+        .eq("receiver_id", user.id).eq("status", "pending")
+        .then(({ count }: any) => setDiscoverCount(count ?? 0));
+    };
+
     const channel = supabase
-      .channel(`layout-notifs-${user.id}`)
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${user.id}` },
-        () => setUnreadCount(n => n + 1)
+      .channel(`layout-counts-${user.id}`)
+      .on("postgres_changes", {
+        event: "INSERT", schema: "public", table: "notifications",
+        filter: `user_id=eq.${user.id}`,
+      }, (payload: any) => {
+        if (payload.new.type === "message") setMsgCount(n => n + 1);
+        else if (payload.new.type !== "match") setNotifCount(n => n + 1);
+      })
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "connections" },
+        () => refreshDiscoverCount()
+      )
+      .on("postgres_changes", { event: "DELETE", schema: "public", table: "connections" },
+        () => refreshDiscoverCount()
+      )
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "connections" },
+        () => refreshDiscoverCount()
       )
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
   }, [user.id]);
 
-  // Clear badge + mark all read in DB when the user is on the notifications page
+  // Clear relevant badge + mark notifs read when visiting the page
   useEffect(() => {
-    if (!pathname.startsWith("/notifications") || !user.id) return;
-    setUnreadCount(0);
-    // Must be awaited inside an async wrapper — Supabase v2 queries are lazy
-    const run = async () => {
-      await (supabase as any)
-        .from("notifications")
-        .update({ read: true })
-        .eq("user_id", user.id)
-        .eq("read", false);
-    };
-    run();
+    if (!user.id) return;
+    if (pathname.startsWith("/notifications")) {
+      setNotifCount(0);
+      const run = async () => {
+        await (supabase as any).from("notifications").update({ read: true })
+          .eq("user_id", user.id).eq("read", false)
+          .not("type", "in", "(message,match)");
+      };
+      run();
+    } else if (pathname.startsWith("/messages")) {
+      setMsgCount(0);
+      const run = async () => {
+        await (supabase as any).from("notifications").update({ read: true })
+          .eq("user_id", user.id).eq("type", "message").eq("read", false);
+      };
+      run();
+    } else if (pathname.startsWith("/discover")) {
+      setDiscoverCount(0);
+    }
   }, [pathname, user.id]);
+
+  const getBadge = (to: string) => {
+    if (to === "/notifications") return notifCount;
+    if (to === "/messages") return msgCount;
+    if (to === "/discover") return discoverCount;
+    return 0;
+  };
 
   return (
     <div className="min-h-screen flex bg-background">
@@ -75,7 +123,7 @@ export default function Layout({ children }: { children: ReactNode }) {
         <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto">
           {NAV_PATHS.map(({ to, icon: Icon, label }) => {
             const active = pathname.startsWith(to);
-            const isNotif = to === "/notifications";
+            const badge = getBadge(to);
             return (
               <Link
                 key={to}
@@ -88,9 +136,9 @@ export default function Layout({ children }: { children: ReactNode }) {
               >
                 <div className="relative shrink-0">
                   <Icon className="h-4 w-4" />
-                  {isNotif && unreadCount > 0 && (
+                  {badge > 0 && (
                     <span className="absolute -top-1.5 -right-1.5 h-4 min-w-4 px-0.5 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">
-                      {unreadCount > 99 ? "99+" : unreadCount}
+                      {badge > 99 ? "99+" : badge}
                     </span>
                   )}
                 </div>
@@ -166,9 +214,9 @@ export default function Layout({ children }: { children: ReactNode }) {
               {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </button>
             <Link to="/notifications" className="relative">
-              {unreadCount > 0 && (
+              {notifCount > 0 && (
                 <span className="absolute -top-1 -right-1 h-4 min-w-4 px-0.5 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center z-10 leading-none">
-                  {unreadCount > 99 ? "99+" : unreadCount}
+                  {notifCount > 99 ? "99+" : notifCount}
                 </span>
               )}
               <div className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:bg-secondary transition-colors">
@@ -195,7 +243,7 @@ export default function Layout({ children }: { children: ReactNode }) {
       >
         {NAV_PATHS.map(({ to, icon: Icon, label }) => {
           const active = pathname.startsWith(to);
-          const isNotif = to === "/notifications";
+          const badge = getBadge(to);
           return (
             <Link
               key={to}
@@ -206,9 +254,9 @@ export default function Layout({ children }: { children: ReactNode }) {
             >
               <div className="relative">
                 <Icon className={`h-5 w-5 transition-transform duration-150 ${active ? "scale-110" : ""}`} />
-                {isNotif && unreadCount > 0 && (
+                {badge > 0 && (
                   <span className="absolute -top-1.5 -right-1.5 h-4 min-w-4 px-0.5 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">
-                    {unreadCount > 99 ? "99+" : unreadCount}
+                    {badge > 99 ? "99+" : badge}
                   </span>
                 )}
               </div>

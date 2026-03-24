@@ -17,8 +17,8 @@ export const SKILL_CATEGORIES = [
 
 export type SkillCategory = (typeof SKILL_CATEGORIES)[number];
 
-/** Collab browse filters — All + every category. */
-export const COLLAB_FILTERS = ["All", ...SKILL_CATEGORIES] as const;
+/** Collab browse filters — All + every category + Other. */
+export const COLLAB_FILTERS = ["All", ...SKILL_CATEGORIES, "Other"] as const;
 
 /** Role options — max 2 selections per user. */
 export const ROLE_OPTIONS = [
