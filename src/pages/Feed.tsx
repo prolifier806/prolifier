@@ -15,7 +15,7 @@ import {
 import {
   Heart, MessageCircle, MapPin, Search, Plus, Send, MoreHorizontal,
   Trash2, Edit3, Bookmark, Share2, Flag, EyeOff, Handshake,
-  X, Check, BookmarkCheck, Users, ImageIcon, Link2, Video as VideoIcon, ZoomIn,
+  X, Check, BookmarkCheck, ImageIcon, Link2, Video as VideoIcon, ZoomIn,
   SlidersHorizontal,
 } from "lucide-react";
 import Layout from "@/components/Layout";
@@ -30,13 +30,13 @@ import { createNotification } from "@/lib/notifications";
 type Comment = { id: string; author: string; avatar: string; color: string; text: string; time: string; };
 type Post = {
   id: string; user_id: string; author: string; avatar: string; avatarUrl?: string; avatarColor: string; location: string;
-  role?: string; authorDeleted?: boolean;
+  authorSkills?: string[]; authorDeleted?: boolean;
   tag: string; time: string; content: string; image?: string; video?: string; likes: number; isOwn: boolean;
   comments: Comment[];
 };
 type Collab = {
   id: string; user_id: string; author: string; avatar: string; avatarUrl?: string; avatarColor: string; location: string;
-  role?: string; authorDeleted?: boolean;
+  authorSkills?: string[]; authorDeleted?: boolean;
   title: string; looking: string; description: string; skills: string[]; image?: string; video?: string;
   isOwn: boolean;
 };
@@ -598,7 +598,11 @@ const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, onLike, 
           </div>
           <div className="flex-1 min-w-0">
             <span className={`font-semibold text-sm text-left ${post.authorDeleted ? "text-muted-foreground italic" : "text-foreground cursor-pointer hover:underline"}`} onClick={goToProfile}>{post.author}</span>
-            {post.role && <p className="text-[11px] text-primary font-medium leading-tight">{post.role}</p>}
+            {!post.authorDeleted && post.authorSkills && post.authorSkills.length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-0.5">
+                {post.authorSkills.map(s => <span key={s} className="text-[10px] bg-primary/10 text-primary font-medium px-1.5 py-0.5 rounded-full">{s}</span>)}
+              </div>
+            )}
             <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
               {!post.authorDeleted && <><MapPin className="h-3 w-3 shrink-0"/> {post.location} · </>}{post.time}
             </p>
@@ -698,7 +702,11 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
           </div>
           <div className="flex-1 min-w-0">
             <span className={`font-semibold text-sm text-left ${collab.authorDeleted ? "text-muted-foreground italic" : "text-foreground cursor-pointer hover:underline"}`} onClick={goToProfile}>{collab.author}</span>
-            {collab.role && <p className="text-[11px] text-primary font-medium leading-tight">{collab.role}</p>}
+            {!collab.authorDeleted && collab.authorSkills && collab.authorSkills.length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-0.5">
+                {collab.authorSkills.map(s => <span key={s} className="text-[10px] bg-primary/10 text-primary font-medium px-1.5 py-0.5 rounded-full">{s}</span>)}
+              </div>
+            )}
             {!collab.authorDeleted && <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5"><MapPin className="h-3 w-3 shrink-0"/> {collab.location}</p>}
           </div>
           <DropdownMenu>
@@ -731,8 +739,11 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
           </DropdownMenu>
         </div>
         <div className="px-5 pb-4">
-          <h3 className="font-semibold text-foreground mb-1">{collab.title}</h3>
-          <p className="text-xs font-medium text-primary mb-2 flex items-center gap-1"><Users className="h-3 w-3"/> Looking for: {collab.looking}</p>
+          <h3 className="font-semibold text-foreground mb-2">{collab.title}</h3>
+          <div className="flex items-center gap-1.5 mb-2">
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Looking for</span>
+            <span className="text-sm font-bold text-primary">{collab.looking}</span>
+          </div>
           <p className="text-sm text-foreground leading-relaxed mb-3">{collab.description}</p>
           {collab.image && (
             <div className="mb-3">
@@ -742,14 +753,16 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
           {collab.video && <div className="mb-3"><SmartVideo src={collab.video} /></div>}
           <div className="flex flex-wrap gap-1.5">{collab.skills.map((s)=><Badge key={s} variant="secondary" className="text-xs">{s}</Badge>)}</div>
         </div>
-        <div className="flex gap-2 px-5 pb-4">
-          <Button size="sm" variant={isInterested?"outline":"default"} className={`flex-1 gap-1.5 ${isInterested?"border-primary text-primary":""}`} onClick={()=>onInterest(collab.id,collab.author)}>
-            <Handshake className="h-3.5 w-3.5"/>{isInterested?"Interested ✓":"I'm Interested"}
-          </Button>
-          <Button size="sm" variant="outline" className="flex-1 gap-1.5" onClick={()=>onMessage(collab.author)}>
-            <MessageCircle className="h-3.5 w-3.5"/> Message
-          </Button>
-        </div>
+        {!collab.isOwn && (
+          <div className="flex gap-2 px-5 pb-4">
+            <Button size="sm" variant={isInterested?"outline":"default"} className={`flex-1 gap-1.5 ${isInterested?"border-primary text-primary":""}`} onClick={()=>onInterest(collab.id,collab.author)}>
+              <Handshake className="h-3.5 w-3.5"/>{isInterested?"Interested ✓":"I'm Interested"}
+            </Button>
+            <Button size="sm" variant="outline" className="flex-1 gap-1.5" onClick={()=>onMessage(collab.author)}>
+              <MessageCircle className="h-3.5 w-3.5"/> Message
+            </Button>
+          </div>
+        )}
       </motion.div>
       <AnimatePresence>
         {lightboxSrc && <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />}
@@ -848,12 +861,12 @@ export default function Feed() {
       const [postsRes, collabsRes, likesRes, savedPostsRes, savedCollabsRes, interestedRes] = await Promise.all([
         (supabase as any)
           .from("posts")
-          .select(`*, profiles:user_id (name, avatar, avatar_url, color, location, roles, deleted_at)`)
+          .select(`*, profiles:user_id (name, avatar, avatar_url, color, location, skills, deleted_at)`)
           .order("created_at", { ascending: false })
           .limit(30),
         (supabase as any)
           .from("collabs")
-          .select(`*, profiles:user_id (name, avatar, avatar_url, color, location, roles, deleted_at)`)
+          .select(`*, profiles:user_id (name, avatar, avatar_url, color, location, skills, deleted_at)`)
           .order("created_at", { ascending: false })
           .limit(30),
         (supabase as any)
@@ -885,7 +898,7 @@ export default function Feed() {
         avatarUrl: p.profiles?.deleted_at ? undefined : (p.profiles?.avatar_url || undefined),
         avatarColor: p.profiles?.deleted_at ? "bg-muted-foreground" : (p.profiles?.color || "bg-primary"),
         location: p.profiles?.deleted_at ? "" : (p.profiles?.location || ""),
-        role: p.profiles?.deleted_at ? undefined : (p.profiles?.roles?.[0] || undefined),
+        authorSkills: p.profiles?.deleted_at ? [] : (p.profiles?.skills?.slice(0, 3) || []),
         authorDeleted: !!p.profiles?.deleted_at,
         tag: p.tag, time: timeAgo(p.created_at), content: p.content,
         image: p.image_url || undefined, video: p.video_url || undefined,
@@ -900,7 +913,7 @@ export default function Feed() {
         avatarUrl: c.profiles?.deleted_at ? undefined : (c.profiles?.avatar_url || undefined),
         avatarColor: c.profiles?.deleted_at ? "bg-muted-foreground" : (c.profiles?.color || "bg-primary"),
         location: c.profiles?.deleted_at ? "" : (c.profiles?.location || ""),
-        role: c.profiles?.deleted_at ? undefined : (c.profiles?.roles?.[0] || undefined),
+        authorSkills: c.profiles?.deleted_at ? [] : (c.profiles?.skills?.slice(0, 3) || []),
         authorDeleted: !!c.profiles?.deleted_at,
         title: c.title, looking: c.looking, description: c.description,
         skills: c.skills || [], image: c.image_url || undefined, video: c.video_url || undefined,
@@ -931,7 +944,7 @@ export default function Feed() {
     try {
       const { data, error } = await (supabase as any)
         .from("posts")
-        .select(`*, profiles:user_id (name, avatar, avatar_url, color, location, roles, deleted_at)`)
+        .select(`*, profiles:user_id (name, avatar, avatar_url, color, location, skills, deleted_at)`)
         .order("created_at", { ascending: false })
         .lt("created_at", postsCursorRef.current)
         .limit(30);
@@ -962,7 +975,7 @@ export default function Feed() {
     try {
       const { data, error } = await (supabase as any)
         .from("collabs")
-        .select(`*, profiles:user_id (name, avatar, avatar_url, color, location, roles, deleted_at)`)
+        .select(`*, profiles:user_id (name, avatar, avatar_url, color, location, skills, deleted_at)`)
         .order("created_at", { ascending: false })
         .lt("created_at", collabsCursorRef.current)
         .limit(30);
@@ -974,7 +987,7 @@ export default function Feed() {
         avatarUrl: c.profiles?.deleted_at ? undefined : (c.profiles?.avatar_url || undefined),
         avatarColor: c.profiles?.deleted_at ? "bg-muted-foreground" : (c.profiles?.color || "bg-primary"),
         location: c.profiles?.deleted_at ? "" : (c.profiles?.location || ""),
-        role: c.profiles?.deleted_at ? undefined : (c.profiles?.roles?.[0] || undefined),
+        authorSkills: c.profiles?.deleted_at ? [] : (c.profiles?.skills?.slice(0, 3) || []),
         authorDeleted: !!c.profiles?.deleted_at,
         title: c.title, looking: c.looking, description: c.description,
         skills: c.skills || [], image: c.image_url || undefined, video: c.video_url || undefined,
@@ -1347,7 +1360,7 @@ export default function Feed() {
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="w-full mb-6">
             <TabsTrigger value="feed" className="flex-1">Feed</TabsTrigger>
-            <TabsTrigger value="collabs" className="flex-1">Collabs</TabsTrigger>
+            <TabsTrigger value="collabs" className="flex-1">Build Together</TabsTrigger>
           </TabsList>
 
           {/* ── FEED ── */}
@@ -1357,11 +1370,11 @@ export default function Feed() {
               setPostDialog(d => ({ ...d, open: v }));
             }}>
               <Button className="w-full h-12 gap-2 font-semibold" onClick={() => setPostDialog(d => ({ ...d, open: true }))}>
-                <Plus className="h-4 w-4"/> Share an update
+                <Plus className="h-4 w-4"/> What are you building?
               </Button>
               <DialogContent className="sm:max-w-md">
                 <DialogHeader>
-                  <DialogTitle>Share an update</DialogTitle>
+                  <DialogTitle>What are you building?</DialogTitle>
                   <DialogDescription>Share your journey, ask a question, or celebrate a milestone.</DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4 py-2">

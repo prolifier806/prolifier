@@ -115,13 +115,16 @@ export default function Onboarding() {
         if (error) throw error;
 
         // Supabase returns identities: [] when the email is already registered.
+        // Try signing in automatically with the same credentials instead of showing an error.
         if (data.user?.identities?.length === 0) {
-          toast({
-            title: "An account with this email already exists.",
-            description: "Please sign in instead.",
-            variant: "destructive",
-          });
-          setAuthMode("login");
+          const { error: loginErr } = await supabase.auth.signInWithPassword({ email: trimmedEmail, password });
+          if (loginErr) {
+            toast({ title: "An account with this email already exists.", description: "Please sign in with the correct password.", variant: "destructive" });
+            setAuthMode("login");
+          } else {
+            toast({ title: "Welcome back!" });
+            navigate("/");
+          }
           setLoading(false);
           return;
         }

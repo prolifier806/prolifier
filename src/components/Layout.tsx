@@ -7,7 +7,7 @@ import { supabase } from "@/lib/supabase";
 
 const NAV_PATHS = [
   { to: "/feed",          icon: Home,          label: "Feed"          },
-  { to: "/discover",      icon: Search,        label: "Discover"      },
+  { to: "/discover",      icon: Search,        label: "Find Your People" },
   { to: "/messages",      icon: MessageCircle, label: "Messages"      },
   { to: "/groups",        icon: Users,         label: "Groups"        },
   { to: "/notifications", icon: Bell,          label: "Notifications" },

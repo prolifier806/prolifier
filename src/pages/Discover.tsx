@@ -92,6 +92,7 @@ export default function Discover() {
   // ── Requests tab state ───────────────────────────────────────────────────
   const [requests, setRequests] = useState<Request[]>([]);
   const [requestsLoading, setRequestsLoading] = useState(false);
+  const [requestCount, setRequestCount] = useState(0);
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
   const [decliningId, setDecliningId] = useState<string | null>(null);
 
@@ -196,6 +197,28 @@ export default function Discover() {
     if (activeTab === "requests" && user.id) fetchRequests();
   }, [activeTab, user.id, fetchRequests]);
 
+  // Fetch request count on mount + keep in sync via realtime
+  useEffect(() => {
+    if (!user.id) return;
+    const fetchCount = async () => {
+      const { count } = await (supabase as any)
+        .from("connections")
+        .select("*", { count: "exact", head: true })
+        .eq("receiver_id", user.id)
+        .eq("status", "pending");
+      setRequestCount(count ?? 0);
+    };
+    fetchCount();
+    const channel = supabase
+      .channel(`discover-req-count-${user.id}`)
+      .on("postgres_changes", {
+        event: "*", schema: "public", table: "connections",
+        filter: `receiver_id=eq.${user.id}`,
+      }, fetchCount)
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [user.id]);
+
   const handleConnect = async (id: string, name: string) => {
     const isConnected = connected.has(id);
     setConnected(prev => {
@@ -228,6 +251,7 @@ export default function Discover() {
         .update({ status: "accepted" })
         .eq("requester_id", requesterId).eq("receiver_id", user.id);
       setRequests(prev => prev.filter(r => r.requesterId !== requesterId));
+      setRequestCount(prev => Math.max(0, prev - 1));
       toast({ title: `Connected with ${name}! 🎉` });
       createNotification({
         userId: requesterId,
@@ -249,6 +273,7 @@ export default function Discover() {
         .delete()
         .eq("requester_id", requesterId).eq("receiver_id", user.id);
       setRequests(prev => prev.filter(r => r.requesterId !== requesterId));
+      setRequestCount(prev => Math.max(0, prev - 1));
       toast({ title: `Request from ${name} declined` });
     } catch (err: any) {
       toast({ title: "Failed to decline", description: err.message, variant: "destructive" });
@@ -262,16 +287,16 @@ export default function Discover() {
   return (
     <Layout>
       <div className="max-w-3xl mx-auto px-4 py-6">
-        <h1 className="font-display text-2xl font-bold mb-6">Discover Builders</h1>
+        <h1 className="font-display text-2xl font-bold mb-6">Find Your People</h1>
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="w-full mb-6">
             <TabsTrigger value="discover" className="flex-1">People</TabsTrigger>
             <TabsTrigger value="requests" className="flex-1">
               Requests
-              {requests.length > 0 && activeTab !== "requests" && (
+              {requestCount > 0 && (
                 <span className="ml-1.5 h-4 min-w-4 px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold inline-flex items-center justify-center">
-                  {requests.length}
+                  {requestCount}
                 </span>
               )}
             </TabsTrigger>

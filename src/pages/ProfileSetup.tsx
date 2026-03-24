@@ -9,9 +9,10 @@ import { Switch } from "@/components/ui/switch";
 import { X, Plus } from "lucide-react";
 import { useUser } from "@/context/UserContext";
 import { toast } from "@/hooks/use-toast";
-import { SKILL_CATEGORIES, ROLE_OPTIONS, MAX_ROLES } from "@/lib/skills";
+import { SKILL_CATEGORIES } from "@/lib/skills";
 
 const TOTAL_STEPS = 3;
+const MAX_SKILLS = 3;
 
 export default function ProfileSetup() {
   const [step, setStep]     = useState(0);
@@ -22,27 +23,28 @@ export default function ProfileSetup() {
   const [location, setLocation] = useState("");
   const [bio, setBio]           = useState("");
   const [building, setBuilding] = useState("");
-  const [roles, setRoles]       = useState<string[]>([]);
-  const [haveSkills, setHaveSkills] = useState<string[]>([]);
-  const [wantSkills, setWantSkills] = useState<string[]>([]);
-  const [available, setAvailable]   = useState(true);
-  const [github, setGithub]         = useState("");
-  const [website, setWebsite]       = useState("");
-  const [twitter, setTwitter]       = useState("");
-  const [finishing, setFinishing]   = useState(false);
-  const [customRoleInput, setCustomRoleInput] = useState("");
-  const [customHaveInput, setCustomHaveInput] = useState("");
-  const [customWantInput, setCustomWantInput] = useState("");
+  const [skills, setSkills]     = useState<string[]>([]);
+  const [available, setAvailable] = useState(true);
+  const [github, setGithub]     = useState("");
+  const [website, setWebsite]   = useState("");
+  const [twitter, setTwitter]   = useState("");
+  const [finishing, setFinishing] = useState(false);
+  const [customSkillInput, setCustomSkillInput] = useState("");
 
-  const toggleSkill = (skill: string, list: string[], setList: (s: string[]) => void) =>
-    setList(list.includes(skill) ? list.filter(s => s !== skill) : [...list, skill]);
-
-  const toggleRole = (role: string) => {
-    if (roles.includes(role)) {
-      setRoles(prev => prev.filter(r => r !== role));
-    } else if (roles.length < MAX_ROLES) {
-      setRoles(prev => [...prev, role]);
+  const toggleSkill = (s: string) => {
+    if (skills.includes(s)) {
+      setSkills(prev => prev.filter(x => x !== s));
+    } else if (skills.length < MAX_SKILLS) {
+      setSkills(prev => [...prev, s]);
     }
+  };
+
+  const addCustomSkill = () => {
+    const val = customSkillInput.trim();
+    if (val && !skills.includes(val) && skills.length < MAX_SKILLS) {
+      setSkills(prev => [...prev, val]);
+    }
+    setCustomSkillInput("");
   };
 
   const buildPayload = () => {
@@ -50,7 +52,7 @@ export default function ProfileSetup() {
     return {
       name: name.trim(), avatar: initials,
       location: location.trim(), bio: bio.trim(), project: building.trim(),
-      skills: haveSkills, lookingFor: wantSkills, roles,
+      skills, lookingFor: [], roles: [],
       github: github.trim(), website: website.trim(), twitter: twitter.trim(),
       openToCollab: available,
     };
@@ -84,7 +86,7 @@ export default function ProfileSetup() {
       if (!location.trim()) { toast({ title: "Location is required", variant: "destructive" }); return; }
       if (!bio.trim()) { toast({ title: "Bio is required", variant: "destructive" }); return; }
     }
-    if (step === 1 && haveSkills.length === 0) {
+    if (step === 1 && skills.length === 0) {
       toast({ title: "Please select at least one skill", variant: "destructive" }); return;
     }
     if (step < TOTAL_STEPS - 1) {
@@ -97,7 +99,7 @@ export default function ProfileSetup() {
   const stepLabels = ["Basic info", "Skills", "Links"];
 
   const steps = [
-    // ── Step 1: Basic info + Role ────────────────────────────
+    // ── Step 1: Basic info ────────────────────────────────────
     <div className="space-y-5" key="s1">
       <div>
         <label className="text-sm font-medium text-foreground mb-1.5 block">
@@ -124,146 +126,50 @@ export default function ProfileSetup() {
         </div>
         <Input value={building} onChange={e => setBuilding(e.target.value)} placeholder="A ceramics shop, a podcast, an app…" className="h-11" />
       </div>
+    </div>,
+
+    // ── Step 2: Skills (max 3) ────────────────────────────────
+    <div className="space-y-4" key="s2">
       <div>
-        <div className="flex items-center justify-between mb-2">
-          <label className="text-sm font-medium text-foreground">Your role</label>
-          <span className="text-xs text-muted-foreground">Pick up to {MAX_ROLES} · Optional</span>
+        <div className="flex items-center justify-between mb-1">
+          <label className="text-sm font-medium text-foreground">Skills & Expertise</label>
+          <span className={`text-xs font-medium ${skills.length >= MAX_SKILLS ? "text-primary" : "text-muted-foreground"}`}>
+            {skills.length}/{MAX_SKILLS} selected
+          </span>
         </div>
+        <p className="text-xs text-muted-foreground mb-3">Pick up to {MAX_SKILLS} — these will show on your posts</p>
         <div className="space-y-2">
           <div className="flex flex-wrap gap-2">
-            {ROLE_OPTIONS.map(r => {
-              const selected = roles.includes(r);
-              const maxed = !selected && roles.length >= MAX_ROLES;
+            {SKILL_CATEGORIES.map(s => {
+              const selected = skills.includes(s);
+              const maxed = !selected && skills.length >= MAX_SKILLS;
               return (
-                <Badge key={r}
+                <Badge key={s}
                   variant={selected ? "default" : "outline"}
                   className={`cursor-pointer transition-all ${maxed ? "opacity-40 cursor-not-allowed" : "hover:scale-105"}`}
-                  onClick={() => toggleRole(r)}
+                  onClick={() => toggleSkill(s)}
                 >
-                  {r}{selected && <X className="h-3 w-3 ml-1" />}
+                  {s}{selected && <X className="h-3 w-3 ml-1" />}
                 </Badge>
               );
             })}
-            {/* Custom roles */}
-            {roles.filter(r => !(ROLE_OPTIONS as readonly string[]).includes(r)).map(r => (
-              <Badge key={r} variant="default" className="cursor-pointer gap-1 transition-all hover:scale-105"
-                onClick={() => setRoles(prev => prev.filter(x => x !== r))}>
-                {r} <X className="h-3 w-3" />
+            {skills.filter(s => !(SKILL_CATEGORIES as readonly string[]).includes(s)).map(s => (
+              <Badge key={s} variant="default" className="cursor-pointer gap-1 transition-all hover:scale-105"
+                onClick={() => setSkills(prev => prev.filter(x => x !== s))}>
+                {s} <X className="h-3 w-3" />
               </Badge>
             ))}
           </div>
-          {roles.length < MAX_ROLES && (
+          {skills.length < MAX_SKILLS && (
             <div className="flex gap-2">
-              <Input placeholder="Other role…" value={customRoleInput}
-                onChange={e => setCustomRoleInput(e.target.value)} className="h-9 text-sm"
-                onKeyDown={e => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    const val = customRoleInput.trim();
-                    if (val && !roles.includes(val) && roles.length < MAX_ROLES) setRoles(prev => [...prev, val]);
-                    setCustomRoleInput("");
-                  }
-                }}/>
-              <Button type="button" size="sm" variant="outline" className="h-9 px-3 shrink-0 gap-1"
-                onClick={() => {
-                  const val = customRoleInput.trim();
-                  if (val && !roles.includes(val) && roles.length < MAX_ROLES) setRoles(prev => [...prev, val]);
-                  setCustomRoleInput("");
-                }}>
-                <Plus className="h-3.5 w-3.5"/> Add
+              <Input placeholder="Other skill…" value={customSkillInput}
+                onChange={e => setCustomSkillInput(e.target.value)} className="h-9 text-sm"
+                onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addCustomSkill(); } }} />
+              <Button type="button" size="sm" variant="outline" className="h-9 px-3 shrink-0 gap-1" onClick={addCustomSkill}>
+                <Plus className="h-3.5 w-3.5" /> Add
               </Button>
             </div>
           )}
-        </div>
-      </div>
-    </div>,
-
-    // ── Step 2: Skills ───────────────────────────────────────
-    <div className="space-y-7" key="s2">
-      <div>
-        <label className="text-sm font-medium text-foreground mb-1 block">Skills I have</label>
-        <p className="text-xs text-muted-foreground mb-3">Select your areas of expertise</p>
-        <div className="space-y-2">
-          <div className="flex flex-wrap gap-2">
-            {SKILL_CATEGORIES.map(s => (
-              <Badge key={s}
-                variant={haveSkills.includes(s) ? "default" : "outline"}
-                className="cursor-pointer transition-all hover:scale-105"
-                onClick={() => toggleSkill(s, haveSkills, setHaveSkills)}
-              >
-                {s}{haveSkills.includes(s) && <X className="h-3 w-3 ml-1" />}
-              </Badge>
-            ))}
-            {haveSkills.filter(s => !(SKILL_CATEGORIES as readonly string[]).includes(s)).map(s => (
-              <Badge key={s} variant="default" className="cursor-pointer gap-1 transition-all hover:scale-105"
-                onClick={() => setHaveSkills(prev => prev.filter(x => x !== s))}>
-                {s} <X className="h-3 w-3" />
-              </Badge>
-            ))}
-          </div>
-          <div className="flex gap-2">
-            <Input placeholder="Other skill…" value={customHaveInput}
-              onChange={e => setCustomHaveInput(e.target.value)} className="h-9 text-sm"
-              onKeyDown={e => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  const val = customHaveInput.trim();
-                  if (val && !haveSkills.includes(val)) setHaveSkills(prev => [...prev, val]);
-                  setCustomHaveInput("");
-                }
-              }}/>
-            <Button type="button" size="sm" variant="outline" className="h-9 px-3 shrink-0 gap-1"
-              onClick={() => {
-                const val = customHaveInput.trim();
-                if (val && !haveSkills.includes(val)) setHaveSkills(prev => [...prev, val]);
-                setCustomHaveInput("");
-              }}>
-              <Plus className="h-3.5 w-3.5"/> Add
-            </Button>
-          </div>
-        </div>
-      </div>
-      <div>
-        <label className="text-sm font-medium text-foreground mb-1 block">Skills I'm looking for</label>
-        <p className="text-xs text-muted-foreground mb-3">What kind of collaborator do you need?</p>
-        <div className="space-y-2">
-          <div className="flex flex-wrap gap-2">
-            {SKILL_CATEGORIES.map(s => (
-              <Badge key={s}
-                variant={wantSkills.includes(s) ? "default" : "outline"}
-                className="cursor-pointer transition-all hover:scale-105"
-                onClick={() => toggleSkill(s, wantSkills, setWantSkills)}
-              >
-                {s}{wantSkills.includes(s) && <X className="h-3 w-3 ml-1" />}
-              </Badge>
-            ))}
-            {wantSkills.filter(s => !(SKILL_CATEGORIES as readonly string[]).includes(s)).map(s => (
-              <Badge key={s} variant="default" className="cursor-pointer gap-1 transition-all hover:scale-105"
-                onClick={() => setWantSkills(prev => prev.filter(x => x !== s))}>
-                {s} <X className="h-3 w-3" />
-              </Badge>
-            ))}
-          </div>
-          <div className="flex gap-2">
-            <Input placeholder="Other skill…" value={customWantInput}
-              onChange={e => setCustomWantInput(e.target.value)} className="h-9 text-sm"
-              onKeyDown={e => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  const val = customWantInput.trim();
-                  if (val && !wantSkills.includes(val)) setWantSkills(prev => [...prev, val]);
-                  setCustomWantInput("");
-                }
-              }}/>
-            <Button type="button" size="sm" variant="outline" className="h-9 px-3 shrink-0 gap-1"
-              onClick={() => {
-                const val = customWantInput.trim();
-                if (val && !wantSkills.includes(val)) setWantSkills(prev => [...prev, val]);
-                setCustomWantInput("");
-              }}>
-              <Plus className="h-3.5 w-3.5"/> Add
-            </Button>
-          </div>
         </div>
       </div>
     </div>,
@@ -335,7 +241,7 @@ export default function ProfileSetup() {
           )}
           <Button
             onClick={next}
-            disabled={(step === 0 && (!name.trim() || !location.trim() || !bio.trim())) || (step === 1 && haveSkills.length === 0) || finishing}
+            disabled={(step === 0 && (!name.trim() || !location.trim() || !bio.trim())) || (step === 1 && skills.length === 0) || finishing}
             className="flex-1 h-11 font-semibold"
           >
             {finishing ? "Saving…" : step === TOTAL_STEPS - 1 ? "Complete setup" : "Continue"}
