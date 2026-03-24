@@ -1,10 +1,11 @@
-import { ReactNode } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useTheme } from "@/context/ThemeContext";
 import { useUser } from "@/context/UserContext";
 import { Home, Search, MessageCircle, Users, Bell, Leaf, Sun, Moon } from "lucide-react";
+import { supabase } from "@/lib/supabase";
 
-const navItems = [
+const NAV_PATHS = [
   { to: "/feed",          icon: Home,          label: "Feed"          },
   { to: "/discover",      icon: Search,        label: "Discover"      },
   { to: "/messages",      icon: MessageCircle, label: "Messages"      },
@@ -16,6 +17,40 @@ export default function Layout({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
   const { theme, toggleTheme } = useTheme();
   const { user } = useUser();
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  // Fetch unread notification count on mount and subscribe to new ones
+  useEffect(() => {
+    if (!user.id) return;
+
+    const fetchUnread = async () => {
+      const { count } = await (supabase as any)
+        .from("notifications")
+        .select("*", { count: "exact", head: true })
+        .eq("user_id", user.id)
+        .eq("read", false);
+      setUnreadCount(count ?? 0);
+    };
+
+    fetchUnread();
+
+    // Realtime: increment badge when a new notification arrives
+    const channel = supabase
+      .channel(`layout-notifs-${user.id}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${user.id}` },
+        () => setUnreadCount(n => n + 1)
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [user.id]);
+
+  // Clear badge when the user is on the notifications page
+  useEffect(() => {
+    if (pathname.startsWith("/notifications") && unreadCount > 0) {
+      setUnreadCount(0);
+    }
+  }, [pathname, unreadCount]);
 
   return (
     <div className="min-h-screen flex bg-background">
@@ -30,8 +65,9 @@ export default function Layout({ children }: { children: ReactNode }) {
         </Link>
 
         <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto">
-          {navItems.map(({ to, icon: Icon, label }) => {
+          {NAV_PATHS.map(({ to, icon: Icon, label }) => {
             const active = pathname.startsWith(to);
+            const isNotif = to === "/notifications";
             return (
               <Link
                 key={to}
@@ -42,7 +78,14 @@ export default function Layout({ children }: { children: ReactNode }) {
                     : "text-muted-foreground hover:bg-secondary hover:text-foreground"
                 }`}
               >
-                <Icon className="h-4 w-4 shrink-0" />
+                <div className="relative shrink-0">
+                  <Icon className="h-4 w-4" />
+                  {isNotif && unreadCount > 0 && (
+                    <span className="absolute -top-1.5 -right-1.5 h-4 min-w-4 px-0.5 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">
+                      {unreadCount > 99 ? "99+" : unreadCount}
+                    </span>
+                  )}
+                </div>
                 {label}
               </Link>
             );
@@ -100,6 +143,16 @@ export default function Layout({ children }: { children: ReactNode }) {
             >
               {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </button>
+            <Link to="/notifications" className="relative">
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 h-4 min-w-4 px-0.5 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center z-10 leading-none">
+                  {unreadCount > 99 ? "99+" : unreadCount}
+                </span>
+              )}
+              <div className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:bg-secondary transition-colors">
+                <Bell className="h-4 w-4" />
+              </div>
+            </Link>
             <Link to="/profile">
               <div className={`h-8 w-8 rounded-full ${user.color} flex items-center justify-center text-white text-xs font-semibold`}>
                 {user.avatar}
@@ -116,8 +169,9 @@ export default function Layout({ children }: { children: ReactNode }) {
         className="md:hidden fixed bottom-0 inset-x-0 z-20 bg-background/95 backdrop-blur-md border-t border-border flex justify-around"
         style={{ paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))", paddingTop: "0.5rem" }}
       >
-        {navItems.map(({ to, icon: Icon, label }) => {
+        {NAV_PATHS.map(({ to, icon: Icon, label }) => {
           const active = pathname.startsWith(to);
+          const isNotif = to === "/notifications";
           return (
             <Link
               key={to}
@@ -126,7 +180,14 @@ export default function Layout({ children }: { children: ReactNode }) {
                 active ? "text-primary" : "text-muted-foreground"
               }`}
             >
-              <Icon className={`h-5 w-5 transition-transform duration-150 ${active ? "scale-110" : ""}`} />
+              <div className="relative">
+                <Icon className={`h-5 w-5 transition-transform duration-150 ${active ? "scale-110" : ""}`} />
+                {isNotif && unreadCount > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 h-4 min-w-4 px-0.5 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">
+                    {unreadCount > 99 ? "99+" : unreadCount}
+                  </span>
+                )}
+              </div>
               <span className={`${active ? "font-medium" : ""}`}>{label}</span>
             </Link>
           );

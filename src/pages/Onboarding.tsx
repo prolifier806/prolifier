@@ -100,11 +100,19 @@ export default function Onboarding() {
         });
         if (error) throw error;
 
-        // Supabase returns an empty identities array for already-registered emails.
-        // We treat this the same as a new signup to prevent email enumeration —
-        // an attacker shouldn't be able to tell which emails are registered.
+        // Supabase returns identities: [] when the email is already registered.
+        if (data.user?.identities?.length === 0) {
+          toast({
+            title: "An account with this email already exists.",
+            description: "Please sign in instead.",
+            variant: "destructive",
+          });
+          setAuthMode("login");
+          setLoading(false);
+          return;
+        }
+
         if (data.session) {
-          // Email confirmation is disabled in Supabase dashboard — go straight to setup
           navigate("/setup");
         } else {
           navigate("/verify-email", { state: { email: trimmedEmail } });

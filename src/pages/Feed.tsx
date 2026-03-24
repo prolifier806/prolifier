@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   Heart, MessageCircle, MapPin, Search, Plus, Send, MoreHorizontal,
-  Trash2, Edit3, Bookmark, Share2, Flag, EyeOff, BellOff, Handshake,
+  Trash2, Edit3, Bookmark, Share2, Flag, EyeOff, Handshake,
   X, Check, BookmarkCheck, Users, ImageIcon, Link2, Video as VideoIcon, ZoomIn,
 } from "lucide-react";
 import Layout from "@/components/Layout";
@@ -113,6 +113,25 @@ async function deleteFromStorage(url: string) {
   if (path) {
     await (supabase as any).storage.from("posts").remove([path]);
   }
+}
+
+// ── Smart Video — auto portrait/landscape sizing ──────────────────────────
+function SmartVideo({ src, className }: { src: string; className?: string }) {
+  const [portrait, setPortrait] = useState(false);
+  return (
+    <div className={portrait ? "flex justify-center" : ""}>
+      <video
+        src={src}
+        controls
+        className={`rounded-xl ${portrait ? "max-h-[70vh] w-auto max-w-full" : "w-full max-h-72"} ${className ?? ""}`}
+        style={{ backgroundColor: "#000" }}
+        onLoadedMetadata={e => {
+          const v = e.currentTarget;
+          setPortrait(v.videoHeight > v.videoWidth);
+        }}
+      />
+    </div>
+  );
 }
 
 // ── Image Lightbox ─────────────────────────────────────────────────────────
@@ -220,34 +239,34 @@ function ShareDialog({ open, onClose, link }: { open: boolean; onClose: () => vo
   };
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-sm">
+      <DialogContent className="w-[calc(100vw-2rem)] max-w-sm max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Share this post</DialogTitle>
           <DialogDescription>Choose where you'd like to share it.</DialogDescription>
         </DialogHeader>
-        <div className="grid grid-cols-3 gap-3 py-2">
+        <div className="grid grid-cols-3 gap-2 py-2">
           {SHARE_PLATFORMS.map((p) => {
             const IconComp = p.icon;
             const isGradient = p.color.includes("gradient");
             return (
               <a key={p.name} href={p.url(link)} target="_blank" rel="noreferrer" onClick={onClose}
-                className="flex flex-col items-center gap-2 p-3 rounded-xl hover:bg-muted transition-colors cursor-pointer">
-                <div className="h-12 w-12 rounded-2xl flex items-center justify-center shadow-sm"
+                className="flex flex-col items-center gap-1.5 p-2 rounded-xl hover:bg-muted transition-colors cursor-pointer overflow-hidden">
+                <div className="h-11 w-11 rounded-2xl flex items-center justify-center shadow-sm shrink-0"
                   style={{ background: isGradient ? p.color : p.color }}>
                   <IconComp />
                 </div>
-                <span className="text-xs text-muted-foreground text-center leading-tight">{p.name}</span>
+                <span className="text-xs text-muted-foreground text-center leading-tight w-full truncate">{p.name}</span>
               </a>
             );
           })}
         </div>
         <div className="border-t border-border pt-3">
           <button onClick={copyLink}
-            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-muted hover:bg-secondary transition-colors">
-            <div className="h-10 w-10 rounded-xl bg-background border border-border flex items-center justify-center shrink-0">
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl bg-muted hover:bg-secondary transition-colors overflow-hidden">
+            <div className="h-9 w-9 rounded-xl bg-background border border-border flex items-center justify-center shrink-0">
               <Link2 className="h-4 w-4 text-foreground" />
             </div>
-            <div className="text-left min-w-0">
+            <div className="text-left min-w-0 flex-1 overflow-hidden">
               <p className="text-sm font-medium text-foreground">Copy link</p>
               <p className="text-xs text-muted-foreground truncate">{link}</p>
             </div>
@@ -259,11 +278,30 @@ function ShareDialog({ open, onClose, link }: { open: boolean; onClose: () => vo
 }
 
 // ── Report Dialog ──────────────────────────────────────────────────────────
-function ReportDialog({ open, onClose, target }: { open: boolean; onClose: () => void; target: string }) {
+function ReportDialog({ open, onClose, target, targetType, targetId }: {
+  open: boolean; onClose: () => void; target: string;
+  targetType: "post" | "collab"; targetId: string;
+}) {
+  const { user } = useUser();
   const [reason, setReason] = useState("");
   const [details, setDetails] = useState("");
   const [submitted, setSubmitted] = useState(false);
-  const submit = () => { if (!reason) return; setSubmitted(true); };
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async () => {
+    if (!reason) return;
+    setSubmitting(true);
+    await (supabase as any).from("reports").insert({
+      reporter_id: user.id,
+      target_type: targetType,
+      target_id: targetId,
+      reason,
+      details: details.trim() || null,
+    });
+    setSubmitting(false);
+    setSubmitted(true);
+  };
+
   const close = () => { onClose(); setTimeout(() => { setReason(""); setDetails(""); setSubmitted(false); }, 300); };
   return (
     <Dialog open={open} onOpenChange={(v) => !v && close()}>
@@ -294,28 +332,12 @@ function ReportDialog({ open, onClose, target }: { open: boolean; onClose: () =>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={close}>Cancel</Button>
-              <Button onClick={submit} disabled={!reason} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">Submit report</Button>
+              <Button onClick={submit} disabled={!reason || submitting} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">
+                {submitting ? "Submitting…" : "Submit report"}
+              </Button>
             </DialogFooter>
           </>
         )}
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// ── Mute Dialog ────────────────────────────────────────────────────────────
-function MuteDialog({ open, author, onClose, onConfirm }: { open: boolean; author: string; onClose: () => void; onConfirm: () => void; }) {
-  return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Mute {author}?</DialogTitle>
-          <DialogDescription>You won't see any more posts from <strong>{author}</strong> in your feed. They won't know they've been muted.</DialogDescription>
-        </DialogHeader>
-        <DialogFooter className="gap-2">
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={() => { onConfirm(); onClose(); }} className="bg-foreground text-background hover:bg-foreground/90">Mute {author}</Button>
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
@@ -503,17 +525,16 @@ function EditCollabDialog({ collab, open, onClose, onSave }: {
 // OPT: wrapped in memo with a custom comparator — only re-renders when this
 // specific post's like/save status or content actually changes, not when any
 // other state in the Feed changes (dialogs opening, search input, etc.)
-const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, mutedAuthors, onLike, onSave, onComment, onDelete, onEdit, onHide, onMute, onReport, onShare }: {
-  post: Post; likedPosts: Set<string>; savedPosts: Set<string>; mutedAuthors: Set<string>;
+const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, onLike, onSave, onComment, onDelete, onEdit, onHide, onReport, onShare }: {
+  post: Post; likedPosts: Set<string>; savedPosts: Set<string>;
   onLike:(id:string)=>void; onSave:(id:string)=>void; onComment:(p:Post)=>void;
   onDelete:(id:string)=>void; onEdit:(p:Post)=>void; onHide:(id:string)=>void;
-  onMute:(author:string)=>void; onReport:(id:string)=>void; onShare:(id:string)=>void;
+  onReport:(id:string)=>void; onShare:(id:string)=>void;
 }) {
   const isLiked = likedPosts.has(post.id);
   const isSaved = savedPosts.has(post.id);
   const navigate = useNavigate();
   const [lightboxSrc, setLightboxSrc] = useState<string|null>(null);
-  if (mutedAuthors.has(post.author) && !post.isOwn) return null;
 
   const goToProfile = () => {
     if (post.isOwn) { navigate("/profile"); return; }
@@ -557,7 +578,6 @@ const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, mutedAut
                 <>
                   <DropdownMenuSeparator/>
                   <DropdownMenuItem onClick={()=>onHide(post.id)} className="gap-2"><EyeOff className="h-4 w-4"/> Not interested</DropdownMenuItem>
-                  <DropdownMenuItem onClick={()=>onMute(post.author)} className="gap-2"><BellOff className="h-4 w-4"/> Mute {post.author.split(" ")[0]}</DropdownMenuItem>
                   <DropdownMenuSeparator/>
                   <DropdownMenuItem onClick={()=>onReport(post.id)} className="gap-2 text-destructive focus:text-destructive"><Flag className="h-4 w-4"/> Report post</DropdownMenuItem>
                 </>
@@ -574,7 +594,7 @@ const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, mutedAut
             </div>
           </div>
         )}
-        {post.video && <div className="px-5 pb-3"><video src={post.video} controls className="w-full rounded-xl max-h-72" style={{backgroundColor:"#000"}}/></div>}
+        {post.video && <div className="px-5 pb-3"><SmartVideo src={post.video} /></div>}
         <div className="flex items-center gap-1 border-t border-border px-3 py-2">
           <button onClick={()=>onLike(post.id)} className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors ${isLiked?"text-rose-500 bg-rose-50":"text-muted-foreground hover:bg-muted"}`}>
             <Heart className={`h-4 w-4 ${isLiked?"fill-current":""}`}/> {post.likes}
@@ -600,24 +620,22 @@ const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, mutedAut
   return (
     prev.post === next.post &&
     prev.likedPosts.has(prev.post.id) === next.likedPosts.has(next.post.id) &&
-    prev.savedPosts.has(prev.post.id) === next.savedPosts.has(next.post.id) &&
-    prev.mutedAuthors === next.mutedAuthors
+    prev.savedPosts.has(prev.post.id) === next.savedPosts.has(next.post.id)
   );
 });
 
 // ── Collab Card ────────────────────────────────────────────────────────────
 // OPT: same memo treatment as PostCard
-const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollabs, mutedAuthors, onInterest, onMessage, onSave, onDelete, onEdit, onHide, onMute, onReport, onShare }: {
-  collab: Collab; interestedSet: Set<string>; savedCollabs: Set<string>; mutedAuthors: Set<string>;
+const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollabs, onInterest, onMessage, onSave, onDelete, onEdit, onHide, onReport, onShare }: {
+  collab: Collab; interestedSet: Set<string>; savedCollabs: Set<string>;
   onInterest:(id:string,name:string)=>void; onMessage:(name:string)=>void; onSave:(id:string)=>void;
   onDelete:(id:string)=>void; onEdit:(c:Collab)=>void; onHide:(id:string)=>void;
-  onMute:(author:string)=>void; onReport:(id:string)=>void; onShare:(id:string)=>void;
+  onReport:(id:string)=>void; onShare:(id:string)=>void;
 }) {
   const isInterested = interestedSet.has(collab.id);
   const isSaved = savedCollabs.has(collab.id);
   const navigate = useNavigate();
   const [lightboxSrc, setLightboxSrc] = useState<string|null>(null);
-  if (mutedAuthors.has(collab.author) && !collab.isOwn) return null;
 
   const goToProfile = () => {
     if (collab.isOwn) { navigate("/profile"); return; }
@@ -658,7 +676,6 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
                 <>
                   <DropdownMenuSeparator/>
                   <DropdownMenuItem onClick={()=>onHide(collab.id)} className="gap-2"><EyeOff className="h-4 w-4"/> Not interested</DropdownMenuItem>
-                  <DropdownMenuItem onClick={()=>onMute(collab.author)} className="gap-2"><BellOff className="h-4 w-4"/> Mute {collab.author.split(" ")[0]}</DropdownMenuItem>
                   <DropdownMenuSeparator/>
                   <DropdownMenuItem onClick={()=>onReport(collab.id)} className="gap-2 text-destructive focus:text-destructive"><Flag className="h-4 w-4"/> Report collab</DropdownMenuItem>
                 </>
@@ -678,7 +695,7 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
               </div>
             </div>
           )}
-          {collab.video && <video src={collab.video} controls className="w-full rounded-xl max-h-48 mb-3" style={{backgroundColor:"#000"}}/>}
+          {collab.video && <div className="mb-3"><SmartVideo src={collab.video} /></div>}
           <div className="flex flex-wrap gap-1.5">{collab.skills.map((s)=><Badge key={s} variant="secondary" className="text-xs">{s}</Badge>)}</div>
         </div>
         <div className="flex gap-2 px-5 pb-4">
@@ -699,8 +716,7 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
   return (
     prev.collab === next.collab &&
     prev.interestedSet.has(prev.collab.id) === next.interestedSet.has(next.collab.id) &&
-    prev.savedCollabs.has(prev.collab.id) === next.savedCollabs.has(next.collab.id) &&
-    prev.mutedAuthors === next.mutedAuthors
+    prev.savedCollabs.has(prev.collab.id) === next.savedCollabs.has(next.collab.id)
   );
 });
 
@@ -745,12 +761,10 @@ export default function Feed() {
   const [collabs, setCollabs] = useState<Collab[]>([]);
   const [likedPosts, setLikedPosts] = useState<Set<string>>(new Set());
   const [savedPosts, setSavedPosts] = useState<Set<string>>(new Set());
-  const [mutedAuthors, setMutedAuthors] = useState<Set<string>>(new Set());
   const [commentingPost, setCommentingPost] = useState<Post|null>(null);
   const [editingPost, setEditingPost] = useState<Post|null>(null);
   const [shareTarget, setShareTarget] = useState<{type:"post"|"collab";id:string}|null>(null);
   const [reportTarget, setReportTarget] = useState<{type:"post"|"collab";id:string}|null>(null);
-  const [muteTarget, setMuteTarget] = useState<string|null>(null);
   const [interestedCollabs, setInterestedCollabs] = useState<Set<string>>(new Set());
   const [savedCollabs, setSavedCollabs] = useState<Set<string>>(new Set());
   const [editingCollab, setEditingCollab] = useState<Collab|null>(null);
@@ -1110,11 +1124,6 @@ export default function Feed() {
     toast({ title: "Post hidden", description: "You won't see posts like this." });
   }, []);
 
-  const handleMuteAuthor = useCallback((author: string) => {
-    setMutedAuthors(p => { const n = new Set(p); n.add(author); return n; });
-    toast({ title: `${author} muted` });
-  }, []);
-
   const handleCreatePost = useCallback(async () => {
     if (!postDialog.content.trim()) return;
     const { data, error } = await (supabase as any)
@@ -1311,10 +1320,10 @@ export default function Feed() {
                   <p className="text-xs">Be the first to share something with the community!</p>
                 </div>
               ) : posts.map(post => (
-                <PostCard key={post.id} post={post} likedPosts={likedPosts} savedPosts={savedPosts} mutedAuthors={mutedAuthors}
+                <PostCard key={post.id} post={post} likedPosts={likedPosts} savedPosts={savedPosts}
                   onLike={handleLike} onSave={handleSavePost} onComment={handleOpenComments}
                   onDelete={handleDeletePost} onEdit={setEditingPost} onHide={handleHidePost}
-                  onMute={setMuteTarget} onReport={id => setReportTarget({type:"post",id})}
+                  onReport={id => setReportTarget({type:"post",id})}
                   onShare={id => setShareTarget({type:"post",id})}
                 />
               ))}
@@ -1396,10 +1405,10 @@ export default function Feed() {
             ) : (
               <AnimatePresence>
                 {filteredCollabs.map(c => (
-                  <CollabCard key={c.id} collab={c} interestedSet={interestedCollabs} savedCollabs={savedCollabs} mutedAuthors={mutedAuthors}
+                  <CollabCard key={c.id} collab={c} interestedSet={interestedCollabs} savedCollabs={savedCollabs}
                     onInterest={handleInterest} onMessage={() => navigate("/messages")}
                     onSave={handleSaveCollab} onDelete={handleDeleteCollab} onEdit={setEditingCollab}
-                    onHide={handleHideCollab} onMute={setMuteTarget}
+                    onHide={handleHideCollab}
                     onReport={id => setReportTarget({type:"collab",id})}
                     onShare={id => setShareTarget({type:"collab",id})}
                   />
@@ -1425,8 +1434,7 @@ export default function Feed() {
       {editingPost && <EditPostDialog post={editingPost} open={!!editingPost} onClose={() => setEditingPost(null)} onSave={handleEditPost}/>}
       {editingCollab && <EditCollabDialog collab={editingCollab} open={!!editingCollab} onClose={() => setEditingCollab(null)} onSave={handleEditCollab}/>}
       {shareTarget && <ShareDialog open={!!shareTarget} onClose={() => setShareTarget(null)} link={shareLink}/>}
-      {reportTarget && <ReportDialog open={!!reportTarget} onClose={() => setReportTarget(null)} target={reportTarget.type==="post"?"this post":"this collab"}/>}
-      {muteTarget && <MuteDialog open={!!muteTarget} author={muteTarget} onClose={() => setMuteTarget(null)} onConfirm={() => handleMuteAuthor(muteTarget)}/>}
+      {reportTarget && <ReportDialog open={!!reportTarget} onClose={() => setReportTarget(null)} target={reportTarget.type==="post"?"this post":"this collab"} targetType={reportTarget.type} targetId={reportTarget.id}/>}
     </Layout>
   );
 }
