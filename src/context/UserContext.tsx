@@ -20,6 +20,7 @@ export type CurrentUser = {
   primaryLang: string;
   openToCollab: boolean;
   profileSetupDone: boolean;
+  updatedAt: string; // ISO — used to prevent stale DB sync from overwriting fresh local edits
 };
 
 const DEFAULT_USER: CurrentUser = {
@@ -40,6 +41,7 @@ const DEFAULT_USER: CurrentUser = {
   primaryLang: "en",
   openToCollab: true,
   profileSetupDone: false,
+  updatedAt: "",
 };
 
 interface UserContextValue {
@@ -109,6 +111,7 @@ function profileFromRow(userId: string, email: string, row: any): CurrentUser {
     primaryLang: row.primary_lang || "en",
     openToCollab: row.open_to_collab ?? true,
     profileSetupDone: row.profile_complete ?? false,
+    updatedAt: row.updated_at || "",
   };
 }
 
@@ -146,8 +149,16 @@ export function UserProvider({ children }: { children: ReactNode }) {
             profileSetupDone: false,
           };
 
-      setUser(next);
-      writeCache(next);
+      setUser(prev => {
+        // If the user saved locally more recently than what the DB returned,
+        // keep the local state — don't let a stale DB row overwrite fresh edits.
+        // This is what causes the "bio blink" on rapid refresh.
+        if (prev.updatedAt && next.updatedAt && prev.updatedAt > next.updatedAt) {
+          return prev;
+        }
+        writeCache(next);
+        return next;
+      });
     } catch {
       // Network error — keep whatever is already in state/cache.
     }
@@ -215,7 +226,9 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
   const updateUser = async (patch: Partial<CurrentUser>) => {
     if (!authUser) return;
-    const next = { ...user, ...patch };
+    const now = new Date().toISOString();
+    // Stamp updatedAt now so syncProfile won't overwrite with a stale DB row
+    const next = { ...user, ...patch, updatedAt: now };
     setUser(next);
     writeCache(next);
     const profileData: Record<string, any> = {
@@ -233,7 +246,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       twitter: next.twitter,
       primary_lang: next.primaryLang,
       open_to_collab: next.openToCollab,
-      updated_at: new Date().toISOString(),
+      updated_at: now,
     };
     // Only include avatar_url if the column has been added to the DB
     if (next.avatarUrl) profileData.avatar_url = next.avatarUrl;
