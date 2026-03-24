@@ -932,7 +932,7 @@ export default function Feed() {
   const [loadingMoreCollabs, setLoadingMoreCollabs] = useState(false);
   const postsCursorRef = useRef<string | null>(null);
   const collabsCursorRef = useRef<string | null>(null);
-  const deepLinkHandledRef = useRef(false);
+  const deepLinkHandledRef = useRef<string | null>(null);
 
   // OPT: grouped compose state — fewer useState hooks, fewer re-renders when
   // one compose field changes (only the compose area re-renders, not the whole feed)
@@ -951,14 +951,16 @@ export default function Feed() {
   });
 
   // ── Deep-link: open post comment dialog when ?post=<id> is in the URL ──
-  // After handling, strip ?post= from the URL so remounting Feed doesn't reopen it
+  // Two-layer guard: ref stores the handled post ID (survives posts state changes)
+  // + URL is cleared so remounting Feed finds no ?post= to trigger on
   useEffect(() => {
     const postId = searchParams.get("post");
     if (!postId || posts.length === 0) return;
+    if (deepLinkHandledRef.current === postId) return; // already handled this link
     const target = posts.find(p => p.id === postId);
     if (target) {
+      deepLinkHandledRef.current = postId; // mark before any state/nav call
       setCommentingPost(target);
-      // Remove ?post= (and any other params) so this never fires again
       navigate("/feed", { replace: true });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
