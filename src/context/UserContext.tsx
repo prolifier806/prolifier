@@ -182,9 +182,17 @@ export function UserProvider({ children }: { children: ReactNode }) {
         }
 
         // ── Initial session load or fresh sign-in ────────────────────────────
-        // (events: INITIAL_SESSION, SIGNED_IN, USER_UPDATED)
         const userId = newSession.user.id;
         const email  = newSession.user.email ?? "";
+
+        // USER_UPDATED fires after profile/password edits — skip resetting to
+        // potentially-stale cache (which causes visible data flash).
+        if (event === "USER_UPDATED") {
+          syncProfile(userId, email);
+          setLoading(false);
+          return;
+        }
+
         const cached = readCache(userId);
 
         if (cached) {
@@ -210,11 +218,10 @@ export function UserProvider({ children }: { children: ReactNode }) {
     const next = { ...user, ...patch };
     setUser(next);
     writeCache(next);
-    await (supabase.from("profiles") as any).upsert({
+    const profileData: Record<string, any> = {
       id: authUser.id,
       name: next.name,
       avatar: next.avatar,
-      avatar_url: next.avatarUrl || null,
       color: next.color,
       location: next.location,
       bio: next.bio,
@@ -227,7 +234,10 @@ export function UserProvider({ children }: { children: ReactNode }) {
       primary_lang: next.primaryLang,
       open_to_collab: next.openToCollab,
       updated_at: new Date().toISOString(),
-    });
+    };
+    // Only include avatar_url if the column has been added to the DB
+    if (next.avatarUrl) profileData.avatar_url = next.avatarUrl;
+    await (supabase.from("profiles") as any).upsert(profileData);
   };
 
   const completeProfileSetup = async () => {
