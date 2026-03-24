@@ -284,36 +284,57 @@ function MediaUploadBar({ onImage, onVideo, onUploadingChange }: {
   );
 }
 
-// ── Share Dialog ───────────────────────────────────────────────────────────
-function ShareDialog({ open, onClose, link }: { open: boolean; onClose: () => void; link: string }) {
-  const copyLink = () => {
-    navigator.clipboard?.writeText(link).catch(() => {});
+// ── Share Sheet ────────────────────────────────────────────────────────────
+function ShareDialog({ onClose, link }: { onClose: () => void; link: string }) {
+  const copyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(link);
+    } catch {
+      // Fallback for browsers that block clipboard API
+      const el = document.createElement("textarea");
+      el.value = link;
+      el.style.cssText = "position:fixed;opacity:0;top:0;left:0";
+      document.body.appendChild(el);
+      el.focus();
+      el.select();
+      document.execCommand("copy");
+      document.body.removeChild(el);
+    }
     toast({ title: "Link copied! 🔗" });
     onClose();
   };
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="w-[calc(100vw-2rem)] max-w-xs overflow-hidden">
-        <DialogHeader>
-          <DialogTitle>Share this post</DialogTitle>
-          <DialogDescription>Choose where you'd like to share it.</DialogDescription>
-        </DialogHeader>
-        <div className="grid grid-cols-3 gap-1 py-1">
-          {SHARE_PLATFORMS.map((p) => {
-            const IconComp = p.icon;
-            return (
-              <a key={p.name} href={p.url(link)} target="_blank" rel="noreferrer" onClick={onClose}
-                className="flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-muted transition-colors cursor-pointer">
-                <div className="h-10 w-10 rounded-2xl flex items-center justify-center shadow-sm shrink-0"
-                  style={{ background: p.color }}>
-                  <IconComp />
-                </div>
-                <span className="text-[10px] text-muted-foreground text-center leading-tight">{p.name}</span>
-              </a>
-            );
-          })}
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+      <motion.div initial={{ y: 60, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 60, opacity: 0 }}
+        transition={{ type: "spring", damping: 26, stiffness: 320 }}
+        className="relative z-10 w-full max-w-sm bg-background rounded-t-2xl sm:rounded-2xl shadow-2xl border border-border">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+          <div>
+            <h3 className="font-semibold text-foreground">Share</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">Choose where to share</p>
+          </div>
+          <button onClick={onClose} className="h-7 w-7 rounded-full bg-muted flex items-center justify-center hover:bg-secondary transition-colors">
+            <X className="h-4 w-4 text-muted-foreground" />
+          </button>
         </div>
-        <div className="border-t border-border pt-3">
+        <div className="p-4 space-y-3">
+          <div className="grid grid-cols-3 gap-2">
+            {SHARE_PLATFORMS.map((p) => {
+              const IconComp = p.icon;
+              return (
+                <a key={p.name} href={p.url(link)} target="_blank" rel="noreferrer" onClick={onClose}
+                  className="flex flex-col items-center gap-1.5 p-2 rounded-xl hover:bg-muted transition-colors cursor-pointer">
+                  <div className="h-11 w-11 rounded-2xl flex items-center justify-center shadow-sm shrink-0"
+                    style={{ background: p.color }}>
+                    <IconComp />
+                  </div>
+                  <span className="text-[11px] text-muted-foreground text-center leading-tight">{p.name}</span>
+                </a>
+              );
+            })}
+          </div>
           <button onClick={copyLink}
             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl bg-muted hover:bg-secondary transition-colors">
             <div className="h-9 w-9 rounded-xl bg-background border border-border flex items-center justify-center shrink-0">
@@ -325,8 +346,8 @@ function ShareDialog({ open, onClose, link }: { open: boolean; onClose: () => vo
             </div>
           </button>
         </div>
-      </DialogContent>
-    </Dialog>
+      </motion.div>
+    </motion.div>
   );
 }
 
@@ -911,6 +932,7 @@ export default function Feed() {
   const [loadingMoreCollabs, setLoadingMoreCollabs] = useState(false);
   const postsCursorRef = useRef<string | null>(null);
   const collabsCursorRef = useRef<string | null>(null);
+  const deepLinkHandledRef = useRef(false);
 
   // OPT: grouped compose state — fewer useState hooks, fewer re-renders when
   // one compose field changes (only the compose area re-renders, not the whole feed)
@@ -929,12 +951,17 @@ export default function Feed() {
   });
 
   // ── Deep-link: open post comment dialog when ?post=<id> is in the URL ──
+  // Use a ref so this only fires once — posts state changes (likes, comments)
+  // would otherwise re-trigger it and reopen the sheet after the user closes it
   useEffect(() => {
+    if (deepLinkHandledRef.current) return;
     const postId = searchParams.get("post");
     if (!postId || posts.length === 0) return;
     const target = posts.find(p => p.id === postId);
-    if (target) setCommentingPost(target);
-  // Only run after posts load, not on every searchParams change
+    if (target) {
+      setCommentingPost(target);
+      deepLinkHandledRef.current = true;
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [posts]);
 
@@ -992,21 +1019,6 @@ export default function Feed() {
         comments: [],
       }));
 
-      // Fetch comment counts for all posts in one query
-      if (mappedPosts.length > 0) {
-        const { data: commentRows } = await (supabase as any)
-          .from("comments").select("post_id")
-          .in("post_id", mappedPosts.map(p => p.id));
-        const countMap: Record<string, number> = {};
-        (commentRows || []).forEach((c: any) => { countMap[c.post_id] = (countMap[c.post_id] || 0) + 1; });
-        // Create new objects (not in-place mutation) so React detects the change
-        for (let i = 0; i < mappedPosts.length; i++) {
-          if (countMap[mappedPosts[i].id]) {
-            mappedPosts[i] = { ...mappedPosts[i], commentCount: countMap[mappedPosts[i].id] };
-          }
-        }
-      }
-
       const mappedCollabs: Collab[] = (collabsRes.data || []).map((c: any) => ({
         id: c.id, user_id: c.user_id,
         author: c.profiles?.deleted_at ? "Deleted Account" : (c.profiles?.name || "Unknown"),
@@ -1028,9 +1040,21 @@ export default function Feed() {
 
       setPosts(mappedPosts);
       setCollabs(mappedCollabs);
+      setLoading(false); // show UI immediately — counts load in background
+
+      // Background: fetch comment counts without blocking the feed render
+      if (mappedPosts.length > 0) {
+        const postIds = mappedPosts.map(p => p.id);
+        (supabase as any).from("comments").select("post_id").in("post_id", postIds)
+          .then(({ data: commentRows }: any) => {
+            if (!commentRows) return;
+            const countMap: Record<string, number> = {};
+            commentRows.forEach((c: any) => { countMap[c.post_id] = (countMap[c.post_id] || 0) + 1; });
+            setPosts(prev => prev.map(p => countMap[p.id] ? { ...p, commentCount: countMap[p.id] } : p));
+          });
+      }
     } catch (err: any) {
       toast({ title: "Failed to load feed", description: err.message, variant: "destructive" });
-    } finally {
       setLoading(false);
     }
   }, [user.id]);
@@ -1477,7 +1501,11 @@ export default function Feed() {
     setCollabDialog(d => ({ ...d, video: undefined }));
   };
 
-  const shareLink = shareTarget ? `${window.location.origin}/${shareTarget.type}/${shareTarget.id}` : "";
+  const shareLink = shareTarget
+    ? shareTarget.type === "post"
+      ? `${window.location.origin}/feed?post=${shareTarget.id}`
+      : `${window.location.origin}/feed?tab=collabs`
+    : "";
   const filteredPosts = posts.filter(p => {
     const matchTag = activePostTag === "All" || p.tag === activePostTag;
     const q = postSearch.toLowerCase().trim();
@@ -1743,7 +1771,9 @@ export default function Feed() {
       </AnimatePresence>
       {editingPost && <EditPostDialog post={editingPost} open={!!editingPost} onClose={() => setEditingPost(null)} onSave={handleEditPost}/>}
       {editingCollab && <EditCollabDialog collab={editingCollab} open={!!editingCollab} onClose={() => setEditingCollab(null)} onSave={handleEditCollab}/>}
-      {shareTarget && <ShareDialog open={!!shareTarget} onClose={() => setShareTarget(null)} link={shareLink}/>}
+      <AnimatePresence>
+        {shareTarget && <ShareDialog onClose={() => setShareTarget(null)} link={shareLink}/>}
+      </AnimatePresence>
       {reportTarget && <ReportDialog open={!!reportTarget} onClose={() => setReportTarget(null)} target={reportTarget.type==="post"?"this post":reportTarget.type==="collab"?"this collab":"this comment"} targetType={reportTarget.type} targetId={reportTarget.id}/>}
     </Layout>
   );
