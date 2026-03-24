@@ -27,7 +27,7 @@ import { checkContent, parseModerationError } from "@/lib/moderation";
 import { createNotification } from "@/lib/notifications";
 
 // ── Types ──────────────────────────────────────────────────────────────────
-type Comment = { id: string; author: string; avatar: string; color: string; text: string; time: string; };
+type Comment = { id: string; user_id: string; author: string; avatar: string; avatarUrl?: string; color: string; text: string; time: string; };
 type Post = {
   id: string; user_id: string; author: string; avatar: string; avatarUrl?: string; avatarColor: string; location: string;
   authorSkills?: string[]; authorDeleted?: boolean;
@@ -398,12 +398,20 @@ function ReportDialog({ open, onClose, target, targetType, targetId }: {
 }
 
 // ── Comment Sheet ──────────────────────────────────────────────────────────
-function CommentSheet({ post, onClose, onAddComment }: {
-  post: Post; onClose: () => void; onAddComment: (postId: string, text: string) => void;
+function CommentSheet({ post, currentUserId, onClose, onAddComment, onDeleteComment, onEditComment }: {
+  post: Post;
+  currentUserId: string;
+  onClose: () => void;
+  onAddComment: (postId: string, text: string) => void;
+  onDeleteComment: (commentId: string, postId: string) => void;
+  onEditComment: (commentId: string, postId: string, text: string) => void;
 }) {
   const { user } = useUser();
   const [text, setText] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editText, setEditText] = useState("");
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const editRef = useRef<HTMLTextAreaElement>(null);
   const [lightboxSrc, setLightboxSrc] = useState<string|null>(null);
   useEffect(() => { setTimeout(() => inputRef.current?.focus(), 100); }, []);
 
@@ -411,6 +419,23 @@ function CommentSheet({ post, onClose, onAddComment }: {
     if (!text.trim()) return;
     onAddComment(post.id, text.trim());
     setText("");
+  };
+
+  const startReply = (authorName: string) => {
+    setText(`@${authorName} `);
+    setTimeout(() => { inputRef.current?.focus(); inputRef.current?.setSelectionRange(9999, 9999); }, 50);
+  };
+
+  const startEdit = (c: Comment) => {
+    setEditingId(c.id);
+    setEditText(c.text);
+    setTimeout(() => editRef.current?.focus(), 50);
+  };
+
+  const submitEdit = () => {
+    if (!editText.trim() || !editingId) return;
+    onEditComment(editingId, post.id, editText.trim());
+    setEditingId(null);
   };
 
   return (
@@ -421,7 +446,7 @@ function CommentSheet({ post, onClose, onAddComment }: {
         transition={{ type: "spring", damping: 26, stiffness: 320 }}
         className="relative z-10 w-full max-w-lg bg-background rounded-t-2xl sm:rounded-2xl shadow-2xl border border-border flex flex-col max-h-[80vh]">
         <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
-          <h3 className="font-semibold text-foreground">Comments · {post.comments.length}</h3>
+          <h3 className="font-semibold text-foreground">Comments · {post.commentCount}</h3>
           <button onClick={onClose} className="h-7 w-7 rounded-full bg-muted flex items-center justify-center hover:bg-secondary transition-colors">
             <X className="h-4 w-4 text-muted-foreground" />
           </button>
@@ -439,13 +464,56 @@ function CommentSheet({ post, onClose, onAddComment }: {
           )}
           {post.comments.map((c) => (
             <div key={c.id} className="flex gap-3">
-              <Avatar initials={c.avatar} color={c.color || AVATAR_COLORS[0]} size="sm" />
-              <div className="flex-1 bg-secondary rounded-xl px-3 py-2.5">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-xs font-semibold text-foreground">{c.author}</span>
-                  <span className="text-xs text-muted-foreground">{c.time}</span>
-                </div>
-                <p className="text-sm text-foreground leading-relaxed">{c.text}</p>
+              <Avatar initials={c.avatar} color={c.color || AVATAR_COLORS[0]} url={c.avatarUrl} size="sm" />
+              <div className="flex-1 min-w-0">
+                {editingId === c.id ? (
+                  <div className="bg-secondary rounded-xl px-3 py-2.5">
+                    <textarea ref={editRef} value={editText} onChange={e => setEditText(e.target.value)}
+                      className="w-full text-sm bg-transparent resize-none outline-none leading-relaxed"
+                      rows={2}
+                      onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitEdit(); } if (e.key === "Escape") setEditingId(null); }} />
+                    <div className="flex gap-3 mt-1.5">
+                      <button onClick={submitEdit} className="text-xs text-primary font-semibold hover:opacity-80">Save</button>
+                      <button onClick={() => setEditingId(null)} className="text-xs text-muted-foreground hover:text-foreground">Cancel</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="bg-secondary rounded-xl px-3 py-2.5">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-semibold text-foreground">{c.author}</span>
+                      <span className="text-xs text-muted-foreground">{c.time}</span>
+                    </div>
+                    <p className="text-sm text-foreground leading-relaxed">{c.text}</p>
+                  </div>
+                )}
+                {editingId !== c.id && (
+                  <div className="flex items-center gap-3 mt-1 ml-1">
+                    {c.user_id !== currentUserId && (
+                      <button onClick={() => startReply(c.author)}
+                        className="text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors">
+                        Reply
+                      </button>
+                    )}
+                    {c.user_id === currentUserId && (
+                      <>
+                        <button onClick={() => startEdit(c)}
+                          className="text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors">
+                          Edit
+                        </button>
+                        <button onClick={() => onDeleteComment(c.id, post.id)}
+                          className="text-[11px] font-medium text-destructive/60 hover:text-destructive transition-colors">
+                          Delete
+                        </button>
+                      </>
+                    )}
+                    {c.user_id !== currentUserId && (
+                      <button onClick={() => onDeleteComment(c.id, post.id)}
+                        className="text-[11px] font-medium text-muted-foreground/60 hover:text-destructive transition-colors">
+                        {post.user_id === currentUserId ? "Delete" : "Report"}
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           ))}
@@ -600,7 +668,7 @@ const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, onLike, 
             <span className={`font-semibold text-sm text-left ${post.authorDeleted ? "text-muted-foreground italic" : "text-foreground cursor-pointer hover:underline"}`} onClick={goToProfile}>{post.author}</span>
             {!post.authorDeleted && post.authorSkills && post.authorSkills.length > 0 && (
               <div className="flex flex-wrap gap-1 mt-0.5">
-                {post.authorSkills.map(s => <Badge key={s} variant="secondary" className="text-[10px] font-medium py-0 px-1.5">{s}</Badge>)}
+                {post.authorSkills.map(s => <span key={s} className="text-xs font-medium bg-primary/10 text-primary px-2 py-0.5 rounded-full">{s}</span>)}
               </div>
             )}
             <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
@@ -740,9 +808,12 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
         </div>
         <div className="px-5 pb-4">
           <h3 className="font-semibold text-foreground mb-2">{collab.title}</h3>
-          <div className="flex items-center gap-2 mb-3">
-            <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide shrink-0">Looking for</span>
-            <span className="inline-flex items-center px-3 py-1 rounded-full bg-primary text-primary-foreground text-xs font-semibold leading-none">{collab.looking}</span>
+          <div className="mb-3">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary text-primary-foreground text-xs font-semibold">
+              <span className="opacity-75 text-[10px] uppercase tracking-wide font-semibold">Looking for</span>
+              <span className="w-px h-3 bg-primary-foreground/30 shrink-0"/>
+              {collab.looking}
+            </span>
           </div>
           <p className="text-sm text-foreground leading-relaxed mb-3">{collab.description}</p>
           {collab.image && (
@@ -1161,14 +1232,16 @@ export default function Feed() {
     // Fetch comments just for this post on demand
     const { data: commentsData } = await (supabase as any)
       .from("comments")
-      .select(`*, profiles:user_id (name, avatar, color)`)
+      .select(`*, profiles:user_id (name, avatar, avatar_url, color)`)
       .eq("post_id", post.id)
       .order("created_at", { ascending: true });
 
     const loadedComments: Comment[] = (commentsData || []).map((c: any) => ({
       id: c.id,
+      user_id: c.user_id,
       author: c.profiles?.name || "Unknown",
       avatar: c.profiles?.avatar || "?",
+      avatarUrl: c.profiles?.avatar_url || undefined,
       color: c.profiles?.color || "bg-primary",
       text: c.text,
       time: timeAgo(c.created_at),
@@ -1194,8 +1267,10 @@ export default function Feed() {
       return;
     }
     const newComment: Comment = {
-      id: data.id, author: data.profiles?.name || user.name,
+      id: data.id, user_id: user.id,
+      author: data.profiles?.name || user.name,
       avatar: data.profiles?.avatar || user.avatar,
+      avatarUrl: data.profiles?.avatar_url || user.avatarUrl || undefined,
       color: data.profiles?.color || user.color,
       text: data.text, time: "Just now",
     };
@@ -1212,6 +1287,28 @@ export default function Feed() {
       });
     }
   }, [posts, user.id, user.name, user.avatar, user.color]);
+
+  const handleDeleteComment = useCallback(async (commentId: string, postId: string) => {
+    await (supabase as any).from("comments").delete().eq("id", commentId);
+    setPosts(p => p.map(x => x.id === postId
+      ? { ...x, comments: x.comments.filter(c => c.id !== commentId), commentCount: Math.max(0, x.commentCount - 1) }
+      : x));
+    setCommentingPost(prev => prev && prev.id === postId
+      ? { ...prev, comments: prev.comments.filter(c => c.id !== commentId), commentCount: Math.max(0, prev.commentCount - 1) }
+      : prev);
+  }, []);
+
+  const handleEditComment = useCallback(async (commentId: string, postId: string, newText: string) => {
+    const pre = checkContent(newText);
+    if (!pre.allowed) { toast({ title: pre.message!, variant: "destructive" }); return; }
+    const { error } = await (supabase as any).from("comments")
+      .update({ text: newText }).eq("id", commentId).eq("user_id", user.id);
+    if (error) { toast({ title: "Failed to edit comment", variant: "destructive" }); return; }
+    const patch = (c: Comment) => c.id === commentId ? { ...c, text: newText } : c;
+    setPosts(p => p.map(x => x.id === postId ? { ...x, comments: x.comments.map(patch) } : x));
+    setCommentingPost(prev => prev && prev.id === postId
+      ? { ...prev, comments: prev.comments.map(patch) } : prev);
+  }, [user.id]);
 
   const handleDeletePost = useCallback(async (id: string) => {
     const post = posts.find(p => p.id === id);
@@ -1626,7 +1723,7 @@ export default function Feed() {
       </div>
 
       <AnimatePresence>
-        {commentingPost && <CommentSheet post={commentingPost} onClose={() => setCommentingPost(null)} onAddComment={handleAddComment}/>}
+        {commentingPost && <CommentSheet post={commentingPost} currentUserId={user.id} onClose={() => setCommentingPost(null)} onAddComment={handleAddComment} onDeleteComment={handleDeleteComment} onEditComment={handleEditComment}/>}
       </AnimatePresence>
       {editingPost && <EditPostDialog post={editingPost} open={!!editingPost} onClose={() => setEditingPost(null)} onSave={handleEditPost}/>}
       {editingCollab && <EditCollabDialog collab={editingCollab} open={!!editingCollab} onClose={() => setEditingCollab(null)} onSave={handleEditCollab}/>}
