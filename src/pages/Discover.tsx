@@ -112,7 +112,7 @@ export default function Discover() {
         .select("id, name, avatar, avatar_url, color, location, bio, project, skills, open_to_collab, created_at")
         .neq("id", user.id)
         .is("deleted_at", null)
-        .not("name", "eq", "")
+        .eq("profile_complete", true)
         .order("created_at", { ascending: false })
         .limit(PAGE_SIZE);
 
@@ -287,9 +287,9 @@ export default function Discover() {
   return (
     <Layout>
       <div className="max-w-3xl mx-auto px-4 py-6">
-        <h1 className="font-display text-2xl font-bold mb-6">Find Your People</h1>
+        <h1 className="font-display text-2xl font-bold mb-6">Discover</h1>
 
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <Tabs value={activeTab} onValueChange={(tab) => { setActiveTab(tab); if (tab === "requests") setRequestCount(0); }}>
           <TabsList className="w-full mb-6">
             <TabsTrigger value="discover" className="flex-1">People</TabsTrigger>
             <TabsTrigger value="requests" className="flex-1">

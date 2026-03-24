@@ -38,6 +38,7 @@ type ActivityItem = {
   label: string;
   detail: string;
   time: string;
+  targetId: string;
 };
 
 function timeAgo(date: string) {
@@ -149,16 +150,16 @@ export default function Profile() {
       const items: ActivityItem[] = [];
 
       for (const p of (postsRes.data || [])) {
-        items.push({ id: `post-${p.id}`, type: "post", label: "You shared a post", detail: `"${p.content.slice(0, 60)}${p.content.length > 60 ? "…" : ""}"`, time: timeAgo(p.created_at) });
+        items.push({ id: `post-${p.id}`, type: "post", label: "You shared a post", detail: `"${p.content.slice(0, 60)}${p.content.length > 60 ? "…" : ""}"`, time: timeAgo(p.created_at), targetId: p.id });
       }
       for (const c of (commentsRes.data || [])) {
-        items.push({ id: `comment-${c.id}`, type: "comment", label: "You commented", detail: `"${c.text.slice(0, 60)}"`, time: timeAgo(c.created_at) });
+        items.push({ id: `comment-${c.id}`, type: "comment", label: "You commented", detail: `"${c.text.slice(0, 60)}"`, time: timeAgo(c.created_at), targetId: c.post_id });
       }
       for (const c of (collabsRes.data || [])) {
-        items.push({ id: `collab-${c.id}`, type: "collab", label: "You posted a collab", detail: c.title, time: timeAgo(c.created_at) });
+        items.push({ id: `collab-${c.id}`, type: "collab", label: "You posted a collab", detail: c.title, time: timeAgo(c.created_at), targetId: c.id });
       }
       for (const l of (likesRes.data || [])) {
-        items.push({ id: `like-${l.post_id}`, type: "like", label: "You liked a post", detail: "Liked a post in the feed", time: timeAgo(l.created_at) });
+        items.push({ id: `like-${l.post_id}`, type: "like", label: "You liked a post", detail: "Liked a post in the feed", time: timeAgo(l.created_at), targetId: l.post_id });
       }
 
       items.sort((a, b) => a.time.localeCompare(b.time));
@@ -417,7 +418,9 @@ export default function Profile() {
               <div className="divide-y divide-border">
                 {filtered.map(item => {
                   const Icon = iconMap[item.type] || TrendingUp;
-                  const dest = item.type === "collab" ? "/feed?tab=collabs" : "/feed";
+                  const dest = item.type === "collab"
+                    ? "/feed?tab=collabs"
+                    : `/feed?post=${item.targetId}`;
                   return (
                     <button key={item.id} onClick={() => navigate(dest)}
                       className="w-full flex items-center gap-3 px-5 py-3.5 text-left hover:bg-muted transition-colors cursor-pointer">

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, memo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -600,14 +600,14 @@ const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, onLike, 
             <span className={`font-semibold text-sm text-left ${post.authorDeleted ? "text-muted-foreground italic" : "text-foreground cursor-pointer hover:underline"}`} onClick={goToProfile}>{post.author}</span>
             {!post.authorDeleted && post.authorSkills && post.authorSkills.length > 0 && (
               <div className="flex flex-wrap gap-1 mt-0.5">
-                {post.authorSkills.map(s => <span key={s} className="text-[10px] bg-primary/10 text-primary font-medium px-1.5 py-0.5 rounded-full">{s}</span>)}
+                {post.authorSkills.map(s => <span key={s} className="text-[10px] text-muted-foreground px-1.5 py-0.5 rounded-full bg-muted/60">{s}</span>)}
               </div>
             )}
             <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
               {!post.authorDeleted && <><MapPin className="h-3 w-3 shrink-0"/> {post.location} · </>}{post.time}
             </p>
           </div>
-          <Badge variant="secondary" className="text-xs shrink-0">{post.tag}</Badge>
+          <span className="text-[10px] text-muted-foreground/70 shrink-0 font-normal">{post.tag}</span>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors ml-1">
@@ -808,9 +808,10 @@ function FeedSkeleton() {
 // ── Main Feed ──────────────────────────────────────────────────────────────
 export default function Feed() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { user } = useUser();
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState("feed");
+  const [activeTab, setActiveTab] = useState(() => searchParams.get("tab") === "collabs" ? "collabs" : "feed");
   const [search, setSearch] = useState("");
   const [postSearch, setPostSearch] = useState("");
   const [activeFilter, setActiveFilter] = useState("All");
@@ -851,6 +852,16 @@ export default function Feed() {
     uploading: false,
     customSkillInput: "",
   });
+
+  // ── Deep-link: open post comment dialog when ?post=<id> is in the URL ──
+  useEffect(() => {
+    const postId = searchParams.get("post");
+    if (!postId || posts.length === 0) return;
+    const target = posts.find(p => p.id === postId);
+    if (target) setCommentingPost(target);
+  // Only run after posts load, not on every searchParams change
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [posts]);
 
   // ── Fetch (OPT: parallelized — posts + collabs + likes fire simultaneously) ──
   const fetchFeed = useCallback(async () => {
@@ -1360,7 +1371,7 @@ export default function Feed() {
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="w-full mb-6">
             <TabsTrigger value="feed" className="flex-1">Feed</TabsTrigger>
-            <TabsTrigger value="collabs" className="flex-1">Build Together</TabsTrigger>
+            <TabsTrigger value="collabs" className="flex-1">Collabs</TabsTrigger>
           </TabsList>
 
           {/* ── FEED ── */}
