@@ -225,7 +225,7 @@ export default function Profile() {
     const { data } = (supabase as any).storage.from("avatars").getPublicUrl(path);
     const url = data.publicUrl + "?t=" + Date.now();
     setAvatarUrl(url);
-    await updateUser({ avatarUrl: data.publicUrl }); // persist to DB (without cache-bust param)
+    await updateUser({ avatarUrl: url }); // persist cache-busted URL so refresh always loads fresh image
     setAvatarUploading(false);
     toast({ title: "Profile photo updated! 📸" });
   };
