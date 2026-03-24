@@ -31,7 +31,7 @@ type Comment = { id: string; author: string; avatar: string; color: string; text
 type Post = {
   id: string; user_id: string; author: string; avatar: string; avatarUrl?: string; avatarColor: string; location: string;
   authorSkills?: string[]; authorDeleted?: boolean;
-  tag: string; time: string; content: string; image?: string; video?: string; likes: number; isOwn: boolean;
+  tag: string; time: string; content: string; image?: string; video?: string; likes: number; commentCount: number; isOwn: boolean;
   comments: Comment[];
 };
 type Collab = {
@@ -600,7 +600,7 @@ const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, onLike, 
             <span className={`font-semibold text-sm text-left ${post.authorDeleted ? "text-muted-foreground italic" : "text-foreground cursor-pointer hover:underline"}`} onClick={goToProfile}>{post.author}</span>
             {!post.authorDeleted && post.authorSkills && post.authorSkills.length > 0 && (
               <div className="flex flex-wrap gap-1 mt-0.5">
-                {post.authorSkills.map(s => <span key={s} className="text-[10px] text-muted-foreground px-1.5 py-0.5 rounded-full bg-muted/60">{s}</span>)}
+                {post.authorSkills.map(s => <span key={s} className="text-[10px] bg-secondary text-secondary-foreground px-1.5 py-0.5 rounded-full">{s}</span>)}
               </div>
             )}
             <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
@@ -649,7 +649,7 @@ const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, onLike, 
             <Heart className={`h-4 w-4 ${isLiked?"fill-current":""}`}/> {post.likes}
           </button>
           <button onClick={()=>onComment(post)} className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg text-muted-foreground hover:bg-muted transition-colors">
-            <MessageCircle className="h-4 w-4"/> {post.comments.length}
+            <MessageCircle className="h-4 w-4"/> {post.commentCount}
           </button>
           <button onClick={()=>onSave(post.id)} className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors ml-auto ${isSaved?"text-primary bg-primary/10":"text-muted-foreground hover:bg-muted"}`}>
             <Bookmark className={`h-4 w-4 ${isSaved?"fill-current":""}`}/><span className="hidden sm:inline">{isSaved?"Saved":"Save"}</span>
@@ -740,9 +740,9 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
         </div>
         <div className="px-5 pb-4">
           <h3 className="font-semibold text-foreground mb-2">{collab.title}</h3>
-          <div className="flex items-center gap-1.5 mb-2">
-            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Looking for</span>
-            <span className="text-sm font-bold text-primary">{collab.looking}</span>
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide shrink-0">Looking for</span>
+            <span className="px-2.5 py-0.5 rounded-full bg-primary/15 text-primary text-xs font-semibold">{collab.looking}</span>
           </div>
           <p className="text-sm text-foreground leading-relaxed mb-3">{collab.description}</p>
           {collab.image && (
@@ -913,9 +913,19 @@ export default function Feed() {
         authorDeleted: !!p.profiles?.deleted_at,
         tag: p.tag, time: timeAgo(p.created_at), content: p.content,
         image: p.image_url || undefined, video: p.video_url || undefined,
-        likes: p.likes || 0, isOwn: p.user_id === user.id,
-        comments: [], // loaded on-demand
+        likes: p.likes || 0, commentCount: 0, isOwn: p.user_id === user.id,
+        comments: [],
       }));
+
+      // Fetch comment counts for all posts in one query
+      if (mappedPosts.length > 0) {
+        const { data: commentRows } = await (supabase as any)
+          .from("comments").select("post_id")
+          .in("post_id", mappedPosts.map(p => p.id));
+        const countMap: Record<string, number> = {};
+        (commentRows || []).forEach((c: any) => { countMap[c.post_id] = (countMap[c.post_id] || 0) + 1; });
+        mappedPosts.forEach(p => { p.commentCount = countMap[p.id] || 0; });
+      }
 
       const mappedCollabs: Collab[] = (collabsRes.data || []).map((c: any) => ({
         id: c.id, user_id: c.user_id,
@@ -971,8 +981,15 @@ export default function Feed() {
         authorDeleted: !!p.profiles?.deleted_at,
         tag: p.tag, time: timeAgo(p.created_at), content: p.content,
         image: p.image_url || undefined, video: p.video_url || undefined,
-        likes: p.likes || 0, isOwn: p.user_id === user.id, comments: [],
+        likes: p.likes || 0, commentCount: 0, isOwn: p.user_id === user.id, comments: [],
       }));
+      if (more.length > 0) {
+        const { data: cRows } = await (supabase as any)
+          .from("comments").select("post_id").in("post_id", more.map(p => p.id));
+        const cm: Record<string, number> = {};
+        (cRows || []).forEach((c: any) => { cm[c.post_id] = (cm[c.post_id] || 0) + 1; });
+        more.forEach(p => { p.commentCount = cm[p.id] || 0; });
+      }
       setPosts(prev => [...prev, ...more]);
       setPostsHasMore((data || []).length === 30);
       if ((data || []).length > 0) postsCursorRef.current = data[data.length - 1].created_at;
@@ -1043,6 +1060,7 @@ export default function Feed() {
                 image: payload.new.image_url || undefined,
                 video: payload.new.video_url || undefined,
                 likes: 0,
+                commentCount: 0,
                 isOwn: false,
                 comments: [],
               };
@@ -1156,8 +1174,8 @@ export default function Feed() {
       time: timeAgo(c.created_at),
     }));
 
-    // Patch the post in state so future opens are instant
-    const updatedPost = { ...post, comments: loadedComments };
+    // Patch the post in state — sync count with real loaded count
+    const updatedPost = { ...post, comments: loadedComments, commentCount: loadedComments.length };
     setPosts(p => p.map(x => x.id === post.id ? updatedPost : x));
     setCommentingPost(updatedPost);
   }, []);
@@ -1181,8 +1199,8 @@ export default function Feed() {
       color: data.profiles?.color || user.color,
       text: data.text, time: "Just now",
     };
-    setPosts(p => p.map(x => x.id === postId ? { ...x, comments: [...x.comments, newComment] } : x));
-    setCommentingPost(prev => prev ? { ...prev, comments: [...prev.comments, newComment] } : null);
+    setPosts(p => p.map(x => x.id === postId ? { ...x, comments: [...x.comments, newComment], commentCount: x.commentCount + 1 } : x));
+    setCommentingPost(prev => prev ? { ...prev, comments: [...prev.comments, newComment], commentCount: prev.commentCount + 1 } : null);
     const post = posts.find(p => p.id === postId);
     if (post && post.user_id !== user.id) {
       createNotification({
@@ -1237,7 +1255,7 @@ export default function Feed() {
       id: data.id, user_id: user.id, author: user.name, avatar: user.avatar,
       avatarColor: user.color, location: user.location, tag: postDialog.tag, time: "Just now",
       content: postDialog.content, image: postDialog.image, video: postDialog.video,
-      likes: 0, isOwn: true, comments: [],
+      likes: 0, commentCount: 0, isOwn: true, comments: [],
     }, ...p]);
     setPostDialog({ open: false, content: "", tag: "General", image: undefined, video: undefined, uploading: false });
     toast({ title: "Post published! 🎉" });
