@@ -14,7 +14,7 @@ import { toast } from "@/hooks/use-toast";
 import { useTheme } from "@/context/ThemeContext";
 import { useUser } from "@/context/UserContext";
 import { supabase } from "@/lib/supabase";
-import { SKILL_CATEGORIES, ROLE_OPTIONS, MAX_ROLES } from "@/lib/skills";
+import { SKILL_CATEGORIES } from "@/lib/skills";
 
 const DELETE_REASONS = [
   "I'm not getting value from Prolifier",
@@ -64,11 +64,7 @@ export default function Profile() {
   const [draftBio, setDraftBio]     = useState("");
   const [draftProject, setDraftProject] = useState("");
   const [draftSkills, setDraftSkills]   = useState<string[]>([]);
-  const [draftLooking, setDraftLooking] = useState<string[]>([]);
-  const [draftRoles, setDraftRoles]     = useState<string[]>([]);
-  const [customRoleInput, setCustomRoleInput] = useState("");
   const [customSkillInput, setCustomSkillInput] = useState("");
-  const [customLookingInput, setCustomLookingInput] = useState("");
   const [draftGithub, setDraftGithub]   = useState("");
   const [draftWebsite, setDraftWebsite] = useState("");
   const [draftTwitter, setDraftTwitter] = useState("");
@@ -182,8 +178,6 @@ export default function Profile() {
     setDraftBio(user.bio);
     setDraftProject(user.project);
     setDraftSkills([...user.skills]);
-    setDraftLooking([...user.lookingFor]);
-    setDraftRoles([...user.roles]);
     setDraftGithub(user.github);
     setDraftWebsite(user.website);
     setDraftTwitter(user.twitter);
@@ -195,7 +189,7 @@ export default function Profile() {
     setSaving(true);
     await updateUser({
       name: draftName.trim(), location: draftLocation.trim(), bio: draftBio.trim(),
-      project: draftProject.trim(), skills: draftSkills, lookingFor: draftLooking, roles: draftRoles,
+      project: draftProject.trim(), skills: draftSkills,
       github: draftGithub.trim(), website: draftWebsite.trim(), twitter: draftTwitter.trim(),
     });
     setSaving(false);
@@ -526,77 +520,27 @@ export default function Profile() {
               : <p className="text-sm text-primary font-medium">{user.project || <span className="text-muted-foreground italic font-normal">Nothing listed yet</span>}</p>}
           </div>
 
-          {/* Role */}
-          <div className="mb-4">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Role <span className="font-normal normal-case">(pick up to {MAX_ROLES})</span></p>
-            {editing ? (
-              <div className="space-y-2">
-                <div className="flex flex-wrap gap-1.5">
-                  {ROLE_OPTIONS.map(r => {
-                    const selected = draftRoles.includes(r);
-                    const maxed = !selected && draftRoles.length >= MAX_ROLES;
-                    return (
-                      <Badge key={r}
-                        variant={selected ? "default" : "outline"}
-                        className={`text-xs ${maxed ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}
-                        onClick={() => {
-                          if (maxed) return;
-                          setDraftRoles(prev => prev.includes(r) ? prev.filter(x => x !== r) : [...prev, r]);
-                        }}
-                      >{r}</Badge>
-                    );
-                  })}
-                  {/* Custom roles */}
-                  {draftRoles.filter(r => !(ROLE_OPTIONS as readonly string[]).includes(r)).map(r => (
-                    <Badge key={r} variant="default" className="text-xs cursor-pointer gap-1"
-                      onClick={() => setDraftRoles(prev => prev.filter(x => x !== r))}>
-                      {r} <X className="h-2.5 w-2.5"/>
-                    </Badge>
-                  ))}
-                </div>
-                {draftRoles.length < MAX_ROLES && (
-                  <div className="flex gap-2">
-                    <Input placeholder="Other role…" value={customRoleInput}
-                      onChange={e => setCustomRoleInput(e.target.value)}
-                      className="h-8 text-sm"
-                      onKeyDown={e => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          const val = customRoleInput.trim();
-                          if (val && !draftRoles.includes(val) && draftRoles.length < MAX_ROLES)
-                            setDraftRoles(prev => [...prev, val]);
-                          setCustomRoleInput("");
-                        }
-                      }}/>
-                    <Button type="button" size="sm" variant="outline" className="h-8 px-3 shrink-0"
-                      onClick={() => {
-                        const val = customRoleInput.trim();
-                        if (val && !draftRoles.includes(val) && draftRoles.length < MAX_ROLES)
-                          setDraftRoles(prev => [...prev, val]);
-                        setCustomRoleInput("");
-                      }}>Add</Button>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="flex flex-wrap gap-1.5">
-                {user.roles.length > 0
-                  ? user.roles.map(r => <Badge key={r} variant="secondary" className="text-xs">{r}</Badge>)
-                  : <span className="text-xs text-muted-foreground italic">No role set</span>}
-              </div>
-            )}
-          </div>
-
           {/* Skills */}
           <div className="mb-4">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Skills & expertise</p>
+            <div className="flex items-center justify-between mb-1.5">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Skills & expertise</p>
+              {editing && <span className={`text-xs font-medium ${draftSkills.length >= 3 ? "text-primary" : "text-muted-foreground"}`}>{draftSkills.length}/3</span>}
+            </div>
             {editing ? (
               <div className="space-y-2">
                 <div className="flex flex-wrap gap-1.5">
-                  {SKILL_CATEGORIES.map(s => (
-                    <Badge key={s} variant={draftSkills.includes(s) ? "default" : "outline"} className="cursor-pointer text-xs"
-                      onClick={() => toggleSkill(s, draftSkills, setDraftSkills)}>{s}</Badge>
-                  ))}
+                  {SKILL_CATEGORIES.map(s => {
+                    const selected = draftSkills.includes(s);
+                    const maxed = !selected && draftSkills.length >= 3;
+                    return (
+                      <Badge key={s}
+                        variant={selected ? "default" : "outline"}
+                        className={`text-xs transition-all ${maxed ? "opacity-40 cursor-not-allowed" : "cursor-pointer hover:scale-105"}`}
+                        onClick={() => { if (!maxed) toggleSkill(s, draftSkills, setDraftSkills); }}>
+                        {s}{selected && <X className="h-2.5 w-2.5 ml-1"/>}
+                      </Badge>
+                    );
+                  })}
                   {draftSkills.filter(s => !(SKILL_CATEGORIES as readonly string[]).includes(s)).map(s => (
                     <Badge key={s} variant="default" className="text-xs cursor-pointer gap-1"
                       onClick={() => setDraftSkills(prev => prev.filter(x => x !== s))}>
@@ -604,77 +548,33 @@ export default function Profile() {
                     </Badge>
                   ))}
                 </div>
-                <div className="flex gap-2">
-                  <Input placeholder="Other skill…" value={customSkillInput}
-                    onChange={e => setCustomSkillInput(e.target.value)}
-                    className="h-8 text-sm"
-                    onKeyDown={e => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
+                {draftSkills.length < 3 && (
+                  <div className="flex gap-2">
+                    <Input placeholder="Other skill…" value={customSkillInput}
+                      onChange={e => setCustomSkillInput(e.target.value)}
+                      className="h-8 text-sm"
+                      onKeyDown={e => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          const val = customSkillInput.trim();
+                          if (val && !draftSkills.includes(val) && draftSkills.length < 3) setDraftSkills(prev => [...prev, val]);
+                          setCustomSkillInput("");
+                        }
+                      }}/>
+                    <Button type="button" size="sm" variant="outline" className="h-8 px-3 shrink-0"
+                      onClick={() => {
                         const val = customSkillInput.trim();
-                        if (val && !draftSkills.includes(val)) setDraftSkills(prev => [...prev, val]);
+                        if (val && !draftSkills.includes(val) && draftSkills.length < 3) setDraftSkills(prev => [...prev, val]);
                         setCustomSkillInput("");
-                      }
-                    }}/>
-                  <Button type="button" size="sm" variant="outline" className="h-8 px-3 shrink-0"
-                    onClick={() => {
-                      const val = customSkillInput.trim();
-                      if (val && !draftSkills.includes(val)) setDraftSkills(prev => [...prev, val]);
-                      setCustomSkillInput("");
-                    }}>Add</Button>
-                </div>
+                      }}>Add</Button>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="flex flex-wrap gap-1.5">
                 {user.skills.length > 0
-                  ? user.skills.map(s => <Badge key={s} variant="outline" className="text-xs">{s}</Badge>)
+                  ? user.skills.slice(0, 3).map(s => <Badge key={s} variant="outline" className="text-xs">{s}</Badge>)
                   : <span className="text-xs text-muted-foreground italic">No skills added yet</span>}
-              </div>
-            )}
-          </div>
-
-          {/* Looking for */}
-          <div className="mb-4">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Looking for</p>
-            {editing ? (
-              <div className="space-y-2">
-                <div className="flex flex-wrap gap-1.5">
-                  {SKILL_CATEGORIES.map(s => (
-                    <Badge key={s} variant={draftLooking.includes(s) ? "default" : "outline"} className="cursor-pointer text-xs"
-                      onClick={() => toggleSkill(s, draftLooking, setDraftLooking)}>{s}</Badge>
-                  ))}
-                  {draftLooking.filter(s => !(SKILL_CATEGORIES as readonly string[]).includes(s)).map(s => (
-                    <Badge key={s} variant="default" className="text-xs cursor-pointer gap-1"
-                      onClick={() => setDraftLooking(prev => prev.filter(x => x !== s))}>
-                      {s} <X className="h-2.5 w-2.5"/>
-                    </Badge>
-                  ))}
-                </div>
-                <div className="flex gap-2">
-                  <Input placeholder="Other skill…" value={customLookingInput}
-                    onChange={e => setCustomLookingInput(e.target.value)}
-                    className="h-8 text-sm"
-                    onKeyDown={e => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        const val = customLookingInput.trim();
-                        if (val && !draftLooking.includes(val)) setDraftLooking(prev => [...prev, val]);
-                        setCustomLookingInput("");
-                      }
-                    }}/>
-                  <Button type="button" size="sm" variant="outline" className="h-8 px-3 shrink-0"
-                    onClick={() => {
-                      const val = customLookingInput.trim();
-                      if (val && !draftLooking.includes(val)) setDraftLooking(prev => [...prev, val]);
-                      setCustomLookingInput("");
-                    }}>Add</Button>
-                </div>
-              </div>
-            ) : (
-              <div className="flex flex-wrap gap-1.5">
-                {user.lookingFor.length > 0
-                  ? user.lookingFor.map(s => <Badge key={s} variant="secondary" className="text-xs">{s}</Badge>)
-                  : <span className="text-xs text-muted-foreground italic">Nothing listed</span>}
               </div>
             )}
           </div>

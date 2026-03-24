@@ -269,11 +269,12 @@ export default function Messages() {
     }
   }, [user.id]);
 
-  // ── Realtime for incoming messages ───────────────────────────────────
+  // ── Realtime for incoming messages + read receipts ───────────────────
   useEffect(() => {
     if (!user.id) return;
     const channel = supabase
       .channel(`dm-${user.id}`)
+      // New messages sent TO current user
       .on("postgres_changes", {
         event: "INSERT",
         schema: "public",
@@ -281,24 +282,33 @@ export default function Messages() {
         filter: `receiver_id=eq.${user.id}`,
       }, async (payload) => {
         const row = payload.new as any;
-        // If chatting with this person, add message instantly
         if (row.sender_id === selectedId) {
           setMessages(prev => [...prev, {
             id: row.id, sender_id: row.sender_id, text: row.text,
             media_url: row.media_url, media_type: row.media_type,
             created_at: row.created_at, read: false,
           }]);
-          // Mark as read immediately
+          // Mark as read immediately since the chat is open
           await (supabase as any).from("messages").update({ read: true }).eq("id", row.id);
         } else {
-          // Update unread count in sidebar
           setConversations(prev => prev.map(c =>
             c.id === row.sender_id ? { ...c, unread: c.unread + 1, lastMsg: row.text || "", lastTime: fmtTime(row.created_at) } : c
           ));
-          // If this is a new person, add them to conversations
           if (!conversations.find(c => c.id === row.sender_id)) {
             fetchConversations();
           }
+        }
+      })
+      // Read receipts: messages sent BY current user that the recipient marked read
+      .on("postgres_changes", {
+        event: "UPDATE",
+        schema: "public",
+        table: "messages",
+        filter: `sender_id=eq.${user.id}`,
+      }, (payload) => {
+        const row = payload.new as any;
+        if (row.read) {
+          setMessages(prev => prev.map(m => m.id === row.id ? { ...m, read: true } : m));
         }
       })
       .subscribe();
