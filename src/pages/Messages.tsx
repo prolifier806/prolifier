@@ -143,12 +143,13 @@ export default function Messages() {
     if (!user.id) return;
     setLoadingConvos(true);
     try {
-      // Get all messages involving current user
+      // Get recent messages involving current user (capped to prevent large payloads)
       const { data, error } = await (supabase as any)
         .from("messages")
         .select("id, sender_id, receiver_id, text, media_type, created_at, read")
         .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false })
+        .limit(300);
       if (error) throw error;
 
       // Build conversation list — one entry per unique other user
@@ -180,30 +181,33 @@ export default function Messages() {
 
       const convList = Object.values(convMap);
 
-      // Fetch profiles for all other users
-      if (convList.length > 0) {
-        const { data: profiles } = await (supabase as any)
-          .from("profiles")
-          .select("id, name, avatar_url, color")
-          .in("id", convList.map(c => c.id));
-        const profileMap: Record<string, any> = {};
-        (profiles || []).forEach((p: any) => { profileMap[p.id] = p; });
-        convList.forEach(c => {
-          const p = profileMap[c.id];
-          if (p) { c.name = p.name; c.avatar = initials(p.name); c.avatarUrl = p.avatar_url || undefined; c.color = p.color || "bg-primary"; }
-        });
-      }
+      // Fetch profiles + ?with= lookup in parallel
+      const params = new URLSearchParams(window.location.search);
+      const withId = params.get("with");
+      const needWithProfile = withId && !convList.find(c => c.id === withId);
+
+      const [profilesRes, withProfileRes] = await Promise.all([
+        convList.length > 0
+          ? (supabase as any).from("profiles").select("id, name, avatar_url, color").in("id", convList.map(c => c.id))
+          : Promise.resolve({ data: [] }),
+        needWithProfile
+          ? (supabase as any).from("profiles").select("name, avatar_url, color").eq("id", withId).single()
+          : Promise.resolve({ data: null }),
+      ]);
+
+      const profileMap: Record<string, any> = {};
+      (profilesRes.data || []).forEach((p: any) => { profileMap[p.id] = p; });
+      convList.forEach(c => {
+        const p = profileMap[c.id];
+        if (p) { c.name = p.name; c.avatar = initials(p.name); c.avatarUrl = p.avatar_url || undefined; c.color = p.color || "bg-primary"; }
+      });
 
       setConversations(convList);
 
-      // Auto-open if ?with= param is present
-      const params = new URLSearchParams(window.location.search);
-      const withId = params.get("with");
       if (withId) {
         // If not in list yet, add a placeholder so it can be selected
         if (!convList.find(c => c.id === withId)) {
-          const { data: profileData } = await (supabase as any)
-            .from("profiles").select("name, avatar_url, color").eq("id", withId).single();
+          const { data: profileData } = withProfileRes;
           const p = profileData || {};
           const name = p.name || "User";
           convList.push({

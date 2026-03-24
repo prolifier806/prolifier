@@ -125,7 +125,13 @@ export default function Discover() {
       if (collabOnly) query = query.eq("open_to_collab", true);
       if (cursor) query = query.lt("created_at", cursor);
 
-      const { data, error } = await query;
+      // Run profiles + connections in parallel on initial load
+      const [{ data, error }, connsRes] = await Promise.all([
+        query,
+        !cursor
+          ? (supabase as any).from("connections").select("receiver_id").eq("requester_id", user.id)
+          : Promise.resolve({ data: null }),
+      ]);
       if (error) throw error;
 
       const mapped: Profile[] = (data || []).map((p: any) => ({
@@ -144,12 +150,7 @@ export default function Discover() {
       cursor ? setProfiles(prev => [...prev, ...mapped]) : setProfiles(mapped);
       setHasMore((data || []).length === PAGE_SIZE);
       if ((data || []).length > 0) cursorRef.current = data[data.length - 1].created_at;
-
-      if (!cursor) {
-        const { data: conns } = await (supabase as any)
-          .from("connections").select("receiver_id").eq("requester_id", user.id);
-        if (conns) setConnected(new Set(conns.map((c: any) => c.receiver_id)));
-      }
+      if (connsRes.data) setConnected(new Set(connsRes.data.map((c: any) => c.receiver_id)));
     } catch (err: any) {
       toast({ title: "Failed to load profiles", description: err.message, variant: "destructive" });
     } finally {
