@@ -334,7 +334,7 @@ function ShareDialog({ open, onClose, link }: { open: boolean; onClose: () => vo
 // ── Report Dialog ──────────────────────────────────────────────────────────
 function ReportDialog({ open, onClose, target, targetType, targetId }: {
   open: boolean; onClose: () => void; target: string;
-  targetType: "post" | "collab"; targetId: string;
+  targetType: "post" | "collab" | "comment"; targetId: string;
 }) {
   const { user } = useUser();
   const [reason, setReason] = useState("");
@@ -398,13 +398,14 @@ function ReportDialog({ open, onClose, target, targetType, targetId }: {
 }
 
 // ── Comment Sheet ──────────────────────────────────────────────────────────
-function CommentSheet({ post, currentUserId, onClose, onAddComment, onDeleteComment, onEditComment }: {
+function CommentSheet({ post, currentUserId, onClose, onAddComment, onDeleteComment, onEditComment, onReportComment }: {
   post: Post;
   currentUserId: string;
   onClose: () => void;
   onAddComment: (postId: string, text: string) => void;
   onDeleteComment: (commentId: string, postId: string) => void;
   onEditComment: (commentId: string, postId: string, text: string) => void;
+  onReportComment: (commentId: string) => void;
 }) {
   const { user } = useUser();
   const [text, setText] = useState("");
@@ -488,13 +489,7 @@ function CommentSheet({ post, currentUserId, onClose, onAddComment, onDeleteComm
                 )}
                 {editingId !== c.id && (
                   <div className="flex items-center gap-3 mt-1 ml-1">
-                    {c.user_id !== currentUserId && (
-                      <button onClick={() => startReply(c.author)}
-                        className="text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors">
-                        Reply
-                      </button>
-                    )}
-                    {c.user_id === currentUserId && (
+                    {c.user_id === currentUserId ? (
                       <>
                         <button onClick={() => startEdit(c)}
                           className="text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors">
@@ -505,12 +500,24 @@ function CommentSheet({ post, currentUserId, onClose, onAddComment, onDeleteComm
                           Delete
                         </button>
                       </>
-                    )}
-                    {c.user_id !== currentUserId && (
-                      <button onClick={() => onDeleteComment(c.id, post.id)}
-                        className="text-[11px] font-medium text-muted-foreground/60 hover:text-destructive transition-colors">
-                        {post.user_id === currentUserId ? "Delete" : "Report"}
-                      </button>
+                    ) : (
+                      <>
+                        <button onClick={() => startReply(c.author)}
+                          className="text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors">
+                          Reply
+                        </button>
+                        {post.user_id === currentUserId ? (
+                          <button onClick={() => onDeleteComment(c.id, post.id)}
+                            className="text-[11px] font-medium text-destructive/60 hover:text-destructive transition-colors">
+                            Delete
+                          </button>
+                        ) : (
+                          <button onClick={() => onReportComment(c.id)}
+                            className="text-[11px] font-medium text-muted-foreground/60 hover:text-destructive transition-colors">
+                            Report
+                          </button>
+                        )}
+                      </>
                     )}
                   </div>
                 )}
@@ -705,7 +712,7 @@ const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, onLike, 
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-        <p className="text-sm text-foreground leading-relaxed px-5 pb-3">{post.content}</p>
+        <p className="text-sm text-foreground leading-relaxed px-5 pb-3 break-words">{post.content}</p>
         {post.image && (
           <div className="px-5 pb-3">
             <SmartImage src={post.image} alt="post" onClick={() => setLightboxSrc(post.image!)} />
@@ -772,7 +779,7 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
             <span className={`font-semibold text-sm text-left ${collab.authorDeleted ? "text-muted-foreground italic" : "text-foreground cursor-pointer hover:underline"}`} onClick={goToProfile}>{collab.author}</span>
             {!collab.authorDeleted && collab.authorSkills && collab.authorSkills.length > 0 && (
               <div className="flex flex-wrap gap-1 mt-0.5">
-                {collab.authorSkills.map(s => <span key={s} className="text-[10px] bg-primary/10 text-primary font-medium px-1.5 py-0.5 rounded-full">{s}</span>)}
+                {collab.authorSkills.map(s => <span key={s} className="text-xs font-medium bg-primary/10 text-primary px-2 py-0.5 rounded-full">{s}</span>)}
               </div>
             )}
             {!collab.authorDeleted && <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5"><MapPin className="h-3 w-3 shrink-0"/> {collab.location}</p>}
@@ -807,15 +814,15 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
           </DropdownMenu>
         </div>
         <div className="px-5 pb-4">
-          <h3 className="font-semibold text-foreground mb-2">{collab.title}</h3>
-          <div className="mb-3">
+          <div className="mb-2">
             <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary text-primary-foreground text-xs font-semibold">
               <span className="opacity-75 text-[10px] uppercase tracking-wide font-semibold">Looking for</span>
               <span className="w-px h-3 bg-primary-foreground/30 shrink-0"/>
               {collab.looking}
             </span>
           </div>
-          <p className="text-sm text-foreground leading-relaxed mb-3">{collab.description}</p>
+          <h3 className="font-semibold text-foreground mb-2">{collab.title}</h3>
+          <p className="text-sm text-foreground leading-relaxed mb-3 break-words">{collab.description}</p>
           {collab.image && (
             <div className="mb-3">
               <SmartImage src={collab.image} alt="collab" onClick={() => setLightboxSrc(collab.image!)} />
@@ -895,7 +902,7 @@ export default function Feed() {
   const [commentingPost, setCommentingPost] = useState<Post|null>(null);
   const [editingPost, setEditingPost] = useState<Post|null>(null);
   const [shareTarget, setShareTarget] = useState<{type:"post"|"collab";id:string}|null>(null);
-  const [reportTarget, setReportTarget] = useState<{type:"post"|"collab";id:string}|null>(null);
+  const [reportTarget, setReportTarget] = useState<{type:"post"|"collab"|"comment";id:string}|null>(null);
   const [interestedCollabs, setInterestedCollabs] = useState<Set<string>>(new Set());
   const [savedCollabs, setSavedCollabs] = useState<Set<string>>(new Set());
   const [editingCollab, setEditingCollab] = useState<Collab|null>(null);
@@ -995,7 +1002,12 @@ export default function Feed() {
           .in("post_id", mappedPosts.map(p => p.id));
         const countMap: Record<string, number> = {};
         (commentRows || []).forEach((c: any) => { countMap[c.post_id] = (countMap[c.post_id] || 0) + 1; });
-        mappedPosts.forEach(p => { p.commentCount = countMap[p.id] || 0; });
+        // Create new objects (not in-place mutation) so React detects the change
+        for (let i = 0; i < mappedPosts.length; i++) {
+          if (countMap[mappedPosts[i].id]) {
+            mappedPosts[i] = { ...mappedPosts[i], commentCount: countMap[mappedPosts[i].id] };
+          }
+        }
       }
 
       const mappedCollabs: Collab[] = (collabsRes.data || []).map((c: any) => ({
@@ -1059,7 +1071,9 @@ export default function Feed() {
           .from("comments").select("post_id").in("post_id", more.map(p => p.id));
         const cm: Record<string, number> = {};
         (cRows || []).forEach((c: any) => { cm[c.post_id] = (cm[c.post_id] || 0) + 1; });
-        more.forEach(p => { p.commentCount = cm[p.id] || 0; });
+        for (let i = 0; i < more.length; i++) {
+          if (cm[more[i].id]) more[i] = { ...more[i], commentCount: cm[more[i].id] };
+        }
       }
       setPosts(prev => [...prev, ...more]);
       setPostsHasMore((data || []).length === 30);
@@ -1296,6 +1310,10 @@ export default function Feed() {
     setCommentingPost(prev => prev && prev.id === postId
       ? { ...prev, comments: prev.comments.filter(c => c.id !== commentId), commentCount: Math.max(0, prev.commentCount - 1) }
       : prev);
+  }, []);
+
+  const handleReportComment = useCallback((commentId: string) => {
+    setReportTarget({ type: "comment", id: commentId });
   }, []);
 
   const handleEditComment = useCallback(async (commentId: string, postId: string, newText: string) => {
@@ -1723,12 +1741,12 @@ export default function Feed() {
       </div>
 
       <AnimatePresence>
-        {commentingPost && <CommentSheet post={commentingPost} currentUserId={user.id} onClose={() => setCommentingPost(null)} onAddComment={handleAddComment} onDeleteComment={handleDeleteComment} onEditComment={handleEditComment}/>}
+        {commentingPost && <CommentSheet post={commentingPost} currentUserId={user.id} onClose={() => setCommentingPost(null)} onAddComment={handleAddComment} onDeleteComment={handleDeleteComment} onEditComment={handleEditComment} onReportComment={handleReportComment}/>}
       </AnimatePresence>
       {editingPost && <EditPostDialog post={editingPost} open={!!editingPost} onClose={() => setEditingPost(null)} onSave={handleEditPost}/>}
       {editingCollab && <EditCollabDialog collab={editingCollab} open={!!editingCollab} onClose={() => setEditingCollab(null)} onSave={handleEditCollab}/>}
       {shareTarget && <ShareDialog open={!!shareTarget} onClose={() => setShareTarget(null)} link={shareLink}/>}
-      {reportTarget && <ReportDialog open={!!reportTarget} onClose={() => setReportTarget(null)} target={reportTarget.type==="post"?"this post":"this collab"} targetType={reportTarget.type} targetId={reportTarget.id}/>}
+      {reportTarget && <ReportDialog open={!!reportTarget} onClose={() => setReportTarget(null)} target={reportTarget.type==="post"?"this post":reportTarget.type==="collab"?"this collab":"this comment"} targetType={reportTarget.type} targetId={reportTarget.id}/>}
     </Layout>
   );
 }
