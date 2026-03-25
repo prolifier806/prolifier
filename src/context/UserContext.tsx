@@ -200,13 +200,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
       const next = profileFromRow(userId, email, row);
 
-      // If deleted_at is set, sign out immediately (don't allow access with deleted account)
-      if (next.deletedAt) {
-        localStorage.removeItem(cacheKey(userId));
-        await supabase.auth.signOut();
-        return;
-      }
-
+      // If deleted_at is set, let the user stay authenticated so ProtectedRoute
+      // can redirect them to /recover. Only permanently_deleted forces a sign-out.
       setUser(prev => {
         // If the user saved locally more recently than what the DB returned,
         // keep the local state — don't let a stale DB row overwrite fresh edits.
@@ -303,9 +298,16 @@ export function UserProvider({ children }: { children: ReactNode }) {
         table: "profiles",
         filter: `id=eq.${id}`,
       }, async (payload: any) => {
-        if (payload.new?.deleted_at || payload.new?.permanently_deleted) {
+        if (payload.new?.permanently_deleted) {
           localStorage.removeItem(cacheKey(id));
           await supabase.auth.signOut();
+        } else if (payload.new?.deleted_at) {
+          // Soft-deleted: update state so ProtectedRoute redirects to /recover
+          setUser(prev => {
+            const next = { ...prev, deletedAt: payload.new.deleted_at };
+            localStorage.removeItem(cacheKey(id));
+            return next;
+          });
         }
       })
       .subscribe();
