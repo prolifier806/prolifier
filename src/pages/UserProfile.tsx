@@ -2,7 +2,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, MapPin, Github, Globe, Twitter, MessageCircle, UserPlus, Heart, Handshake, Check, UserX, ShieldOff } from "lucide-react";
+import { ArrowLeft, MapPin, Github, Globe, Twitter, MessageCircle, UserPlus, Heart, Handshake, Check, UserX, ShieldOff, X } from "lucide-react";
 import Layout from "@/components/Layout";
 import { toast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
@@ -108,8 +108,11 @@ export default function UserProfile() {
   const [notFound, setNotFound] = useState(false);
   const [isDeleted, setIsDeleted] = useState(false);
   const [connected, setConnected] = useState(false);
+  const [pending, setPending] = useState(false);
   const [connectionLoading, setConnectionLoading] = useState(false);
   const [isBlocked, setIsBlocked] = useState(false);
+  const [isBlockedByOwner, setIsBlockedByOwner] = useState(false);
+  const [avatarLightbox, setAvatarLightbox] = useState(false);
 
   useEffect(() => {
     if (!id) { setNotFound(true); setLoading(false); return; }
@@ -123,11 +126,15 @@ export default function UserProfile() {
 
       try {
         // Fetch profile, posts, collabs, connection status in parallel
-        const [profileRes, postsRes, collabsRes, connRes] = await Promise.all([
+        const [profileRes, postsRes, collabsRes, [connSentRes, connRecvRes]] = await Promise.all([
           (supabase as any).from("profiles").select("*").eq("id", id).single(),
           (supabase as any).from("posts").select("id, tag, content, created_at, likes").eq("user_id", id).order("created_at", { ascending: false }).limit(20),
           (supabase as any).from("collabs").select("id, title, looking, description, skills").eq("user_id", id).order("created_at", { ascending: false }).limit(10),
-          (supabase as any).from("connections").select("id").eq("requester_id", user.id).eq("receiver_id", id).maybeSingle(),
+          // Check connection status from both directions
+          Promise.all([
+            (supabase as any).from("connections").select("id, status").eq("requester_id", user.id).eq("receiver_id", id).maybeSingle(),
+            (supabase as any).from("connections").select("id, status").eq("requester_id", id).eq("receiver_id", user.id).maybeSingle(),
+          ]),
         ]);
 
         if (profileRes.error || !profileRes.data) {
@@ -168,7 +175,23 @@ export default function UserProfile() {
           description: c.description, skills: c.skills || [],
         })));
 
-        setConnected(!!connRes.data);
+        const connSent = connSentRes.data;
+        const connRecv = connRecvRes.data;
+        const isAccepted = (connSent?.status === "accepted") || (connRecv?.status === "accepted");
+        const isPending = (connSent?.status === "pending") || (connRecv?.status === "pending");
+        setConnected(isAccepted);
+        setPending(isPending && !isAccepted);
+
+        // Check if this profile owner has blocked the current viewer
+        try {
+          const { data: blockedByOwner } = await (supabase as any)
+            .from("blocks")
+            .select("id")
+            .eq("blocker_id", id)
+            .eq("blocked_id", user.id)
+            .maybeSingle();
+          setIsBlockedByOwner(!!blockedByOwner);
+        } catch { /* ignore */ }
 
         // Load blocked status
         const blockedKey = `prolifier_blocked_${user.id}`;
@@ -186,7 +209,7 @@ export default function UserProfile() {
     load();
   }, [id, user.id, navigate]);
 
-  const handleBlock = () => {
+  const handleBlock = async () => {
     if (!profile) return;
     const blockedKey = `prolifier_blocked_${user.id}`;
     try {
@@ -195,6 +218,8 @@ export default function UserProfile() {
       if (isBlocked) {
         localStorage.setItem(blockedKey, JSON.stringify(current.filter(b => b.id !== profile.id)));
         setIsBlocked(false);
+        // Also remove from DB
+        await (supabase as any).from("blocks").delete().eq("blocker_id", user.id).eq("blocked_id", profile.id);
         toast({ title: "User unblocked" });
       } else {
         localStorage.setItem(blockedKey, JSON.stringify([
@@ -202,6 +227,8 @@ export default function UserProfile() {
           { id: profile.id, name: profile.name, avatar: profile.avatar, color: profile.color, avatarUrl: profile.avatarUrl },
         ]));
         setIsBlocked(true);
+        // Also save to DB
+        await (supabase as any).from("blocks").upsert({ blocker_id: user.id, blocked_id: profile.id });
         toast({ title: "User blocked" });
       }
     } catch { /* ignore */ }
@@ -272,6 +299,26 @@ export default function UserProfile() {
     );
   }
 
+  if (isBlockedByOwner) {
+    return (
+      <Layout>
+        <div className="max-w-2xl mx-auto px-4 py-6">
+          <button onClick={() => navigate(-1)}
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-5">
+            <ArrowLeft className="h-4 w-4" /> Back
+          </button>
+          <div className="rounded-xl border border-border bg-card p-6 text-center space-y-2">
+            <div className="h-20 w-20 rounded-2xl bg-muted mx-auto flex items-center justify-center">
+              <UserX className="h-8 w-8 text-muted-foreground" />
+            </div>
+            <h1 className="text-lg font-bold text-foreground mt-3">{profile?.name || "User"}</h1>
+            <p className="text-sm text-muted-foreground">This content is not available.</p>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
+
   return (
     <Layout>
       <div className="max-w-2xl mx-auto px-4 py-6 space-y-4">
@@ -284,11 +331,13 @@ export default function UserProfile() {
         {/* Profile card */}
         <div className="rounded-xl border border-border bg-card p-6">
           <div className="flex items-start gap-4 mb-5">
-            <div className={`h-20 w-20 rounded-2xl ${profile.avatarUrl ? "" : profile.color} flex items-center justify-center text-white text-2xl font-bold shrink-0 overflow-hidden`}>
+            <button
+              onClick={() => setAvatarLightbox(true)}
+              className={`h-20 w-20 rounded-2xl ${profile.avatarUrl ? "" : profile.color} flex items-center justify-center text-white text-2xl font-bold shrink-0 overflow-hidden cursor-pointer hover:opacity-90 transition-opacity`}>
               {profile.avatarUrl
                 ? <img src={profile.avatarUrl} alt={profile.avatar} className="w-full h-full object-cover" />
                 : profile.avatar}
-            </div>
+            </button>
             <div className="flex-1 min-w-0">
               <h1 className="text-xl font-bold text-foreground">{profile.name}</h1>
               {profile.location && (
@@ -303,9 +352,10 @@ export default function UserProfile() {
                 </span>
               )}
               <div className="flex gap-2 mt-3 flex-wrap">
-                <Button size="sm" variant={connected ? "outline" : "default"}
-                  className="gap-1.5 h-8 text-xs" onClick={handleConnect} disabled={connectionLoading}>
-                  {connected ? <><Check className="h-3.5 w-3.5" /> Connected</> : <><UserPlus className="h-3.5 w-3.5" /> Connect</>}
+                <Button size="sm" variant={connected ? "outline" : pending ? "secondary" : "default"}
+                  className="gap-1.5 h-8 text-xs" onClick={connected ? handleConnect : pending ? undefined : handleConnect}
+                  disabled={connectionLoading || pending}>
+                  {connected ? <><Check className="h-3.5 w-3.5" /> Connected</> : pending ? "Request Sent" : <><UserPlus className="h-3.5 w-3.5" /> Connect</>}
                 </Button>
                 <Button size="sm" variant="outline" className="gap-1.5 h-8 text-xs"
                   onClick={() => { navigate(`/messages?with=${profile.id}`); }}>
@@ -448,6 +498,26 @@ export default function UserProfile() {
         </div>
 
       </div>
+
+      {avatarLightbox && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm"
+          onClick={() => setAvatarLightbox(false)}>
+          <button className="absolute top-4 right-4 h-9 w-9 rounded-full bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition-colors"
+            onClick={() => setAvatarLightbox(false)}>
+            <X className="h-5 w-5" />
+          </button>
+          {profile.avatarUrl ? (
+            <img src={profile.avatarUrl} alt={profile.name}
+              className="max-w-[90vw] max-h-[90vh] rounded-2xl object-contain"
+              onClick={e => e.stopPropagation()} />
+          ) : (
+            <div className={`h-48 w-48 rounded-2xl ${profile.color} flex items-center justify-center text-white text-6xl font-bold`}
+              onClick={e => e.stopPropagation()}>
+              {profile.avatar}
+            </div>
+          )}
+        </div>
+      )}
     </Layout>
   );
 }

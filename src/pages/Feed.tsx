@@ -741,8 +741,8 @@ function EditCollabDialog({ collab, open, onClose, onSave }: {
 // OPT: wrapped in memo with a custom comparator — only re-renders when this
 // specific post's like/save status or content actually changes, not when any
 // other state in the Feed changes (dialogs opening, search input, etc.)
-const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, onLike, onSave, onComment, onDelete, onEdit, onHide, onReport, onShare }: {
-  post: Post; likedPosts: Set<string>; savedPosts: Set<string>;
+const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, highlighted, onLike, onSave, onComment, onDelete, onEdit, onHide, onReport, onShare }: {
+  post: Post; likedPosts: Set<string>; savedPosts: Set<string>; highlighted?: boolean;
   onLike:(id:string)=>void; onSave:(id:string)=>void; onComment:(p:Post)=>void;
   onDelete:(id:string)=>void; onEdit:(p:Post)=>void; onHide:(id:string)=>void;
   onReport:(id:string)=>void; onShare:(id:string)=>void;
@@ -761,7 +761,8 @@ const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, onLike, 
   return (
     <>
       <motion.div layout initial={{opacity:0,y:16}} animate={{opacity:1,y:0}} exit={{opacity:0,scale:0.97}}
-        className="rounded-xl border border-border bg-card hover:shadow-sm transition-shadow overflow-hidden">
+        data-post-id={post.id}
+        className={`rounded-xl border border-border bg-card hover:shadow-sm transition-shadow overflow-hidden${highlighted ? " ring-2 ring-primary" : ""}`}>
         <div className="flex items-center gap-3 px-5 pt-5 pb-3">
           <div className={`shrink-0 ${!post.authorDeleted ? "cursor-pointer hover:opacity-80 transition-opacity" : ""}`} onClick={goToProfile}>
             <Avatar initials={post.authorDeleted ? "?" : post.avatar} color={post.authorDeleted ? "bg-muted" : post.avatarColor} url={post.authorDeleted ? undefined : post.avatarUrl}/>
@@ -988,6 +989,7 @@ export default function Feed() {
   const [activeFilter, setActiveFilter] = useState("All");
   const [activePostTag, setActivePostTag] = useState("All");
 
+  const [highlightedPostId, setHighlightedPostId] = useState<string|null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
   const [collabs, setCollabs] = useState<Collab[]>([]);
   const [likedPosts, setLikedPosts] = useState<Set<string>>(new Set());
@@ -1025,21 +1027,32 @@ export default function Feed() {
     customSkillInput: "",
   });
 
-  // ── Deep-link: open post comment dialog when ?post=<id> is in the URL ──
+  // ── Deep-link: scroll + highlight post when ?post=<id> or ?highlight=<id> is in the URL ──
   // Two-layer guard: ref stores the handled post ID (survives posts state changes)
-  // + URL is cleared so remounting Feed finds no ?post= to trigger on
+  // + URL is cleared so remounting Feed finds no param to trigger on
   useEffect(() => {
-    const postId = searchParams.get("post");
+    const postId = searchParams.get("post") || searchParams.get("highlight");
     if (!postId || posts.length === 0) return;
     if (deepLinkHandledRef.current === postId) return; // already handled this link
     const target = posts.find(p => p.id === postId);
     if (target) {
       deepLinkHandledRef.current = postId; // mark before any state/nav call
-      setCommentingPost(target);
+      setHighlightedPostId(postId);
+      setTimeout(() => {
+        document.querySelector(`[data-post-id="${postId}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 300);
       navigate("/feed", { replace: true });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [posts]);
+
+  // ── Clear highlight ring after 2 seconds ──
+  useEffect(() => {
+    if (highlightedPostId) {
+      const t = setTimeout(() => setHighlightedPostId(null), 2000);
+      return () => clearTimeout(t);
+    }
+  }, [highlightedPostId]);
 
   // ── Fetch (OPT: parallelized — posts + collabs + likes fire simultaneously) ──
   const fetchFeed = useCallback(async () => {
@@ -1648,6 +1661,7 @@ export default function Feed() {
                 </div>
               ) : filteredPosts.map(post => (
                 <PostCard key={post.id} post={post} likedPosts={likedPosts} savedPosts={savedPosts}
+                  highlighted={highlightedPostId === post.id}
                   onLike={handleLike} onSave={handleSavePost} onComment={handleOpenComments}
                   onDelete={handleDeletePost} onEdit={setEditingPost} onHide={handleHidePost}
                   onReport={id => setReportTarget({type:"post",id})}

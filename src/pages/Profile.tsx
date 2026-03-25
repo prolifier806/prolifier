@@ -8,8 +8,14 @@ import {
   MapPin, Github, Globe, Twitter, Edit, Check, X, Handshake, Camera,
   Eye, EyeOff, Shield, Lock, Heart, MessageCircle,
   ChevronRight, ArrowLeft, Bookmark, Sun, Moon, Users, HelpCircle,
-  Mail, FileText, UserX,
+  Mail, FileText, UserX, MoreHorizontal, Edit3, Trash2,
 } from "lucide-react";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from "@/components/ui/dialog";
 import Layout from "@/components/Layout";
 import { toast } from "@/hooks/use-toast";
 import { useTheme } from "@/context/ThemeContext";
@@ -114,10 +120,10 @@ function timeAgo(date: string) {
 
 type BlockedUser = { id: string; name: string; avatar: string; color: string; avatarUrl?: string };
 type Connection  = { id: string; name: string; avatar: string; color: string; avatarUrl?: string; location?: string };
-type PostItem    = { id: string; tag: string; content: string; time: string; likes: number };
+type PostItem    = { id: string; tag: string; content: string; image?: string; video?: string; time: string; likes: number; commentCount: number; created_at: string; };
 type CollabItem  = { id: string; title: string; looking: string; description: string; skills: string[] };
 type SavedPost   = { id: string; tag: string; content: string; time: string; likes: number };
-type ViewType    = null | "connections" | "posts" | "saved" | "blocked" | "terms";
+type ViewType    = null | "connections" | "posts" | "saved" | "blocked" | "terms" | "settings";
 
 export default function Profile() {
   const navigate = useNavigate();
@@ -160,6 +166,10 @@ export default function Profile() {
   const [savedPosts, setSavedPosts]   = useState<SavedPost[]>([]);
   const [postsTab, setPostsTab]       = useState<"posts" | "collabs">("posts");
   const [blockedList, setBlockedList] = useState<BlockedUser[]>([]);
+  const [editingPost, setEditingPost] = useState<PostItem | null>(null);
+  const [editContent, setEditContent] = useState("");
+  const [editTag, setEditTag] = useState("");
+  const [deletePostId, setDeletePostId] = useState<string | null>(null);
 
   // Password
   const [showChangePw, setShowChangePw]     = useState(false);
@@ -207,6 +217,17 @@ export default function Profile() {
     if (user.id) loadAnalytics();
   }, [user.id, loadAnalytics]);
 
+  // Real-time: update connection count when connections change
+  useEffect(() => {
+    if (!user.id) return;
+    const ch = (supabase as any)
+      .channel(`profile-connections-${user.id}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "connections", filter: `requester_id=eq.${user.id}` }, () => loadAnalytics())
+      .on("postgres_changes", { event: "*", schema: "public", table: "connections", filter: `receiver_id=eq.${user.id}` }, () => loadAnalytics())
+      .subscribe();
+    return () => { (supabase as any).removeChannel(ch); };
+  }, [user.id, loadAnalytics]);
+
   // Close location dropdown on outside click
   useEffect(() => {
     if (!showLocationDropdown) return;
@@ -226,6 +247,7 @@ export default function Profile() {
       return;
     }
     if (v === "terms") return;
+    if (v === "settings") return;
 
     if (v === "connections") {
       setViewLoading(true);
@@ -255,11 +277,14 @@ export default function Profile() {
       setPostsTab("posts");
       try {
         const [postsRes, collabsRes] = await Promise.all([
-          (supabase as any).from("posts").select("id, tag, content, created_at, likes").eq("user_id", user.id).order("created_at", { ascending: false }).limit(30),
+          (supabase as any).from("posts").select("id, tag, content, image_url, video_url, created_at, likes, comment_count").eq("user_id", user.id).order("created_at", { ascending: false }).limit(30),
           (supabase as any).from("collabs").select("id, title, looking, description, skills").eq("user_id", user.id).order("created_at", { ascending: false }).limit(20),
         ]);
         setUserPosts((postsRes.data || []).map((p: any) => ({
-          id: p.id, tag: p.tag, content: p.content, time: timeAgo(p.created_at), likes: p.likes || 0,
+          id: p.id, tag: p.tag, content: p.content,
+          image: p.image_url || undefined, video: p.video_url || undefined,
+          time: timeAgo(p.created_at), likes: p.likes || 0, commentCount: p.comment_count || 0,
+          created_at: p.created_at,
         })));
         setUserCollabs((collabsRes.data || []).map((c: any) => ({
           id: c.id, title: c.title, looking: c.looking, description: c.description, skills: c.skills || [],
@@ -372,6 +397,22 @@ export default function Profile() {
     localStorage.setItem(blockedKey, JSON.stringify(updated));
     setBlockedList(updated);
     toast({ title: "User unblocked" });
+  };
+
+  const handleEditPostSave = async () => {
+    if (!editingPost || !editContent.trim()) return;
+    await (supabase as any).from("posts").update({ content: editContent.trim(), tag: editTag }).eq("id", editingPost.id).eq("user_id", user.id);
+    setUserPosts(prev => prev.map(p => p.id === editingPost.id ? { ...p, content: editContent.trim(), tag: editTag } : p));
+    setEditingPost(null);
+    toast({ title: "Post updated!" });
+  };
+
+  const handleDeletePost = async (postId: string) => {
+    await (supabase as any).from("posts").delete().eq("id", postId).eq("user_id", user.id);
+    setUserPosts(prev => prev.filter(p => p.id !== postId));
+    setAnalytics(prev => ({ ...prev, postCount: Math.max(0, prev.postCount - 1) }));
+    setDeletePostId(null);
+    toast({ title: "Post deleted." });
   };
 
   const toggleSkill = (s: string, list: string[], setList: (v: string[]) => void) =>
@@ -519,19 +560,44 @@ export default function Profile() {
                 ) : (
                   <div className="rounded-xl border border-border bg-card overflow-hidden divide-y divide-border">
                     {userPosts.map(post => (
-                      <button key={post.id} onClick={() => navigate(`/feed?post=${post.id}`)}
-                        className="w-full px-5 py-4 text-left hover:bg-muted transition-colors">
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${TAG_COLORS[post.tag] ?? "bg-muted text-muted-foreground"}`}>
-                            {post.tag}
-                          </span>
-                          <span className="text-xs text-muted-foreground">{post.time}</span>
+                      <div key={post.id} className="px-5 py-4">
+                        <div className="flex items-start justify-between gap-2 mb-2">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${TAG_COLORS[post.tag] ?? "bg-muted text-muted-foreground"}`}>
+                              {post.tag}
+                            </span>
+                            <span className="text-xs text-muted-foreground">{post.time}</span>
+                          </div>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <button className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors shrink-0">
+                                <MoreHorizontal className="h-4 w-4" />
+                              </button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-40">
+                              <DropdownMenuItem onClick={() => { setEditingPost(post); setEditContent(post.content); setEditTag(post.tag); }} className="gap-2">
+                                <Edit3 className="h-4 w-4" /> Edit
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem onClick={() => setDeletePostId(post.id)} className="gap-2 text-destructive focus:text-destructive">
+                                <Trash2 className="h-4 w-4" /> Delete
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </div>
-                        <p className="text-sm text-foreground leading-relaxed mb-2 line-clamp-3">{post.content}</p>
-                        <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                          <Heart className="h-3.5 w-3.5" /> {post.likes}
-                        </span>
-                      </button>
+                        <button className="w-full text-left" onClick={() => navigate(`/feed?highlight=${post.id}`)}>
+                          <p className="text-sm text-foreground leading-relaxed mb-2 line-clamp-3">{post.content}</p>
+                          {post.image && (
+                            <div className="mb-2 rounded-xl overflow-hidden">
+                              <img src={post.image} alt="post" className="w-full max-h-48 object-cover rounded-xl" />
+                            </div>
+                          )}
+                          <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                            <span className="flex items-center gap-1.5"><Heart className="h-3.5 w-3.5" /> {post.likes}</span>
+                            <span className="flex items-center gap-1.5"><MessageCircle className="h-3.5 w-3.5" /> {post.commentCount}</span>
+                          </div>
+                        </button>
+                      </div>
                     ))}
                   </div>
                 )
@@ -557,6 +623,38 @@ export default function Profile() {
                 )
               )}
             </>
+          )}
+          {editingPost && (
+            <Dialog open={!!editingPost} onOpenChange={(v) => !v && setEditingPost(null)}>
+              <DialogContent className="sm:max-w-md">
+                <DialogHeader><DialogTitle>Edit Post</DialogTitle></DialogHeader>
+                <div className="space-y-3 py-2">
+                  <div className="flex flex-wrap gap-2">
+                    {["General","Launch","Progress","Question","Idea","Milestone","Feedback","Story","Resource"].map(t => (
+                      <Badge key={t} variant={editTag === t ? "default" : "outline"} className="cursor-pointer text-xs" onClick={() => setEditTag(t)}>{t}</Badge>
+                    ))}
+                  </div>
+                  <Textarea value={editContent} onChange={e => setEditContent(e.target.value)} rows={4} placeholder="What's on your mind?" />
+                </div>
+                <DialogFooter className="gap-2">
+                  <Button variant="outline" onClick={() => setEditingPost(null)}>Cancel</Button>
+                  <Button onClick={handleEditPostSave} disabled={!editContent.trim()} className="gap-1.5">
+                    <Check className="h-4 w-4" /> Save
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          )}
+          {deletePostId && (
+            <Dialog open={!!deletePostId} onOpenChange={(v) => !v && setDeletePostId(null)}>
+              <DialogContent className="sm:max-w-sm">
+                <DialogHeader><DialogTitle>Delete Post?</DialogTitle><DialogDescription>This action cannot be undone.</DialogDescription></DialogHeader>
+                <DialogFooter className="gap-2 pt-2">
+                  <Button variant="outline" onClick={() => setDeletePostId(null)}>Cancel</Button>
+                  <Button variant="destructive" onClick={() => handleDeletePost(deletePostId)}>Delete</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           )}
         </div>
       </Layout>
@@ -584,7 +682,7 @@ export default function Profile() {
           ) : (
             <div className="rounded-xl border border-border bg-card overflow-hidden divide-y divide-border">
               {savedPosts.map(post => (
-                <button key={post.id} onClick={() => navigate(`/feed?post=${post.id}`)}
+                <button key={post.id} onClick={() => navigate(`/feed?highlight=${post.id}`)}
                   className="w-full px-5 py-4 text-left hover:bg-muted transition-colors">
                   <div className="flex items-center gap-2 mb-2">
                     <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${TAG_COLORS[post.tag] ?? "bg-muted text-muted-foreground"}`}>
@@ -658,6 +756,183 @@ export default function Profile() {
             <pre className="text-sm text-foreground leading-relaxed whitespace-pre-wrap font-sans">
               {TERMS_AND_PRIVACY}
             </pre>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
+
+  // ── Settings view ─────────────────────────────────────────────────────────
+  if (view === "settings") {
+    return (
+      <Layout>
+        <div className="max-w-2xl mx-auto px-4 py-6 space-y-4">
+          <button onClick={() => setView(null)}
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
+            <ArrowLeft className="h-4 w-4" /> Back to Profile
+          </button>
+          <h1 className="text-xl font-bold text-foreground">Settings</h1>
+
+          {/* Preferences */}
+          <div className="rounded-xl border border-border bg-card overflow-hidden">
+            <div className="px-5 py-4 border-b border-border flex items-center gap-2">
+              <Sun className="h-4 w-4 text-primary" />
+              <h2 className="text-sm font-semibold text-foreground">Preferences</h2>
+            </div>
+            <div className="divide-y divide-border">
+              <div className="flex items-center justify-between px-5 py-4">
+                <div>
+                  <p className="text-sm font-medium text-foreground">Appearance</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{theme === "dark" ? "Dark mode is on" : "Light mode is on"}</p>
+                </div>
+                <button
+                  onClick={() => { toggleTheme(); toast({ title: theme === "dark" ? "Switched to light mode" : "Switched to dark mode" }); }}
+                  className="flex items-center gap-2 h-9 px-3 rounded-lg border border-border bg-secondary text-sm font-medium text-foreground hover:bg-muted transition-colors">
+                  {theme === "dark" ? <><Sun className="h-4 w-4" /> Light</> : <><Moon className="h-4 w-4" /> Dark</>}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Privacy & Safety */}
+          <div className="rounded-xl border border-border bg-card overflow-hidden">
+            <div className="px-5 py-4 border-b border-border flex items-center gap-2">
+              <Shield className="h-4 w-4 text-primary" />
+              <h2 className="text-sm font-semibold text-foreground">Privacy & Safety</h2>
+            </div>
+            <div className="divide-y divide-border">
+              <button onClick={() => openView("blocked")}
+                className="w-full flex items-center justify-between px-5 py-4 hover:bg-muted transition-colors group">
+                <div className="flex items-center gap-3">
+                  <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0">
+                    <UserX className="h-4 w-4 text-muted-foreground" />
+                  </div>
+                  <div className="text-left">
+                    <p className="text-sm font-medium text-foreground">Blocked Users</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">Manage users you've blocked</p>
+                  </div>
+                </div>
+                <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+              </button>
+            </div>
+          </div>
+
+          {/* Account */}
+          <div className="rounded-xl border border-border bg-card overflow-hidden">
+            <div className="px-5 py-4 border-b border-border flex items-center gap-2">
+              <Lock className="h-4 w-4 text-primary" />
+              <h2 className="text-sm font-semibold text-foreground">Account</h2>
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              {user.email && (
+                <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-secondary/50 border border-border">
+                  <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                    <span className="text-xs font-bold text-primary">{user.email[0].toUpperCase()}</span>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs text-muted-foreground">Connected as</p>
+                    <p className="text-sm font-medium text-foreground truncate">{user.email}</p>
+                  </div>
+                </div>
+              )}
+              <Button size="sm" variant="outline" className="gap-1.5 h-9 w-full justify-start text-sm font-normal"
+                onClick={() => setShowChangePw(v => !v)}>
+                <Lock className="h-4 w-4 text-muted-foreground" /> Change password
+              </Button>
+              {showChangePw && (
+                <div className="rounded-xl border border-border bg-background p-4 space-y-3">
+                  <div className="relative">
+                    <label className="text-xs font-medium text-muted-foreground block mb-1">Current password</label>
+                    <input type={showCurrentPw ? "text" : "password"} value={currentPw} onChange={e => setCurrentPw(e.target.value)}
+                      placeholder="Enter current password"
+                      className="w-full h-9 rounded-lg border border-border bg-card px-3 pr-9 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-primary" />
+                    <button type="button" onClick={() => setShowCurrentPw(v => !v)}
+                      className="absolute right-3 top-7 text-muted-foreground hover:text-foreground">
+                      {showCurrentPw ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                    </button>
+                  </div>
+                  <div className="relative">
+                    <label className="text-xs font-medium text-muted-foreground block mb-1">New password</label>
+                    <input type={showNewPw ? "text" : "password"} value={newPw} onChange={e => setNewPw(e.target.value)}
+                      placeholder="Min. 6 characters"
+                      className="w-full h-9 rounded-lg border border-border bg-card px-3 pr-9 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-primary" />
+                    <button type="button" onClick={() => setShowNewPw(v => !v)}
+                      className="absolute right-3 top-7 text-muted-foreground hover:text-foreground">
+                      {showNewPw ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                    </button>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground block mb-1">Confirm new password</label>
+                    <input type="password" value={confirmPw} onChange={e => setConfirmPw(e.target.value)}
+                      placeholder="Repeat new password"
+                      className="w-full h-9 rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-primary" />
+                  </div>
+                  <div className="flex gap-2 pt-1">
+                    <Button size="sm" className="flex-1 h-8 text-xs" onClick={handleChangePw} disabled={pwLoading}>
+                      {pwLoading ? "Updating…" : "Update password"}
+                    </Button>
+                    <Button size="sm" variant="outline" className="flex-1 h-8 text-xs"
+                      onClick={() => { setShowChangePw(false); setCurrentPw(""); setNewPw(""); setConfirmPw(""); }}>
+                      Cancel
+                    </Button>
+                  </div>
+                  <button onClick={handleForgotPassword}
+                    className="w-full text-center text-xs text-primary hover:underline">
+                    Forgot password
+                  </button>
+                </div>
+              )}
+              <Button size="sm" variant="outline"
+                onClick={async () => { await signOut(); navigate("/"); }}
+                className="gap-1.5 h-9 w-full justify-start text-sm font-normal">
+                <ArrowLeft className="h-4 w-4" /> Sign out
+              </Button>
+              <Button size="sm" variant="outline"
+                onClick={() => setShowDeleteModal(true)}
+                className="gap-1.5 h-9 w-full justify-start text-sm font-normal text-destructive border-destructive/30 hover:bg-destructive/5 hover:border-destructive/60">
+                <X className="h-4 w-4" /> Delete account
+              </Button>
+            </div>
+          </div>
+
+          {/* Help & Support */}
+          <div className="rounded-xl border border-border bg-card overflow-hidden">
+            <div className="px-5 py-4 border-b border-border flex items-center gap-2">
+              <HelpCircle className="h-4 w-4 text-primary" />
+              <h2 className="text-sm font-semibold text-foreground">Help & Support</h2>
+            </div>
+            <div className="divide-y divide-border">
+              <div className="flex items-center justify-between px-5 py-4">
+                <div className="flex items-center gap-3">
+                  <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0">
+                    <Mail className="h-4 w-4 text-muted-foreground" />
+                  </div>
+                  <div className="text-left">
+                    <p className="text-sm font-medium text-foreground">Contact Us</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">prolifiersupport@gmail.com</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => { navigator.clipboard.writeText("prolifiersupport@gmail.com"); toast({ title: "Email copied!" }); }}
+                  className="flex items-center gap-1.5 text-xs font-medium text-primary border border-primary/30 bg-primary/5 hover:bg-primary/10 px-3 py-1.5 rounded-lg transition-colors">
+                  Copy
+                </button>
+              </div>
+              <button
+                onClick={() => openView("terms")}
+                className="w-full flex items-center justify-between px-5 py-4 hover:bg-muted transition-colors group">
+                <div className="flex items-center gap-3">
+                  <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0">
+                    <FileText className="h-4 w-4 text-muted-foreground" />
+                  </div>
+                  <div className="text-left">
+                    <p className="text-sm font-medium text-foreground">Terms & Privacy Policy</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">Read our terms and privacy policy</p>
+                  </div>
+                </div>
+                <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+              </button>
+            </div>
           </div>
         </div>
       </Layout>
@@ -872,182 +1147,32 @@ export default function Profile() {
           )}
 
           {/* Stats tiles — Connections / Posts / Saved */}
-          <div className="pt-4 border-t border-border grid grid-cols-3 text-center divide-x divide-border">
+          <div className="pt-4 border-t border-border grid grid-cols-3 gap-2">
             {[
               { n: analytics.connectionCount, label: "Connections", v: "connections" as ViewType },
               { n: analytics.postCount,        label: "Posts",       v: "posts"       as ViewType },
               { n: analytics.savedCount,       label: "Saved",       v: "saved"       as ViewType },
             ].map(({ n, label, v }) => (
               <button key={label} onClick={() => openView(v)}
-                className="px-2 py-1 hover:bg-muted rounded transition-colors group">
+                className="flex flex-col items-center justify-center bg-secondary/60 hover:bg-secondary active:scale-95 border border-border rounded-xl px-3 py-3 transition-all group shadow-sm">
                 <p className="text-2xl font-bold text-foreground group-hover:text-primary transition-colors">{n}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">{label}</p>
+                <p className="text-xs text-muted-foreground mt-0.5 font-medium">{label}</p>
               </button>
             ))}
           </div>
         </div>
 
-        {/* Preferences */}
-        <div className="rounded-xl border border-border bg-card overflow-hidden">
-          <div className="px-5 py-4 border-b border-border flex items-center gap-2">
-            <Sun className="h-4 w-4 text-primary" />
-            <h2 className="text-sm font-semibold text-foreground">Preferences</h2>
-          </div>
-          <div className="divide-y divide-border">
-            <div className="flex items-center justify-between px-5 py-4">
-              <div>
-                <p className="text-sm font-medium text-foreground">Appearance</p>
-                <p className="text-xs text-muted-foreground mt-0.5">{theme === "dark" ? "Dark mode is on" : "Light mode is on"}</p>
-              </div>
-              <button
-                onClick={() => { toggleTheme(); toast({ title: theme === "dark" ? "Switched to light mode" : "Switched to dark mode" }); }}
-                className="flex items-center gap-2 h-9 px-3 rounded-lg border border-border bg-secondary text-sm font-medium text-foreground hover:bg-muted transition-colors">
-                {theme === "dark" ? <><Sun className="h-4 w-4" /> Light</> : <><Moon className="h-4 w-4" /> Dark</>}
-              </button>
+        {/* Settings entry */}
+        <button onClick={() => openView("settings")}
+          className="w-full flex items-center justify-between px-5 py-4 rounded-xl border border-border bg-card hover:bg-muted transition-colors group">
+          <div className="flex items-center gap-3">
+            <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+              <Shield className="h-4 w-4 text-primary" />
             </div>
+            <p className="text-sm font-semibold text-foreground">Settings</p>
           </div>
-        </div>
-
-        {/* Privacy & Safety */}
-        <div className="rounded-xl border border-border bg-card overflow-hidden">
-          <div className="px-5 py-4 border-b border-border flex items-center gap-2">
-            <Shield className="h-4 w-4 text-primary" />
-            <h2 className="text-sm font-semibold text-foreground">Privacy & Safety</h2>
-          </div>
-          <div className="divide-y divide-border">
-
-            {/* Blocked Users row */}
-            <button onClick={() => openView("blocked")}
-              className="w-full flex items-center justify-between px-5 py-4 hover:bg-muted transition-colors group">
-              <div className="flex items-center gap-3">
-                <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0">
-                  <UserX className="h-4 w-4 text-muted-foreground" />
-                </div>
-                <div className="text-left">
-                  <p className="text-sm font-medium text-foreground">Blocked Users</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">Manage users you've blocked</p>
-                </div>
-              </div>
-              <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
-            </button>
-
-            {/* Account section */}
-            <div className="px-5 py-4 space-y-3">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Account</p>
-
-              {user.email && (
-                <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-secondary/50 border border-border">
-                  <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                    <span className="text-xs font-bold text-primary">{user.email[0].toUpperCase()}</span>
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-xs text-muted-foreground">Connected as</p>
-                    <p className="text-sm font-medium text-foreground truncate">{user.email}</p>
-                  </div>
-                </div>
-              )}
-
-              <Button size="sm" variant="outline" className="gap-1.5 h-9 w-full justify-start text-sm font-normal"
-                onClick={() => setShowChangePw(v => !v)}>
-                <Lock className="h-4 w-4 text-muted-foreground" /> Change password
-              </Button>
-
-              {showChangePw && (
-                <div className="rounded-xl border border-border bg-background p-4 space-y-3">
-                  <div className="relative">
-                    <label className="text-xs font-medium text-muted-foreground block mb-1">Current password</label>
-                    <input type={showCurrentPw ? "text" : "password"} value={currentPw} onChange={e => setCurrentPw(e.target.value)}
-                      placeholder="Enter current password"
-                      className="w-full h-9 rounded-lg border border-border bg-card px-3 pr-9 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-primary" />
-                    <button type="button" onClick={() => setShowCurrentPw(v => !v)}
-                      className="absolute right-3 top-7 text-muted-foreground hover:text-foreground">
-                      {showCurrentPw ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                    </button>
-                  </div>
-                  <div className="relative">
-                    <label className="text-xs font-medium text-muted-foreground block mb-1">New password</label>
-                    <input type={showNewPw ? "text" : "password"} value={newPw} onChange={e => setNewPw(e.target.value)}
-                      placeholder="Min. 6 characters"
-                      className="w-full h-9 rounded-lg border border-border bg-card px-3 pr-9 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-primary" />
-                    <button type="button" onClick={() => setShowNewPw(v => !v)}
-                      className="absolute right-3 top-7 text-muted-foreground hover:text-foreground">
-                      {showNewPw ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                    </button>
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-muted-foreground block mb-1">Confirm new password</label>
-                    <input type="password" value={confirmPw} onChange={e => setConfirmPw(e.target.value)}
-                      placeholder="Repeat new password"
-                      className="w-full h-9 rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-primary" />
-                  </div>
-                  <div className="flex gap-2 pt-1">
-                    <Button size="sm" className="flex-1 h-8 text-xs" onClick={handleChangePw} disabled={pwLoading}>
-                      {pwLoading ? "Updating…" : "Update password"}
-                    </Button>
-                    <Button size="sm" variant="outline" className="flex-1 h-8 text-xs"
-                      onClick={() => { setShowChangePw(false); setCurrentPw(""); setNewPw(""); setConfirmPw(""); }}>
-                      Cancel
-                    </Button>
-                  </div>
-                  <button onClick={handleForgotPassword}
-                    className="w-full text-center text-xs text-primary hover:underline">
-                    Forgot password
-                  </button>
-                </div>
-              )}
-
-              <Button size="sm" variant="outline"
-                onClick={async () => { await signOut(); navigate("/"); }}
-                className="gap-1.5 h-9 w-full justify-start text-sm font-normal">
-                <ArrowLeft className="h-4 w-4" /> Sign out
-              </Button>
-
-              <Button size="sm" variant="outline"
-                onClick={() => setShowDeleteModal(true)}
-                className="gap-1.5 h-9 w-full justify-start text-sm font-normal text-destructive border-destructive/30 hover:bg-destructive/5 hover:border-destructive/60">
-                <X className="h-4 w-4" /> Delete account
-              </Button>
-            </div>
-          </div>
-        </div>
-
-        {/* Help & Support */}
-        <div className="rounded-xl border border-border bg-card overflow-hidden">
-          <div className="px-5 py-4 border-b border-border flex items-center gap-2">
-            <HelpCircle className="h-4 w-4 text-primary" />
-            <h2 className="text-sm font-semibold text-foreground">Help & Support</h2>
-          </div>
-          <div className="divide-y divide-border">
-            <button
-              onClick={() => { window.location.href = "mailto:prolifiersupport@gmail.com"; }}
-              className="w-full flex items-center justify-between px-5 py-4 hover:bg-muted transition-colors group">
-              <div className="flex items-center gap-3">
-                <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0">
-                  <Mail className="h-4 w-4 text-muted-foreground" />
-                </div>
-                <div className="text-left">
-                  <p className="text-sm font-medium text-foreground">Contact Us</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">prolifiersupport@gmail.com</p>
-                </div>
-              </div>
-              <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
-            </button>
-            <button
-              onClick={() => openView("terms")}
-              className="w-full flex items-center justify-between px-5 py-4 hover:bg-muted transition-colors group">
-              <div className="flex items-center gap-3">
-                <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0">
-                  <FileText className="h-4 w-4 text-muted-foreground" />
-                </div>
-                <div className="text-left">
-                  <p className="text-sm font-medium text-foreground">Terms & Privacy Policy</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">Read our terms and privacy policy</p>
-                </div>
-              </div>
-              <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
-            </button>
-          </div>
-        </div>
+          <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+        </button>
 
       </div>
     </Layout>
