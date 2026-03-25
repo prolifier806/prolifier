@@ -29,6 +29,8 @@ sessionStorage.removeItem("chunk_reload");
 // Lazy-load every page so each route becomes its own chunk.
 // Only the code for the current route is downloaded on first load.
 const Onboarding      = lazyWithReload(() => import("./pages/Onboarding"));
+const VerifyEmail     = lazyWithReload(() => import("./pages/VerifyEmail"));
+const ForgotPassword  = lazyWithReload(() => import("./pages/ForgotPassword"));
 const ProfileSetup    = lazyWithReload(() => import("./pages/ProfileSetup"));
 const Feed            = lazyWithReload(() => import("./pages/Feed"));
 const Discover        = lazyWithReload(() => import("./pages/Discover"));
@@ -83,14 +85,22 @@ function AuthRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+// Redirects to / (→ feed/setup) if user already has a session
+function GuestOnlyRoute({ children }: { children: React.ReactNode }) {
+  const { session, loading } = useUser();
+  if (loading) return <PageLoader />;
+  if (session) return <Navigate to="/" replace />;
+  return <>{children}</>;
+}
 
 function AppRoutes() {
   return (
     <Suspense fallback={<PageLoader />}>
       <Routes>
         <Route path="/"              element={<AuthRoute><Onboarding /></AuthRoute>} />
+        <Route path="/verify-email"     element={<GuestOnlyRoute><VerifyEmail /></GuestOnlyRoute>} />
+        <Route path="/forgot-password"  element={<GuestOnlyRoute><ForgotPassword /></GuestOnlyRoute>} />
         <Route path="/setup"         element={<SetupRoute><ProfileSetup /></SetupRoute>} />
-        <Route path="/dashboard"     element={<Navigate to="/feed" replace />} />
         <Route path="/feed"          element={<ProtectedRoute><Feed /></ProtectedRoute>} />
         <Route path="/discover"      element={<ProtectedRoute><Discover /></ProtectedRoute>} />
         <Route path="/messages"      element={<ProtectedRoute><Messages /></ProtectedRoute>} />
