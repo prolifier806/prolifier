@@ -103,7 +103,7 @@ export default function Onboarding() {
         }
 
         if (data.session) {
-          navigate("/setup");
+          navigate("/"); // AuthRoute redirects to /setup once session is set
         } else {
           navigate("/verify-email", { state: { email: trimmedEmail } });
         }

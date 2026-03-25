@@ -111,7 +111,7 @@ export default function VerifyEmail() {
         setDigits(Array(OTP_LENGTH).fill(""));
         inputRefs.current[0]?.focus();
       } else if (data.session) {
-        navigate("/setup", { replace: true });
+        navigate("/", { replace: true }); // AuthRoute redirects to /setup once session is set
       }
     } catch {
       setError("Something went wrong. Please try again.");
