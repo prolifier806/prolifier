@@ -202,7 +202,12 @@ export default function Messages() {
         if (p) { c.name = p.name; c.avatar = initials(p.name); c.avatarUrl = p.avatar_url || undefined; c.color = p.color || "bg-primary"; }
       });
 
-      setConversations(convList);
+      // Filter out conversations from users who I've blocked
+      const blockedKey = `prolifier_blocked_${user.id}`;
+      let blockedIds: string[] = [];
+      try { blockedIds = JSON.parse(localStorage.getItem(blockedKey) || "[]").map((b: any) => b.id); } catch { /* ignore */ }
+      const filteredConvList = convList.filter(c => !blockedIds.includes(c.id));
+      setConversations(filteredConvList);
 
       if (withId) {
         // If not in list yet, add a placeholder so it can be selected
@@ -337,6 +342,29 @@ export default function Messages() {
     const trimmed = text?.trim();
     if ((!trimmed && !mediaUrl) || !selectedId || sending) return;
     setSending(true);
+
+    // Block check: if receiver has blocked sender, silently drop (like WhatsApp)
+    try {
+      const { data: blockCheck } = await (supabase as any)
+        .from("blocks")
+        .select("id")
+        .eq("blocker_id", selectedId)
+        .eq("blocked_id", user.id)
+        .maybeSingle();
+      if (blockCheck) {
+        // Silently pretend it sent on sender's side, but don't save to DB
+        const fakeMsg: Message = {
+          id: `tmp-${Date.now()}`, sender_id: user.id, text: trimmed || null,
+          media_url: mediaUrl || null, media_type: mediaType || null,
+          created_at: new Date().toISOString(), read: false,
+        };
+        setMessages(prev => [...prev, fakeMsg]);
+        setMsg("");
+        bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+        setSending(false);
+        return;
+      }
+    } catch { /* if blocks table doesn't exist yet, allow send */ }
 
     // Optimistic
     const tempId = `tmp-${Date.now()}`;

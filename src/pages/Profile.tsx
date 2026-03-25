@@ -277,13 +277,13 @@ export default function Profile() {
       setPostsTab("posts");
       try {
         const [postsRes, collabsRes] = await Promise.all([
-          (supabase as any).from("posts").select("id, tag, content, image_url, video_url, created_at, likes, comment_count").eq("user_id", user.id).order("created_at", { ascending: false }).limit(30),
+          (supabase as any).from("posts").select("id, tag, content, image_url, video_url, created_at, likes").eq("user_id", user.id).order("created_at", { ascending: false }).limit(30),
           (supabase as any).from("collabs").select("id, title, looking, description, skills").eq("user_id", user.id).order("created_at", { ascending: false }).limit(20),
         ]);
         setUserPosts((postsRes.data || []).map((p: any) => ({
           id: p.id, tag: p.tag, content: p.content,
           image: p.image_url || undefined, video: p.video_url || undefined,
-          time: timeAgo(p.created_at), likes: p.likes || 0, commentCount: p.comment_count || 0,
+          time: timeAgo(p.created_at), likes: p.likes || 0, commentCount: 0,
           created_at: p.created_at,
         })));
         setUserCollabs((collabsRes.data || []).map((c: any) => ({
