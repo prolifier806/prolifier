@@ -1223,86 +1223,8 @@ export default function Feed() {
     setLoadingMoreCollabs(false);
   }, [loadingMoreCollabs, user.id]);
 
-  // OPT: Realtime subscription — new posts and deletes are reflected instantly
-  // without requiring a full refetch
-  useEffect(() => {
-    if (!user.id) return;
-    const channel = supabase
-      .channel(`feed-realtime-${user.id}`)
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "posts" },
-        (payload: any) => {
-          // Don't add own posts via realtime (already added optimistically)
-          if (payload.new.user_id === user.id) return;
-          // Fetch the profile for this new post's author
-          (supabase as any)
-            .from("profiles")
-            .select("name, avatar, avatar_url, color, location, skills")
-            .eq("id", payload.new.user_id)
-            .single()
-            .then(({ data: profile }: any) => {
-              const newPost: Post = {
-                id: payload.new.id,
-                user_id: payload.new.user_id,
-                author: profile?.name || "Unknown",
-                avatar: profile?.avatar || "?",
-                avatarUrl: profile?.avatar_url || undefined,
-                avatarColor: profile?.color || "bg-primary",
-                location: profile?.location || "",
-                authorSkills: profile?.skills?.slice(0, 3) || [],
-                tag: payload.new.tag,
-                time: "just now",
-                content: payload.new.content,
-                image: payload.new.image_url || undefined,
-                video: payload.new.video_url || undefined,
-                likes: 0,
-                commentCount: 0,
-                isOwn: false,
-                comments: [],
-              };
-              setPosts(prev => [newPost, ...prev]);
-            });
-        })
-      .on("postgres_changes", { event: "DELETE", schema: "public", table: "posts" },
-        (payload: any) => {
-          setPosts(prev => prev.filter(p => p.id !== payload.old.id));
-        })
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "collabs" },
-        (payload: any) => {
-          if (payload.new.user_id === user.id) return;
-          (supabase as any)
-            .from("profiles")
-            .select("name, avatar, avatar_url, color, location, skills")
-            .eq("id", payload.new.user_id)
-            .single()
-            .then(({ data: profile }: any) => {
-              const newCollab: Collab = {
-                id: payload.new.id,
-                user_id: payload.new.user_id,
-                author: profile?.name || "Unknown",
-                avatar: profile?.avatar || "?",
-                avatarUrl: profile?.avatar_url || undefined,
-                avatarColor: profile?.color || "bg-primary",
-                location: profile?.location || "",
-                authorSkills: profile?.skills?.slice(0, 3) || [],
-                title: payload.new.title,
-                looking: payload.new.looking,
-                description: payload.new.description,
-                skills: payload.new.skills || [],
-                image: payload.new.image_url || undefined,
-                video: payload.new.video_url || undefined,
-                isOwn: false,
-              };
-              setCollabs(prev => [newCollab, ...prev]);
-            });
-        })
-      .on("postgres_changes", { event: "DELETE", schema: "public", table: "collabs" },
-        (payload: any) => {
-          setCollabs(prev => prev.filter(c => c.id !== payload.old.id));
-        })
-      .subscribe();
-
-    return () => { supabase.removeChannel(channel); };
-  }, [user.id]);
+  // Real-time removed to reduce Supabase Disk IO.
+  // Feed refreshes on tab focus (90s throttle) and after own post/collab actions.
 
   // ── Post Actions ──────────────────────────────────────────────────────
   // OPT: optimistic UI — state updates instantly, DB write happens in background

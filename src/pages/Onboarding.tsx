@@ -3,10 +3,11 @@ import { useNavigate, Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Leaf, Eye, EyeOff, Sun, Moon } from "lucide-react";
+import { Leaf, Eye, EyeOff, Sun, Moon, X, ArrowLeft, Check } from "lucide-react";
 import { useTheme } from "@/context/ThemeContext";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/lib/supabase";
+import { TERMS_AND_PRIVACY } from "@/pages/Profile";
 import onboarding1 from "@/assets/onboarding-1.png";
 import onboarding2 from "@/assets/onboarding-2.png";
 import onboarding3 from "@/assets/onboarding-3.png";
@@ -44,12 +45,16 @@ export default function Onboarding() {
   const [showAuth, setShowAuth] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode>("signup");
   const [email, setEmail]       = useState("");
-  const [password, setPassword] = useState("");
-  const [showPw, setShowPw]     = useState(false);
-  const [loading, setLoading]   = useState(false);
+  const [password, setPassword]         = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPw, setShowPw]             = useState(false);
+  const [showConfirm, setShowConfirm]   = useState(false);
+  const [loading, setLoading]           = useState(false);
 
   const [failedAttempts, setFailedAttempts] = useState(0);
   const [lockoutSecs, setLockoutSecs]       = useState(0);
+  const [termsAccepted, setTermsAccepted]   = useState(false);
+  const [showTerms, setShowTerms]           = useState(false);
 
   const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
@@ -85,6 +90,10 @@ export default function Onboarding() {
     const trimmedEmail = email.trim().toLowerCase();
     if (!trimmedEmail || password.length < 8) {
       toast({ title: "Please enter a valid email and password (min 8 characters)", variant: "destructive" });
+      return;
+    }
+    if (authMode === "signup" && password !== confirmPassword) {
+      toast({ title: "Passwords do not match", variant: "destructive" });
       return;
     }
 
@@ -144,6 +153,32 @@ export default function Onboarding() {
   if (showAuth) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-background px-6 py-10 relative">
+        {/* Terms & Privacy modal */}
+        {showTerms && (
+          <div className="fixed inset-0 z-50 bg-background/90 backdrop-blur-sm flex flex-col">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-card">
+              <div className="flex items-center gap-2">
+                <button onClick={() => setShowTerms(false)} className="text-muted-foreground hover:text-foreground transition-colors">
+                  <ArrowLeft className="h-5 w-5" />
+                </button>
+                <h2 className="text-base font-semibold text-foreground">Terms & Privacy Policy</h2>
+              </div>
+              <button onClick={() => setShowTerms(false)} className="text-muted-foreground hover:text-foreground transition-colors">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-5">
+              <pre className="text-sm text-foreground leading-relaxed whitespace-pre-wrap font-sans">
+                {TERMS_AND_PRIVACY}
+              </pre>
+            </div>
+            <div className="px-5 py-4 border-t border-border bg-card">
+              <Button className="w-full h-11" onClick={() => { setTermsAccepted(true); setShowTerms(false); }}>
+                I agree
+              </Button>
+            </div>
+          </div>
+        )}
         <button onClick={toggleTheme}
           className="absolute top-4 right-4 h-9 w-9 rounded-full flex items-center justify-center text-muted-foreground hover:bg-secondary transition-colors">
           {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
@@ -189,11 +224,49 @@ export default function Onboarding() {
               </div>
             </div>
 
+            {authMode === "signup" && (
+              <div>
+                <label className="text-sm font-medium text-foreground block mb-1.5">Confirm password</label>
+                <div className="relative">
+                  <Input type={showConfirm ? "text" : "password"} value={confirmPassword}
+                    onChange={e => setConfirmPassword(e.target.value)}
+                    placeholder="Re-enter your password" className="h-11 pr-10" required disabled={isFormDisabled} />
+                  <button type="button" onClick={() => setShowConfirm(v => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors" tabIndex={-1}>
+                    {showConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+                {confirmPassword && password !== confirmPassword && (
+                  <p className="text-xs text-destructive mt-1">Passwords do not match</p>
+                )}
+              </div>
+            )}
+
+            {authMode === "signup" && (
+              <div className="flex items-start gap-2.5 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setTermsAccepted(v => !v)}
+                  className={`mt-0.5 h-4 w-4 rounded border-2 shrink-0 flex items-center justify-center transition-colors ${
+                    termsAccepted ? "bg-primary border-primary" : "border-border bg-background"
+                  }`}>
+                  {termsAccepted && <Check className="h-2.5 w-2.5 text-primary-foreground" />}
+                </button>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  I agree to the{" "}
+                  <button type="button" onClick={() => setShowTerms(true)}
+                    className="text-primary hover:underline font-medium">
+                    Terms & Privacy Policy
+                  </button>
+                </p>
+              </div>
+            )}
+
             {lockoutSecs > 0 && (
               <p className="text-xs text-destructive text-center">Too many failed attempts. Try again in {lockoutSecs}s.</p>
             )}
 
-            <Button type="submit" disabled={isFormDisabled} className="w-full h-11 font-semibold mt-1">
+            <Button type="submit" disabled={isFormDisabled || (authMode === "signup" && !termsAccepted)} className="w-full h-11 font-semibold mt-1">
               {loading ? "Please wait…"
                 : lockoutSecs > 0 ? `Locked for ${lockoutSecs}s`
                 : authMode === "signup" ? "Create account"
@@ -203,7 +276,7 @@ export default function Onboarding() {
 
           <p className="text-center text-sm text-muted-foreground mt-5">
             {authMode === "signup" ? "Already have an account?" : "Don't have an account?"}{" "}
-            <button onClick={() => { setAuthMode(m => m === "signup" ? "login" : "signup"); setFailedAttempts(0); setLockoutSecs(0); }}
+            <button onClick={() => { setAuthMode(m => m === "signup" ? "login" : "signup"); setFailedAttempts(0); setLockoutSecs(0); setConfirmPassword(""); setTermsAccepted(false); }}
               className="text-primary font-medium hover:underline">
               {authMode === "signup" ? "Sign in" : "Sign up"}
             </button>

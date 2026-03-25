@@ -6,8 +6,9 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   MapPin, Github, Globe, Twitter, Edit, Check, X, Handshake, Camera,
-  Eye, EyeOff, TrendingUp, Shield, Lock, Heart, MessageCircle, Share2,
-  ChevronRight, ArrowLeft, Bookmark, Sun, Moon,
+  Eye, EyeOff, Shield, Lock, Heart, MessageCircle,
+  ChevronRight, ArrowLeft, Bookmark, Sun, Moon, Users, HelpCircle,
+  Mail, FileText, UserX,
 } from "lucide-react";
 import Layout from "@/components/Layout";
 import { toast } from "@/hooks/use-toast";
@@ -15,6 +16,71 @@ import { useTheme } from "@/context/ThemeContext";
 import { useUser } from "@/context/UserContext";
 import { supabase } from "@/lib/supabase";
 import { SKILL_CATEGORIES } from "@/lib/skills";
+import { LOCATIONS } from "@/lib/locations";
+
+export const TERMS_AND_PRIVACY = `TERMS OF SERVICE
+
+Last updated: March 2025
+
+1. Acceptance of Terms
+By using Prolifier ("the App"), you agree to be bound by these Terms of Service. If you do not agree, please discontinue use of the App immediately.
+
+2. User Accounts
+You are responsible for maintaining the confidentiality of your account credentials. You must be at least 18 years of age to use Prolifier. You agree to provide accurate information when creating your account.
+
+3. User Content
+You retain ownership of content you post. By posting content on Prolifier, you grant us a non-exclusive license to display and share it within the platform. You agree not to post content that is illegal, harmful, defamatory, or violates the rights of others.
+
+4. Prohibited Conduct
+You may not use Prolifier to spam, harass, impersonate others, or engage in any fraudulent activity. You may not attempt to gain unauthorized access to any part of the service.
+
+5. Termination
+We reserve the right to suspend or terminate your account at any time for violations of these terms or for any other reason at our discretion.
+
+6. Disclaimer of Warranties
+Prolifier is provided "as is" without warranties of any kind. We do not guarantee uninterrupted or error-free service.
+
+7. Limitation of Liability
+To the maximum extent permitted by law, Prolifier shall not be liable for any indirect, incidental, or consequential damages arising from your use of the App.
+
+8. Changes to Terms
+We may update these terms at any time. Continued use of the App after changes constitutes acceptance of the new terms.
+
+9. Contact
+For questions about these terms, contact us at prolifiersupport@gmail.com
+
+─────────────────────────────────────────────────
+
+PRIVACY POLICY
+
+Last updated: March 2025
+
+1. Information We Collect
+We collect information you provide directly, including your name, email address, profile details (bio, skills, location, project), and any content you post. We also collect usage data such as login activity and features accessed.
+
+2. How We Use Your Information
+We use your information to operate and improve the App, to connect you with other users, and to send important service-related communications. We do not use your information for advertising purposes.
+
+3. Sharing Your Information
+We do not sell your personal data to third parties. We may share data with service providers (such as Supabase for database and authentication services) who assist in operating the App, under strict confidentiality agreements.
+
+4. Data Storage and Security
+Your data is stored securely using industry-standard encryption and security practices. We cannot guarantee absolute security of any internet-based service.
+
+5. Your Rights
+You may update or delete your account and associated data at any time from your profile settings. Upon account deletion, your data will be permanently removed within 7 days.
+
+6. Cookies and Local Storage
+We use essential session cookies for authentication purposes only. We do not use tracking or advertising cookies. Some preferences (such as theme and blocked users) are stored locally on your device.
+
+7. Children's Privacy
+Prolifier is not intended for users under the age of 18. We do not knowingly collect information from minors.
+
+8. Changes to This Policy
+We may update this Privacy Policy from time to time. We will notify you of significant changes via in-app notification.
+
+9. Contact
+For privacy-related questions or concerns, please contact us at prolifiersupport@gmail.com`;
 
 const DELETE_REASONS = [
   "I'm not getting value from Prolifier",
@@ -24,21 +90,15 @@ const DELETE_REASONS = [
   "Prefer not to say",
 ];
 
-const ACTIVITY_TABS = [
-  { key:"all",     label:"All"      },
-  { key:"post",    label:"Posts"    },
-  { key:"like",    label:"Likes"    },
-  { key:"comment", label:"Comments" },
-  { key:"collab",  label:"Collabs"  },
-];
-
-type ActivityItem = {
-  id: string;
-  type: string;
-  label: string;
-  detail: string;
-  time: string;
-  targetId: string;
+const TAG_COLORS: Record<string, string> = {
+  Launch: "bg-emerald-100 text-emerald-700",
+  Progress: "bg-sky-100 text-sky-700",
+  Question: "bg-amber-100 text-amber-700",
+  Idea: "bg-violet-100 text-violet-700",
+  Milestone: "bg-primary/10 text-primary",
+  Feedback: "bg-rose-100 text-rose-700",
+  Story: "bg-pink-100 text-pink-700",
+  Resource: "bg-teal-100 text-teal-700",
 };
 
 function timeAgo(date: string) {
@@ -52,51 +112,56 @@ function timeAgo(date: string) {
   return `${days}d ago`;
 }
 
+type BlockedUser = { id: string; name: string; avatar: string; color: string; avatarUrl?: string };
+type Connection  = { id: string; name: string; avatar: string; color: string; avatarUrl?: string; location?: string };
+type PostItem    = { id: string; tag: string; content: string; time: string; likes: number };
+type CollabItem  = { id: string; title: string; looking: string; description: string; skills: string[] };
+type SavedPost   = { id: string; tag: string; content: string; time: string; likes: number };
+type ViewType    = null | "connections" | "posts" | "saved" | "blocked" | "terms";
+
 export default function Profile() {
   const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
   const { user, updateUser, signOut } = useUser();
 
-  // ── Edit state ─────────────────────────────────────────────────────────
-  const [editing, setEditing]       = useState(false);
-  const [saving, setSaving]         = useState(false);
-  const [draftName, setDraftName]   = useState("");
+  // Edit state
+  const [editing, setEditing]             = useState(false);
+  const [saving, setSaving]               = useState(false);
+  const [draftName, setDraftName]         = useState("");
   const [draftLocation, setDraftLocation] = useState("");
-  const [draftBio, setDraftBio]     = useState("");
-  const [draftProject, setDraftProject] = useState("");
-  const [draftSkills, setDraftSkills]   = useState<string[]>([]);
+  const [draftBio, setDraftBio]           = useState("");
+  const [draftProject, setDraftProject]   = useState("");
+  const [draftSkills, setDraftSkills]     = useState<string[]>([]);
   const [customSkillInput, setCustomSkillInput] = useState("");
-  const [draftGithub, setDraftGithub]   = useState("");
-  const [draftWebsite, setDraftWebsite] = useState("");
-  const [draftTwitter, setDraftTwitter] = useState("");
+  const [draftGithub, setDraftGithub]     = useState("");
+  const [draftWebsite, setDraftWebsite]   = useState("");
+  const [draftTwitter, setDraftTwitter]   = useState("");
 
-  // ── Avatar ─────────────────────────────────────────────────────────────
+  // Location autocomplete
+  const [locationQuery, setLocationQuery]               = useState("");
+  const [showLocationDropdown, setShowLocationDropdown] = useState(false);
+  const locationRef = useRef<HTMLDivElement>(null);
+
+  // Avatar
   const avatarRef = useRef<HTMLInputElement>(null);
-  const [avatarUrl, setAvatarUrl]   = useState<string|null>(user.avatarUrl || null);
+  const [avatarUrl, setAvatarUrl]         = useState<string | null>(user.avatarUrl || null);
   const [avatarUploading, setAvatarUploading] = useState(false);
-  // Keep local avatarUrl in sync when context updates (e.g. after background DB sync)
   useEffect(() => { if (user.avatarUrl) setAvatarUrl(user.avatarUrl); }, [user.avatarUrl]);
 
-  // ── Analytics ──────────────────────────────────────────────────────────
-  const [analytics, setAnalytics] = useState({ views: 0, postCount: 0, collabCount: 0, connectionCount: 0 });
+  // Analytics counts
+  const [analytics, setAnalytics] = useState({ postCount: 0, connectionCount: 0, savedCount: 0 });
 
-  // ── Activity ───────────────────────────────────────────────────────────
-  const [showActivity, setShowActivity] = useState(false);
-  const [activityTab, setActivityTab]   = useState("all");
-  const [activity, setActivity]         = useState<ActivityItem[]>([]);
-  const [activityLoading, setActivityLoading] = useState(false);
+  // Sub-view
+  const [view, setView]               = useState<ViewType>(null);
+  const [viewLoading, setViewLoading] = useState(false);
+  const [connections, setConnections] = useState<Connection[]>([]);
+  const [userPosts, setUserPosts]     = useState<PostItem[]>([]);
+  const [userCollabs, setUserCollabs] = useState<CollabItem[]>([]);
+  const [savedPosts, setSavedPosts]   = useState<SavedPost[]>([]);
+  const [postsTab, setPostsTab]       = useState<"posts" | "collabs">("posts");
+  const [blockedList, setBlockedList] = useState<BlockedUser[]>([]);
 
-  // ── Privacy ────────────────────────────────────────────────────────────
-  const privacyKey = user.id ? `prolifier_privacy_${user.id}` : null;
-  const loadPrivacy = () => {
-    if (!privacyKey) return { profilePublic: true, allowMessages: true };
-    try { return { profilePublic: true, allowMessages: true, ...JSON.parse(localStorage.getItem(privacyKey) || "{}") }; }
-    catch { return { profilePublic: true, allowMessages: true }; }
-  };
-  const [profilePublic, setProfilePublic]   = useState(() => loadPrivacy().profilePublic);
-  const [allowMessages, setAllowMessages]   = useState(() => loadPrivacy().allowMessages);
-
-  // ── Password ───────────────────────────────────────────────────────────
+  // Password
   const [showChangePw, setShowChangePw]     = useState(false);
   const [currentPw, setCurrentPw]           = useState("");
   const [newPw, setNewPw]                   = useState("");
@@ -105,77 +170,124 @@ export default function Profile() {
   const [showNewPw, setShowNewPw]           = useState(false);
   const [pwLoading, setPwLoading]           = useState(false);
 
-  // ── Delete ─────────────────────────────────────────────────────────────
+  // Delete
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteReason, setDeleteReason]       = useState("");
   const [deleteConfirm, setDeleteConfirm]     = useState("");
   const [deleteLoading, setDeleteLoading]     = useState(false);
 
-  const initials = user.name.split(" ").filter(Boolean).map(w => w[0]).join("").slice(0,2).toUpperCase() || "?";
+  const initials = user.name.split(" ").filter(Boolean).map(w => w[0]).join("").slice(0, 2).toUpperCase() || "?";
+  const blockedKey = user.id ? `prolifier_blocked_${user.id}` : null;
 
-  // ── Load analytics ─────────────────────────────────────────────────────
+  const loadBlockedFromStorage = (): BlockedUser[] => {
+    if (!blockedKey) return [];
+    try { return JSON.parse(localStorage.getItem(blockedKey) || "[]"); }
+    catch { return []; }
+  };
+
+  // Load analytics (Connections count both sides, Posts, Saved)
   const loadAnalytics = useCallback(async () => {
     if (!user.id) return;
-    const controller = new AbortController();
     try {
-      const [postsRes, collabsRes, connsRes] = await Promise.all([
-        (supabase as any).from("posts").select("id", { count: "exact", head: true }).eq("user_id", user.id).abortSignal(controller.signal),
-        (supabase as any).from("collabs").select("id", { count: "exact", head: true }).eq("user_id", user.id).abortSignal(controller.signal),
-        (supabase as any).from("connections").select("id", { count: "exact", head: true }).eq("receiver_id", user.id).abortSignal(controller.signal),
+      const [postsRes, connsReq, connsRec, savedRes] = await Promise.all([
+        (supabase as any).from("posts").select("id", { count: "exact", head: true }).eq("user_id", user.id),
+        (supabase as any).from("connections").select("id", { count: "exact", head: true }).eq("requester_id", user.id).eq("status", "accepted"),
+        (supabase as any).from("connections").select("id", { count: "exact", head: true }).eq("receiver_id", user.id).eq("status", "accepted"),
+        (supabase as any).from("saved_posts").select("post_id", { count: "exact", head: true }).eq("user_id", user.id),
       ]);
       setAnalytics({
-        views: Math.floor(Math.random() * 200) + 50, // placeholder — would need a views table
         postCount: postsRes.count || 0,
-        collabCount: collabsRes.count || 0,
-        connectionCount: connsRes.count || 0,
+        connectionCount: (connsReq.count || 0) + (connsRec.count || 0),
+        savedCount: savedRes.count || 0,
       });
-    } catch { /* silent — includes abort */ }
-    return () => controller.abort();
-  }, [user.id]);
-
-  // ── Load activity ──────────────────────────────────────────────────────
-  const loadActivity = useCallback(async () => {
-    if (!user.id) return;
-    setActivityLoading(true);
-    try {
-      const [postsRes, commentsRes, collabsRes, likesRes] = await Promise.all([
-        (supabase as any).from("posts").select("id, content, created_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(10),
-        // join with posts to auto-filter deleted post references
-        (supabase as any).from("comments").select("id, text, created_at, post_id, posts!inner(id)").eq("user_id", user.id).order("created_at", { ascending: false }).limit(10),
-        (supabase as any).from("collabs").select("id, title, created_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(10),
-        // join with posts to auto-filter deleted post references
-        (supabase as any).from("post_likes").select("post_id, created_at, posts!inner(id)").eq("user_id", user.id).order("created_at", { ascending: false }).limit(10),
-      ]);
-
-      const items: ActivityItem[] = [];
-
-      for (const p of (postsRes.data || [])) {
-        items.push({ id: `post-${p.id}`, type: "post", label: "You shared a post", detail: `"${p.content.slice(0, 60)}${p.content.length > 60 ? "…" : ""}"`, time: timeAgo(p.created_at), targetId: p.id });
-      }
-      for (const c of (commentsRes.data || [])) {
-        items.push({ id: `comment-${c.id}`, type: "comment", label: "You commented", detail: `"${c.text.slice(0, 60)}"`, time: timeAgo(c.created_at), targetId: c.post_id });
-      }
-      for (const c of (collabsRes.data || [])) {
-        items.push({ id: `collab-${c.id}`, type: "collab", label: "You posted a collab", detail: c.title, time: timeAgo(c.created_at), targetId: c.id });
-      }
-      for (const l of (likesRes.data || [])) {
-        items.push({ id: `like-${l.post_id}`, type: "like", label: "You liked a post", detail: "Liked a post in the feed", time: timeAgo(l.created_at), targetId: l.post_id });
-      }
-
-      items.sort((a, b) => a.time.localeCompare(b.time));
-      setActivity(items);
     } catch { /* silent */ }
-    setActivityLoading(false);
   }, [user.id]);
 
   useEffect(() => {
-    if (user.id) { loadAnalytics(); }
+    if (user.id) loadAnalytics();
   }, [user.id, loadAnalytics]);
 
-  // ── Start editing ──────────────────────────────────────────────────────
+  // Close location dropdown on outside click
+  useEffect(() => {
+    if (!showLocationDropdown) return;
+    const handler = (e: MouseEvent) => {
+      if (locationRef.current && !locationRef.current.contains(e.target as Node)) {
+        setShowLocationDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showLocationDropdown]);
+
+  const openView = async (v: ViewType) => {
+    setView(v);
+    if (v === "blocked") {
+      setBlockedList(loadBlockedFromStorage());
+      return;
+    }
+    if (v === "terms") return;
+
+    if (v === "connections") {
+      setViewLoading(true);
+      try {
+        const [reqRes, recRes] = await Promise.all([
+          (supabase as any).from("connections").select("receiver_id").eq("requester_id", user.id).eq("status", "accepted"),
+          (supabase as any).from("connections").select("requester_id").eq("receiver_id", user.id).eq("status", "accepted"),
+        ]);
+        const ids = [
+          ...(reqRes.data || []).map((r: any) => r.receiver_id),
+          ...(recRes.data || []).map((r: any) => r.requester_id),
+        ];
+        if (ids.length === 0) { setConnections([]); setViewLoading(false); return; }
+        const { data: profiles } = await (supabase as any).from("profiles")
+          .select("id, name, avatar, color, avatar_url, location")
+          .in("id", ids);
+        setConnections((profiles || []).map((p: any) => ({
+          id: p.id, name: p.name || "Unknown", avatar: p.avatar || "?",
+          color: p.color || "bg-primary",
+          avatarUrl: p.avatar_url || undefined,
+          location: p.location || "",
+        })));
+      } catch { /* silent */ }
+      setViewLoading(false);
+    } else if (v === "posts") {
+      setViewLoading(true);
+      setPostsTab("posts");
+      try {
+        const [postsRes, collabsRes] = await Promise.all([
+          (supabase as any).from("posts").select("id, tag, content, created_at, likes").eq("user_id", user.id).order("created_at", { ascending: false }).limit(30),
+          (supabase as any).from("collabs").select("id, title, looking, description, skills").eq("user_id", user.id).order("created_at", { ascending: false }).limit(20),
+        ]);
+        setUserPosts((postsRes.data || []).map((p: any) => ({
+          id: p.id, tag: p.tag, content: p.content, time: timeAgo(p.created_at), likes: p.likes || 0,
+        })));
+        setUserCollabs((collabsRes.data || []).map((c: any) => ({
+          id: c.id, title: c.title, looking: c.looking, description: c.description, skills: c.skills || [],
+        })));
+      } catch { /* silent */ }
+      setViewLoading(false);
+    } else if (v === "saved") {
+      setViewLoading(true);
+      try {
+        const { data } = await (supabase as any)
+          .from("saved_posts")
+          .select("post_id, created_at, posts(id, tag, content, created_at, likes)")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false })
+          .limit(30);
+        setSavedPosts((data || []).filter((r: any) => r.posts).map((r: any) => ({
+          id: r.post_id, tag: r.posts.tag, content: r.posts.content,
+          time: timeAgo(r.posts.created_at), likes: r.posts.likes || 0,
+        })));
+      } catch { /* silent */ }
+      setViewLoading(false);
+    }
+  };
+
   const startEditing = () => {
     setDraftName(user.name);
     setDraftLocation(user.location);
+    setLocationQuery(user.location);
     setDraftBio(user.bio);
     setDraftProject(user.project);
     setDraftSkills([...user.skills]);
@@ -198,59 +310,37 @@ export default function Profile() {
     toast({ title: "Profile updated! ✓" });
   };
 
-  // ── Avatar upload ──────────────────────────────────────────────────────
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = "";
     setAvatarUploading(true);
-
     const ext = file.name.split(".").pop();
     const path = `${user.id}/avatar.${ext}`;
-
     const { error } = await (supabase as any).storage.from("avatars").upload(path, file, { upsert: true });
     if (error) {
       toast({ title: "Upload failed", description: error.message, variant: "destructive" });
       setAvatarUploading(false);
       return;
     }
-
     const { data } = (supabase as any).storage.from("avatars").getPublicUrl(path);
     const url = data.publicUrl + "?t=" + Date.now();
     setAvatarUrl(url);
-    await updateUser({ avatarUrl: url }); // persist cache-busted URL so refresh always loads fresh image
+    await updateUser({ avatarUrl: url });
     setAvatarUploading(false);
     toast({ title: "Profile photo updated! 📸" });
   };
 
-  // ── Change password ────────────────────────────────────────────────────
   const handleChangePw = async () => {
     if (!currentPw) { toast({ title: "Enter your current password", variant: "destructive" }); return; }
     if (newPw.length < 6) { toast({ title: "New password must be at least 6 characters", variant: "destructive" }); return; }
     if (newPw !== confirmPw) { toast({ title: "Passwords don't match", variant: "destructive" }); return; }
-
     setPwLoading(true);
     try {
-      // Verify current password by re-signing in
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: user.email,
-        password: currentPw,
-      });
-
-      if (signInError) {
-        toast({ title: "Current password is incorrect", variant: "destructive" });
-        setPwLoading(false);
-        return;
-      }
-
-      // Update password
+      const { error: signInError } = await supabase.auth.signInWithPassword({ email: user.email, password: currentPw });
+      if (signInError) { toast({ title: "Current password is incorrect", variant: "destructive" }); setPwLoading(false); return; }
       const { error } = await supabase.auth.updateUser({ password: newPw });
-      if (error) {
-        toast({ title: "Failed to update password", description: error.message, variant: "destructive" });
-        setPwLoading(false);
-        return;
-      }
-
+      if (error) { toast({ title: "Failed to update password", description: error.message, variant: "destructive" }); setPwLoading(false); return; }
       setShowChangePw(false);
       setCurrentPw(""); setNewPw(""); setConfirmPw("");
       toast({ title: "Password updated successfully! 🔒" });
@@ -260,55 +350,38 @@ export default function Profile() {
     setPwLoading(false);
   };
 
-  // ── Forgot password ────────────────────────────────────────────────────
   const handleForgotPassword = () => navigate("/forgot-password");
 
-  // ── Delete account ─────────────────────────────────────────────────────
   const handleDeleteAccount = async () => {
     if (deleteConfirm !== "delete" || !deleteReason) return;
     setDeleteLoading(true);
-
     try {
-      await (supabase as any).from("profiles")
-        .update({ deleted_at: new Date().toISOString() })
-        .eq("id", user.id);
+      await (supabase as any).from("profiles").update({ deleted_at: new Date().toISOString() }).eq("id", user.id);
       await signOut();
       navigate("/");
-      toast({
-        title: "Account scheduled for deletion",
-        description: "You can recover it within 7 days by logging back in.",
-      });
+      toast({ title: "Account scheduled for deletion", description: "You can recover it within 7 days by logging back in." });
     } catch (err: any) {
       toast({ title: "Failed to delete account", description: err.message, variant: "destructive" });
       setDeleteLoading(false);
     }
   };
 
-  // ── Privacy save to Supabase ───────────────────────────────────────────
-  const savePrivacyPrefs = (pub: boolean, msg: boolean) => {
-    if (!privacyKey) return;
-    try { localStorage.setItem(privacyKey, JSON.stringify({ profilePublic: pub, allowMessages: msg })); }
-    catch { /* storage full */ }
-  };
-
-  const toggleProfilePublic = () => {
-    const next = !profilePublic;
-    setProfilePublic(next);
-    savePrivacyPrefs(next, allowMessages);
-    toast({ title: next ? "Profile is now public" : "Profile set to private" });
-  };
-
-  const toggleAllowMessages = () => {
-    const next = !allowMessages;
-    setAllowMessages(next);
-    savePrivacyPrefs(profilePublic, next);
-    toast({ title: next ? "Messages enabled" : "Messages disabled" });
+  const handleUnblock = (userId: string) => {
+    if (!blockedKey) return;
+    const updated = blockedList.filter(u => u.id !== userId);
+    localStorage.setItem(blockedKey, JSON.stringify(updated));
+    setBlockedList(updated);
+    toast({ title: "User unblocked" });
   };
 
   const toggleSkill = (s: string, list: string[], setList: (v: string[]) => void) =>
     setList(list.includes(s) ? list.filter(x => x !== s) : [...list, s]);
 
-  // ── Delete modal ───────────────────────────────────────────────────────
+  const locationSuggestions = locationQuery.length >= 1
+    ? LOCATIONS.filter(l => l.toLowerCase().startsWith(locationQuery.toLowerCase())).slice(0, 6)
+    : [];
+
+  // ── Delete modal ──────────────────────────────────────────────────────────
   if (showDeleteModal) {
     return (
       <Layout>
@@ -347,8 +420,7 @@ export default function Profile() {
                 <label className="text-sm font-medium text-foreground block mb-1.5">
                   Type <span className="font-mono bg-muted px-1 rounded text-xs">delete</span> to confirm
                 </label>
-                <Input value={deleteConfirm} onChange={e => setDeleteConfirm(e.target.value)}
-                  placeholder="delete" className="h-10 font-mono" />
+                <Input value={deleteConfirm} onChange={e => setDeleteConfirm(e.target.value)} placeholder="delete" className="h-10 font-mono" />
               </div>
             )}
             <div className="flex gap-3 pt-1">
@@ -368,97 +440,256 @@ export default function Profile() {
     );
   }
 
-  // ── Activity view ──────────────────────────────────────────────────────
-  if (showActivity) {
-    const filtered = activityTab === "all" ? activity : activity.filter(a => a.type === activityTab);
-    const iconMap: Record<string, any> = {
-      post: TrendingUp, comment: MessageCircle, collab: Handshake, like: Heart,
-    };
-    const colorMap: Record<string, string> = {
-      post: "bg-primary/10 text-primary", comment: "bg-sky-100 text-sky-500",
-      collab: "bg-accent/10 text-accent", like: "bg-rose-100 text-rose-500",
-    };
-
+  // ── Connections view ──────────────────────────────────────────────────────
+  if (view === "connections") {
     return (
       <Layout>
         <div className="max-w-2xl mx-auto px-4 py-6">
-          <button onClick={() => setShowActivity(false)}
+          <button onClick={() => setView(null)}
             className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-5">
             <ArrowLeft className="h-4 w-4" /> Back to Profile
           </button>
-          <h1 className="text-xl font-bold text-foreground mb-4">Your Activity</h1>
-          <div className="flex gap-2 overflow-x-auto pb-1 mb-4 -mx-1 px-1">
-            {ACTIVITY_TABS.map(t => (
-              <button key={t.key} onClick={() => setActivityTab(t.key)}
-                className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                  activityTab === t.key ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-secondary"
-                }`}>
-                {t.label}
-              </button>
-            ))}
-          </div>
-          <div className="rounded-xl border border-border bg-card overflow-hidden">
-            {activityLoading ? (
-              <div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>
-            ) : filtered.length === 0 ? (
-              <div className="text-center py-12 text-muted-foreground">
-                <p className="text-sm">No activity yet. Start posting!</p>
+          <h1 className="text-xl font-bold text-foreground mb-4">Connections ({connections.length})</h1>
+          {viewLoading ? (
+            <div className="text-center py-12 text-sm text-muted-foreground">Loading…</div>
+          ) : connections.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <Users className="h-10 w-10 mx-auto mb-3 opacity-30" />
+              <p className="text-sm">No connections yet.</p>
+              <p className="text-xs mt-1">Connect with makers in Discover.</p>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-border bg-card overflow-hidden divide-y divide-border">
+              {connections.map(c => (
+                <button key={c.id} onClick={() => navigate(`/profile/${c.id}`)}
+                  className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-muted transition-colors text-left">
+                  <div className={`h-10 w-10 rounded-xl ${c.avatarUrl ? "" : c.color} flex items-center justify-center text-white font-bold text-sm shrink-0 overflow-hidden`}>
+                    {c.avatarUrl
+                      ? <img src={c.avatarUrl} alt={c.avatar} className="w-full h-full object-cover" />
+                      : c.avatar}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-foreground">{c.name}</p>
+                    {c.location && (
+                      <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                        <MapPin className="h-3 w-3" />{c.location}
+                      </p>
+                    )}
+                  </div>
+                  <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </Layout>
+    );
+  }
+
+  // ── Posts view ────────────────────────────────────────────────────────────
+  if (view === "posts") {
+    return (
+      <Layout>
+        <div className="max-w-2xl mx-auto px-4 py-6">
+          <button onClick={() => setView(null)}
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-5">
+            <ArrowLeft className="h-4 w-4" /> Back to Profile
+          </button>
+          <h1 className="text-xl font-bold text-foreground mb-4">Your Posts</h1>
+          {viewLoading ? (
+            <div className="text-center py-12 text-sm text-muted-foreground">Loading…</div>
+          ) : (
+            <>
+              <div className="flex gap-2 mb-4">
+                {(["posts", "collabs"] as const).map(tab => (
+                  <button key={tab} onClick={() => setPostsTab(tab)}
+                    className={`px-4 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                      postsTab === tab ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-secondary"
+                    }`}>
+                    {tab === "posts" ? `Feed (${userPosts.length})` : `Collabs (${userCollabs.length})`}
+                  </button>
+                ))}
               </div>
-            ) : (
-              <div className="divide-y divide-border">
-                {filtered.map(item => {
-                  const Icon = iconMap[item.type] || TrendingUp;
-                  const dest = item.type === "collab"
-                    ? "/feed?tab=collabs"
-                    : `/feed?post=${item.targetId}`;
-                  return (
-                    <button key={item.id} onClick={() => navigate(dest)}
-                      className="w-full flex items-center gap-3 px-5 py-3.5 text-left hover:bg-muted transition-colors cursor-pointer">
-                      <div className={`h-9 w-9 rounded-full ${colorMap[item.type] || "bg-muted"} flex items-center justify-center shrink-0`}>
-                        <Icon className="h-4 w-4"/>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-foreground leading-snug">{item.label}</p>
-                        <p className="text-xs text-muted-foreground mt-0.5 truncate">{item.detail}</p>
-                      </div>
-                      <span className="text-xs text-muted-foreground shrink-0">{item.time}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+              {postsTab === "posts" ? (
+                userPosts.length === 0 ? (
+                  <div className="text-center py-12 text-muted-foreground">
+                    <MessageCircle className="h-10 w-10 mx-auto mb-3 opacity-30" />
+                    <p className="text-sm">No posts yet. Share something on the feed!</p>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-border bg-card overflow-hidden divide-y divide-border">
+                    {userPosts.map(post => (
+                      <button key={post.id} onClick={() => navigate(`/feed?post=${post.id}`)}
+                        className="w-full px-5 py-4 text-left hover:bg-muted transition-colors">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${TAG_COLORS[post.tag] ?? "bg-muted text-muted-foreground"}`}>
+                            {post.tag}
+                          </span>
+                          <span className="text-xs text-muted-foreground">{post.time}</span>
+                        </div>
+                        <p className="text-sm text-foreground leading-relaxed mb-2 line-clamp-3">{post.content}</p>
+                        <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                          <Heart className="h-3.5 w-3.5" /> {post.likes}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )
+              ) : (
+                userCollabs.length === 0 ? (
+                  <div className="text-center py-12 text-muted-foreground">
+                    <Handshake className="h-10 w-10 mx-auto mb-3 opacity-30" />
+                    <p className="text-sm">No collabs yet. Post a collab on the feed!</p>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-border bg-card overflow-hidden divide-y divide-border">
+                    {userCollabs.map(collab => (
+                      <button key={collab.id} onClick={() => navigate("/feed?tab=collabs")}
+                        className="w-full px-5 py-4 text-left hover:bg-muted transition-colors">
+                        <p className="text-sm font-semibold text-foreground mb-1">{collab.title}</p>
+                        <p className="text-xs text-muted-foreground mb-2 line-clamp-2">{collab.description}</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {collab.skills.map(s => <Badge key={s} variant="secondary" className="text-xs">{s}</Badge>)}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )
+              )}
+            </>
+          )}
+        </div>
+      </Layout>
+    );
+  }
+
+  // ── Saved view ────────────────────────────────────────────────────────────
+  if (view === "saved") {
+    return (
+      <Layout>
+        <div className="max-w-2xl mx-auto px-4 py-6">
+          <button onClick={() => setView(null)}
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-5">
+            <ArrowLeft className="h-4 w-4" /> Back to Profile
+          </button>
+          <h1 className="text-xl font-bold text-foreground mb-4">Saved Posts ({savedPosts.length})</h1>
+          {viewLoading ? (
+            <div className="text-center py-12 text-sm text-muted-foreground">Loading…</div>
+          ) : savedPosts.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <Bookmark className="h-10 w-10 mx-auto mb-3 opacity-30" />
+              <p className="text-sm">No saved posts yet.</p>
+              <p className="text-xs mt-1">Bookmark posts from the feed to see them here.</p>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-border bg-card overflow-hidden divide-y divide-border">
+              {savedPosts.map(post => (
+                <button key={post.id} onClick={() => navigate(`/feed?post=${post.id}`)}
+                  className="w-full px-5 py-4 text-left hover:bg-muted transition-colors">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${TAG_COLORS[post.tag] ?? "bg-muted text-muted-foreground"}`}>
+                      {post.tag}
+                    </span>
+                    <span className="text-xs text-muted-foreground">{post.time}</span>
+                  </div>
+                  <p className="text-sm text-foreground leading-relaxed mb-2 line-clamp-3">{post.content}</p>
+                  <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Heart className="h-3.5 w-3.5" /> {post.likes}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </Layout>
+    );
+  }
+
+  // ── Blocked users view ────────────────────────────────────────────────────
+  if (view === "blocked") {
+    return (
+      <Layout>
+        <div className="max-w-2xl mx-auto px-4 py-6">
+          <button onClick={() => setView(null)}
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-5">
+            <ArrowLeft className="h-4 w-4" /> Back to Profile
+          </button>
+          <h1 className="text-xl font-bold text-foreground mb-1">Blocked Users</h1>
+          <p className="text-sm text-muted-foreground mb-4">Blocked users cannot see your profile or contact you.</p>
+          {blockedList.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <UserX className="h-10 w-10 mx-auto mb-3 opacity-30" />
+              <p className="text-sm">No blocked users.</p>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-border bg-card overflow-hidden divide-y divide-border">
+              {blockedList.map(u => (
+                <div key={u.id} className="flex items-center gap-3 px-4 py-3.5">
+                  <div className={`h-10 w-10 rounded-xl ${u.avatarUrl ? "" : u.color} flex items-center justify-center text-white font-bold text-sm shrink-0 overflow-hidden`}>
+                    {u.avatarUrl
+                      ? <img src={u.avatarUrl} alt={u.avatar} className="w-full h-full object-cover" />
+                      : u.avatar}
+                  </div>
+                  <p className="flex-1 text-sm font-semibold text-foreground min-w-0 truncate">{u.name}</p>
+                  <Button size="sm" variant="outline" className="h-8 text-xs shrink-0"
+                    onClick={() => handleUnblock(u.id)}>
+                    Unblock
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </Layout>
+    );
+  }
+
+  // ── Terms & Privacy view ──────────────────────────────────────────────────
+  if (view === "terms") {
+    return (
+      <Layout>
+        <div className="max-w-2xl mx-auto px-4 py-6">
+          <button onClick={() => setView(null)}
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-5">
+            <ArrowLeft className="h-4 w-4" /> Back to Profile
+          </button>
+          <h1 className="text-xl font-bold text-foreground mb-4">Terms & Privacy Policy</h1>
+          <div className="rounded-xl border border-border bg-card p-5">
+            <pre className="text-sm text-foreground leading-relaxed whitespace-pre-wrap font-sans">
+              {TERMS_AND_PRIVACY}
+            </pre>
           </div>
         </div>
       </Layout>
     );
   }
 
-  // ── Main profile view ──────────────────────────────────────────────────
+  // ── Main profile view ─────────────────────────────────────────────────────
   return (
     <Layout>
       <div className="max-w-2xl mx-auto px-4 py-6 space-y-4">
 
-        {/* ── Profile card ── */}
+        {/* Profile card */}
         <div className="rounded-xl border border-border bg-card p-6">
           <div className="flex items-start gap-4 mb-5">
 
             {/* Avatar */}
             <div className="relative shrink-0 group">
-              <input ref={avatarRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarChange}/>
+              <input ref={avatarRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} />
               <div className={`h-20 w-20 rounded-2xl overflow-hidden ${user.color} flex items-center justify-center text-white text-2xl font-bold cursor-pointer`}
                 onClick={() => !avatarUploading && avatarRef.current?.click()}>
                 {avatarUrl
-                  ? <img src={avatarUrl} alt="avatar" className="w-full h-full object-cover"/>
+                  ? <img src={avatarUrl} alt="avatar" className="w-full h-full object-cover" />
                   : initials}
               </div>
               {avatarUploading ? (
                 <div className="absolute inset-0 rounded-2xl bg-black/50 flex items-center justify-center">
-                  <div className="h-5 w-5 rounded-full border-2 border-white border-t-transparent animate-spin"/>
+                  <div className="h-5 w-5 rounded-full border-2 border-white border-t-transparent animate-spin" />
                 </div>
               ) : (
                 <button onClick={() => avatarRef.current?.click()}
                   className="absolute inset-0 rounded-2xl bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center">
-                  <Camera className="h-5 w-5 text-white opacity-0 group-hover:opacity-100 transition-opacity"/>
+                  <Camera className="h-5 w-5 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
                 </button>
               )}
             </div>
@@ -467,7 +698,37 @@ export default function Profile() {
               {editing ? (
                 <div className="space-y-2">
                   <Input value={draftName} onChange={e => setDraftName(e.target.value)} className="h-9 font-semibold" placeholder="Your name" maxLength={20} />
-                  <Input value={draftLocation} onChange={e => setDraftLocation(e.target.value)} className="h-8 text-sm" placeholder="Location"/>
+                  {/* Location autocomplete */}
+                  <div ref={locationRef} className="relative">
+                    <Input
+                      value={locationQuery}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setLocationQuery(val);
+                        setDraftLocation(val);
+                        setShowLocationDropdown(true);
+                      }}
+                      onFocus={() => setShowLocationDropdown(true)}
+                      className="h-8 text-sm"
+                      placeholder="Country / Location"
+                    />
+                    {showLocationDropdown && locationSuggestions.length > 0 && (
+                      <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-card border border-border rounded-lg shadow-lg overflow-hidden max-h-44 overflow-y-auto">
+                        {locationSuggestions.map(loc => (
+                          <button key={loc} type="button"
+                            onMouseDown={e => {
+                              e.preventDefault();
+                              setDraftLocation(loc);
+                              setLocationQuery(loc);
+                              setShowLocationDropdown(false);
+                            }}
+                            className="w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors text-foreground">
+                            {loc}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               ) : (
                 <>
@@ -481,16 +742,16 @@ export default function Profile() {
                             ? "bg-emerald-500 text-white border-emerald-500 hover:bg-emerald-600"
                             : "bg-secondary text-muted-foreground border-border hover:bg-muted"
                         }`}>
-                        <span className={`h-1.5 w-1.5 rounded-full flex-shrink-0 ${user.openToCollab ? "bg-white" : "bg-muted-foreground"}`}/>
+                        <span className={`h-1.5 w-1.5 rounded-full flex-shrink-0 ${user.openToCollab ? "bg-white" : "bg-muted-foreground"}`} />
                         {user.openToCollab ? "Open to collab" : "Not available"}
                       </button>
                       <Button variant="outline" size="sm" onClick={startEditing} className="h-7 text-xs gap-1 px-2.5">
-                        <Edit className="h-3 w-3"/> Edit
+                        <Edit className="h-3 w-3" /> Edit
                       </Button>
                     </div>
                   </div>
                   <p className="text-sm text-muted-foreground flex items-center gap-1 mt-1">
-                    <MapPin className="h-3.5 w-3.5"/> {user.location || "No location set"}
+                    <MapPin className="h-3.5 w-3.5" /> {user.location || "No location set"}
                   </p>
                 </>
               )}
@@ -501,7 +762,7 @@ export default function Profile() {
           <div className="mb-4">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">About</p>
             {editing
-              ? <Textarea value={draftBio} onChange={e => setDraftBio(e.target.value)} rows={3} placeholder="Tell people about yourself..."/>
+              ? <Textarea value={draftBio} onChange={e => setDraftBio(e.target.value)} rows={3} placeholder="Tell people about yourself..." />
               : <p className="text-sm text-foreground leading-relaxed">{user.bio || <span className="text-muted-foreground italic">No bio yet</span>}</p>}
           </div>
 
@@ -509,7 +770,7 @@ export default function Profile() {
           <div className="mb-4">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Currently building</p>
             {editing
-              ? <Input value={draftProject} onChange={e => setDraftProject(e.target.value)} className="h-9" placeholder="Project name — short description"/>
+              ? <Input value={draftProject} onChange={e => setDraftProject(e.target.value)} className="h-9" placeholder="Project name — short description" />
               : <p className="text-sm text-primary font-medium">{user.project || <span className="text-muted-foreground italic font-normal">Nothing listed yet</span>}</p>}
           </div>
 
@@ -530,14 +791,14 @@ export default function Profile() {
                         variant={selected ? "default" : "outline"}
                         className={`text-xs transition-all ${maxed ? "opacity-40 cursor-not-allowed" : "cursor-pointer hover:scale-105"}`}
                         onClick={() => { if (!maxed) toggleSkill(s, draftSkills, setDraftSkills); }}>
-                        {s}{selected && <X className="h-2.5 w-2.5 ml-1"/>}
+                        {s}{selected && <X className="h-2.5 w-2.5 ml-1" />}
                       </Badge>
                     );
                   })}
                   {draftSkills.filter(s => !(SKILL_CATEGORIES as readonly string[]).includes(s)).map(s => (
                     <Badge key={s} variant="default" className="text-xs cursor-pointer gap-1"
                       onClick={() => setDraftSkills(prev => prev.filter(x => x !== s))}>
-                      {s} <X className="h-2.5 w-2.5"/>
+                      {s} <X className="h-2.5 w-2.5" />
                     </Badge>
                   ))}
                 </div>
@@ -553,7 +814,7 @@ export default function Profile() {
                           if (val && !draftSkills.includes(val) && draftSkills.length < 3) setDraftSkills(prev => [...prev, val]);
                           setCustomSkillInput("");
                         }
-                      }}/>
+                      }} />
                     <Button type="button" size="sm" variant="outline" className="h-8 px-3 shrink-0"
                       onClick={() => {
                         const val = customSkillInput.trim();
@@ -583,16 +844,16 @@ export default function Profile() {
                   { Icon: Twitter, val: draftTwitter, set: setDraftTwitter, ph: "@handle" },
                 ] as const).map(({ Icon, val, set, ph }) => (
                   <div key={ph} className="flex items-center gap-2">
-                    <Icon className="h-4 w-4 text-muted-foreground shrink-0"/>
-                    <Input value={val} onChange={e => (set as (v: string) => void)(e.target.value)} className="h-8 text-sm" placeholder={ph}/>
+                    <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <Input value={val} onChange={e => (set as (v: string) => void)(e.target.value)} className="h-8 text-sm" placeholder={ph} />
                   </div>
                 ))}
               </div>
             ) : (
               <div className="flex flex-wrap gap-4">
-                {user.github  && <a href={`https://${user.github}`}  target="_blank" rel="noreferrer" className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"><Github  className="h-4 w-4"/>{user.github}</a>}
-                {user.website && <a href={`https://${user.website}`} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"><Globe   className="h-4 w-4"/>{user.website}</a>}
-                {user.twitter && <a href={`https://twitter.com/${user.twitter.replace("@","")}`} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"><Twitter className="h-4 w-4"/>{user.twitter}</a>}
+                {user.github  && <a href={`https://${user.github}`}  target="_blank" rel="noreferrer" className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"><Github  className="h-4 w-4" />{user.github}</a>}
+                {user.website && <a href={`https://${user.website}`} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"><Globe   className="h-4 w-4" />{user.website}</a>}
+                {user.twitter && <a href={`https://twitter.com/${user.twitter.replace("@", "")}`} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"><Twitter className="h-4 w-4" />{user.twitter}</a>}
                 {!user.github && !user.website && !user.twitter && <span className="text-xs text-muted-foreground italic">No links added</span>}
               </div>
             )}
@@ -602,55 +863,37 @@ export default function Profile() {
           {editing && (
             <div className="flex gap-2 mb-5">
               <Button onClick={saveEdits} disabled={!draftName.trim() || saving} className="flex-1 gap-1.5">
-                <Check className="h-4 w-4"/> {saving ? "Saving…" : "Save changes"}
+                <Check className="h-4 w-4" /> {saving ? "Saving…" : "Save changes"}
               </Button>
               <Button variant="outline" onClick={() => setEditing(false)} className="flex-1 gap-1.5">
-                <X className="h-4 w-4"/> Cancel
+                <X className="h-4 w-4" /> Cancel
               </Button>
             </div>
           )}
 
-          {/* Stats — real data */}
+          {/* Stats tiles — Connections / Posts / Saved */}
           <div className="pt-4 border-t border-border grid grid-cols-3 text-center divide-x divide-border">
             {[
-              [String(analytics.connectionCount), "Connections"],
-              [String(analytics.collabCount), "Collabs"],
-              [String(analytics.postCount), "Posts"],
-            ].map(([n, l]) => (
-              <div key={l} className="px-2">
-                <p className="text-2xl font-bold text-foreground">{n}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">{l}</p>
-              </div>
+              { n: analytics.connectionCount, label: "Connections", v: "connections" as ViewType },
+              { n: analytics.postCount,        label: "Posts",       v: "posts"       as ViewType },
+              { n: analytics.savedCount,       label: "Saved",       v: "saved"       as ViewType },
+            ].map(({ n, label, v }) => (
+              <button key={label} onClick={() => openView(v)}
+                className="px-2 py-1 hover:bg-muted rounded transition-colors group">
+                <p className="text-2xl font-bold text-foreground group-hover:text-primary transition-colors">{n}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{label}</p>
+              </button>
             ))}
           </div>
         </div>
 
-
-        {/* ── Activity ── */}
-        <button
-          onClick={() => { setActivityTab("all"); loadActivity(); setShowActivity(true); }}
-          className="w-full rounded-xl border border-border bg-card px-5 py-4 flex items-center justify-between hover:bg-muted/40 transition-colors group">
-          <div className="flex items-center gap-3">
-            <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center">
-              <TrendingUp className="h-4 w-4 text-primary" />
-            </div>
-            <div className="text-left">
-              <p className="text-sm font-semibold text-foreground">Activity</p>
-              <p className="text-xs text-muted-foreground mt-0.5">Posts, likes, comments, collabs</p>
-            </div>
-          </div>
-          <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
-        </button>
-
-        {/* ── Preferences ── */}
+        {/* Preferences */}
         <div className="rounded-xl border border-border bg-card overflow-hidden">
           <div className="px-5 py-4 border-b border-border flex items-center gap-2">
             <Sun className="h-4 w-4 text-primary" />
             <h2 className="text-sm font-semibold text-foreground">Preferences</h2>
           </div>
           <div className="divide-y divide-border">
-
-            {/* Theme toggle */}
             <div className="flex items-center justify-between px-5 py-4">
               <div>
                 <p className="text-sm font-medium text-foreground">Appearance</p>
@@ -662,39 +905,33 @@ export default function Profile() {
                 {theme === "dark" ? <><Sun className="h-4 w-4" /> Light</> : <><Moon className="h-4 w-4" /> Dark</>}
               </button>
             </div>
-
           </div>
         </div>
 
-        {/* ── Privacy & Safety ── */}
+        {/* Privacy & Safety */}
         <div className="rounded-xl border border-border bg-card overflow-hidden">
           <div className="px-5 py-4 border-b border-border flex items-center gap-2">
             <Shield className="h-4 w-4 text-primary" />
             <h2 className="text-sm font-semibold text-foreground">Privacy & Safety</h2>
           </div>
           <div className="divide-y divide-border">
-            <div className="flex items-center justify-between px-5 py-4">
-              <div>
-                <p className="text-sm font-medium text-foreground">Public profile</p>
-                <p className="text-xs text-muted-foreground mt-0.5">Anyone can view your profile and posts</p>
-              </div>
-              <button role="switch" aria-checked={profilePublic} onClick={toggleProfilePublic}
-                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${profilePublic ? "bg-primary" : "bg-muted"}`}>
-                <span className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-lg transition-transform ${profilePublic ? "translate-x-5" : "translate-x-0"}`}/>
-              </button>
-            </div>
-            <div className="flex items-center justify-between px-5 py-4">
-              <div>
-                <p className="text-sm font-medium text-foreground">Allow messages</p>
-                <p className="text-xs text-muted-foreground mt-0.5">Let others send you direct messages</p>
-              </div>
-              <button role="switch" aria-checked={allowMessages} onClick={toggleAllowMessages}
-                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${allowMessages ? "bg-primary" : "bg-muted"}`}>
-                <span className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-lg transition-transform ${allowMessages ? "translate-x-5" : "translate-x-0"}`}/>
-              </button>
-            </div>
 
-            {/* Account actions */}
+            {/* Blocked Users row */}
+            <button onClick={() => openView("blocked")}
+              className="w-full flex items-center justify-between px-5 py-4 hover:bg-muted transition-colors group">
+              <div className="flex items-center gap-3">
+                <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0">
+                  <UserX className="h-4 w-4 text-muted-foreground" />
+                </div>
+                <div className="text-left">
+                  <p className="text-sm font-medium text-foreground">Blocked Users</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Manage users you've blocked</p>
+                </div>
+              </div>
+              <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+            </button>
+
+            {/* Account section */}
             <div className="px-5 py-4 space-y-3">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Account</p>
 
@@ -721,7 +958,7 @@ export default function Profile() {
                     <label className="text-xs font-medium text-muted-foreground block mb-1">Current password</label>
                     <input type={showCurrentPw ? "text" : "password"} value={currentPw} onChange={e => setCurrentPw(e.target.value)}
                       placeholder="Enter current password"
-                      className="w-full h-9 rounded-lg border border-border bg-card px-3 pr-9 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-primary"/>
+                      className="w-full h-9 rounded-lg border border-border bg-card px-3 pr-9 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-primary" />
                     <button type="button" onClick={() => setShowCurrentPw(v => !v)}
                       className="absolute right-3 top-7 text-muted-foreground hover:text-foreground">
                       {showCurrentPw ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
@@ -731,7 +968,7 @@ export default function Profile() {
                     <label className="text-xs font-medium text-muted-foreground block mb-1">New password</label>
                     <input type={showNewPw ? "text" : "password"} value={newPw} onChange={e => setNewPw(e.target.value)}
                       placeholder="Min. 6 characters"
-                      className="w-full h-9 rounded-lg border border-border bg-card px-3 pr-9 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-primary"/>
+                      className="w-full h-9 rounded-lg border border-border bg-card px-3 pr-9 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-primary" />
                     <button type="button" onClick={() => setShowNewPw(v => !v)}
                       className="absolute right-3 top-7 text-muted-foreground hover:text-foreground">
                       {showNewPw ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
@@ -741,7 +978,7 @@ export default function Profile() {
                     <label className="text-xs font-medium text-muted-foreground block mb-1">Confirm new password</label>
                     <input type="password" value={confirmPw} onChange={e => setConfirmPw(e.target.value)}
                       placeholder="Repeat new password"
-                      className="w-full h-9 rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-primary"/>
+                      className="w-full h-9 rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-primary" />
                   </div>
                   <div className="flex gap-2 pt-1">
                     <Button size="sm" className="flex-1 h-8 text-xs" onClick={handleChangePw} disabled={pwLoading}>
@@ -771,6 +1008,44 @@ export default function Profile() {
                 <X className="h-4 w-4" /> Delete account
               </Button>
             </div>
+          </div>
+        </div>
+
+        {/* Help & Support */}
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          <div className="px-5 py-4 border-b border-border flex items-center gap-2">
+            <HelpCircle className="h-4 w-4 text-primary" />
+            <h2 className="text-sm font-semibold text-foreground">Help & Support</h2>
+          </div>
+          <div className="divide-y divide-border">
+            <button
+              onClick={() => { window.location.href = "mailto:prolifiersupport@gmail.com"; }}
+              className="w-full flex items-center justify-between px-5 py-4 hover:bg-muted transition-colors group">
+              <div className="flex items-center gap-3">
+                <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0">
+                  <Mail className="h-4 w-4 text-muted-foreground" />
+                </div>
+                <div className="text-left">
+                  <p className="text-sm font-medium text-foreground">Contact Us</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">prolifiersupport@gmail.com</p>
+                </div>
+              </div>
+              <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+            </button>
+            <button
+              onClick={() => openView("terms")}
+              className="w-full flex items-center justify-between px-5 py-4 hover:bg-muted transition-colors group">
+              <div className="flex items-center gap-3">
+                <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0">
+                  <FileText className="h-4 w-4 text-muted-foreground" />
+                </div>
+                <div className="text-left">
+                  <p className="text-sm font-medium text-foreground">Terms & Privacy Policy</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Read our terms and privacy policy</p>
+                </div>
+              </div>
+              <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+            </button>
           </div>
         </div>
 

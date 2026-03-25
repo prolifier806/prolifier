@@ -198,26 +198,15 @@ export default function Discover() {
     if (activeTab === "requests" && user.id) fetchRequests();
   }, [activeTab, user.id, fetchRequests]);
 
-  // Fetch request count on mount + keep in sync via realtime
+  // Fetch request count on mount (realtime removed to save Disk IO)
   useEffect(() => {
     if (!user.id) return;
-    const fetchCount = async () => {
-      const { count } = await (supabase as any)
-        .from("connections")
-        .select("*", { count: "exact", head: true })
-        .eq("receiver_id", user.id)
-        .eq("status", "pending");
-      setRequestCount(count ?? 0);
-    };
-    fetchCount();
-    const channel = supabase
-      .channel(`discover-req-count-${user.id}`)
-      .on("postgres_changes", {
-        event: "*", schema: "public", table: "connections",
-        filter: `receiver_id=eq.${user.id}`,
-      }, fetchCount)
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    (supabase as any)
+      .from("connections")
+      .select("*", { count: "exact", head: true })
+      .eq("receiver_id", user.id)
+      .eq("status", "pending")
+      .then(({ count }: any) => setRequestCount(count ?? 0));
   }, [user.id]);
 
   const handleConnect = async (id: string, name: string) => {

@@ -2,7 +2,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, MapPin, Github, Globe, Twitter, MessageCircle, UserPlus, Heart, Handshake, Check, UserX } from "lucide-react";
+import { ArrowLeft, MapPin, Github, Globe, Twitter, MessageCircle, UserPlus, Heart, Handshake, Check, UserX, ShieldOff } from "lucide-react";
 import Layout from "@/components/Layout";
 import { toast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
@@ -109,6 +109,7 @@ export default function UserProfile() {
   const [isDeleted, setIsDeleted] = useState(false);
   const [connected, setConnected] = useState(false);
   const [connectionLoading, setConnectionLoading] = useState(false);
+  const [isBlocked, setIsBlocked] = useState(false);
 
   useEffect(() => {
     if (!id) { setNotFound(true); setLoading(false); return; }
@@ -168,6 +169,13 @@ export default function UserProfile() {
         })));
 
         setConnected(!!connRes.data);
+
+        // Load blocked status
+        const blockedKey = `prolifier_blocked_${user.id}`;
+        try {
+          const blocked: { id: string }[] = JSON.parse(localStorage.getItem(blockedKey) || "[]");
+          setIsBlocked(blocked.some(b => b.id === id));
+        } catch { /* ignore */ }
       } catch {
         setNotFound(true);
       } finally {
@@ -177,6 +185,27 @@ export default function UserProfile() {
 
     load();
   }, [id, user.id, navigate]);
+
+  const handleBlock = () => {
+    if (!profile) return;
+    const blockedKey = `prolifier_blocked_${user.id}`;
+    try {
+      const current: { id: string; name: string; avatar: string; color: string; avatarUrl?: string }[] =
+        JSON.parse(localStorage.getItem(blockedKey) || "[]");
+      if (isBlocked) {
+        localStorage.setItem(blockedKey, JSON.stringify(current.filter(b => b.id !== profile.id)));
+        setIsBlocked(false);
+        toast({ title: "User unblocked" });
+      } else {
+        localStorage.setItem(blockedKey, JSON.stringify([
+          ...current,
+          { id: profile.id, name: profile.name, avatar: profile.avatar, color: profile.color, avatarUrl: profile.avatarUrl },
+        ]));
+        setIsBlocked(true);
+        toast({ title: "User blocked" });
+      }
+    } catch { /* ignore */ }
+  };
 
   const handleConnect = async () => {
     if (!profile || connectionLoading) return;
@@ -281,6 +310,12 @@ export default function UserProfile() {
                 <Button size="sm" variant="outline" className="gap-1.5 h-8 text-xs"
                   onClick={() => { navigate(`/messages?with=${profile.id}`); }}>
                   <MessageCircle className="h-3.5 w-3.5" /> Message
+                </Button>
+                <Button size="sm" variant="outline" className="gap-1.5 h-8 text-xs text-muted-foreground"
+                  onClick={handleBlock}>
+                  {isBlocked
+                    ? <><ShieldOff className="h-3.5 w-3.5" /> Unblock</>
+                    : <><UserX className="h-3.5 w-3.5" /> Block</>}
                 </Button>
               </div>
             </div>
