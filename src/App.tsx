@@ -70,8 +70,10 @@ function RecoverRoute({ children }: { children: React.ReactNode }) {
 
 // Redirects to /feed if profile is already complete (prevents re-entering setup)
 function SetupRoute({ children }: { children: React.ReactNode }) {
-  const { session, loading, profileComplete } = useUser();
-  if (loading) return <PageLoader />;
+  const { session, loading, profileComplete, user } = useUser();
+  // Keep loader up until user data is populated — prevents flash of setup page
+  // when returning user lands here after OAuth redirect
+  if (loading || (session && !user.id)) return <PageLoader />;
   if (!session) return <Navigate to="/" replace />;
   if (profileComplete) return <Navigate to="/feed" replace />;
   return <>{children}</>;
