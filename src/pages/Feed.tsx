@@ -1001,6 +1001,7 @@ export default function Feed() {
   const [interestedCollabs, setInterestedCollabs] = useState<Set<string>>(new Set());
   const [savedCollabs, setSavedCollabs] = useState<Set<string>>(new Set());
   const [editingCollab, setEditingCollab] = useState<Collab|null>(null);
+  const [blockedUserIds, setBlockedUserIds] = useState<Set<string>>(new Set());
 
   // Pagination
   const [postsHasMore, setPostsHasMore] = useState(false);
@@ -1060,15 +1061,15 @@ export default function Feed() {
     setLoading(true);
     try {
       // OPT: all queries fire at the same time instead of sequentially
-      const [postsRes, collabsRes, likesRes, savedPostsRes, savedCollabsRes, interestedRes] = await Promise.all([
+      const [postsRes, collabsRes, likesRes, savedPostsRes, savedCollabsRes, interestedRes, myBlocksRes, blockedByRes] = await Promise.all([
         (supabase as any)
           .from("posts")
-          .select(`*, profiles:user_id (name, avatar, avatar_url, color, location, skills, deleted_at)`)
+          .select(`id, user_id, tag, content, image_url, video_url, created_at, likes, profiles:user_id (name, avatar, avatar_url, color, location, skills, deleted_at)`)
           .order("created_at", { ascending: false })
           .limit(30),
         (supabase as any)
           .from("collabs")
-          .select(`*, profiles:user_id (name, avatar, avatar_url, color, location, skills, deleted_at)`)
+          .select(`id, user_id, title, looking, description, skills, image_url, video_url, created_at, profiles:user_id (name, avatar, avatar_url, color, location, skills, deleted_at)`)
           .order("created_at", { ascending: false })
           .limit(30),
         (supabase as any)
@@ -1078,6 +1079,8 @@ export default function Feed() {
         (supabase as any).from("saved_posts").select("post_id").eq("user_id", user.id),
         (supabase as any).from("saved_collabs").select("collab_id").eq("user_id", user.id),
         (supabase as any).from("collab_interests").select("collab_id").eq("user_id", user.id),
+        (supabase as any).from("blocks").select("blocked_id").eq("blocker_id", user.id),
+        (supabase as any).from("blocks").select("blocker_id").eq("blocked_id", user.id),
       ]);
 
       if (postsRes.error) throw postsRes.error;
@@ -1127,8 +1130,19 @@ export default function Feed() {
       if (savedCollabsRes.data) setSavedCollabs(new Set(savedCollabsRes.data.map((s: any) => s.collab_id)));
       if (interestedRes.data) setInterestedCollabs(new Set(interestedRes.data.map((s: any) => s.collab_id)));
 
-      setPosts(mappedPosts);
-      setCollabs(mappedCollabs);
+      // Build mutual block set — users I blocked + users who blocked me
+      const myBlocked = new Set<string>((myBlocksRes.data || []).map((b: any) => b.blocked_id));
+      const blockedBy = new Set<string>((blockedByRes.data || []).map((b: any) => b.blocker_id));
+      try {
+        const lsKey = `prolifier_blocked_${user.id}`;
+        JSON.parse(localStorage.getItem(lsKey) || "[]").forEach((b: any) => myBlocked.add(b.id));
+      } catch { /* ignore */ }
+      const allBlocked = new Set<string>([...myBlocked, ...blockedBy]);
+      setBlockedUserIds(allBlocked);
+
+      // Filter out posts/collabs from blocked users (both directions)
+      setPosts(mappedPosts.filter(p => !allBlocked.has(p.user_id)));
+      setCollabs(mappedCollabs.filter(c => !allBlocked.has(c.user_id)));
       setLoading(false); // show UI immediately — counts load in background
 
       // Background: fetch comment counts without blocking the feed render
@@ -1242,6 +1256,9 @@ export default function Feed() {
   // ── Post Actions ──────────────────────────────────────────────────────
   // OPT: optimistic UI — state updates instantly, DB write happens in background
   const handleLike = useCallback(async (id: string) => {
+    // Block check — don't allow interaction with posts from blocked/blocking users
+    const post = posts.find(p => p.id === id);
+    if (post && blockedUserIds.has(post.user_id)) return;
     const was = likedPosts.has(id);
     // Optimistic update — instant feedback
     setLikedPosts(p => { const n = new Set(p); was ? n.delete(id) : n.add(id); return n; });
@@ -1283,6 +1300,8 @@ export default function Feed() {
 
   // OPT: lazy comment loading — only fetch comments when the sheet is opened
   const handleOpenComments = useCallback(async (post: Post) => {
+    // Block check — don't allow commenting on posts from blocked/blocking users
+    if (blockedUserIds.has(post.user_id)) return;
     // If comments already loaded, open immediately
     if (post.comments.length > 0) {
       setCommentingPost(post);

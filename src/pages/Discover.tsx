@@ -125,16 +125,31 @@ export default function Discover() {
       if (collabOnly) query = query.eq("open_to_collab", true);
       if (cursor) query = query.lt("created_at", cursor);
 
-      // Run profiles + connections in parallel on initial load
-      const [{ data, error }, connsRes] = await Promise.all([
+      // Run profiles + connections + blocks in parallel on initial load
+      const [{ data, error }, connsRes, myBlocksRes, blockedByRes] = await Promise.all([
         query,
         !cursor
           ? (supabase as any).from("connections").select("receiver_id").eq("requester_id", user.id)
           : Promise.resolve({ data: null }),
+        !cursor
+          ? (supabase as any).from("blocks").select("blocked_id").eq("blocker_id", user.id)
+          : Promise.resolve({ data: null }),
+        !cursor
+          ? (supabase as any).from("blocks").select("blocker_id").eq("blocked_id", user.id)
+          : Promise.resolve({ data: null }),
       ]);
       if (error) throw error;
 
-      const mapped: Profile[] = (data || []).map((p: any) => ({
+      // Build mutual block set
+      const myBlocked = new Set<string>((myBlocksRes.data || []).map((b: any) => b.blocked_id));
+      const blockedBy = new Set<string>((blockedByRes.data || []).map((b: any) => b.blocker_id));
+      try {
+        const lsKey = `prolifier_blocked_${user.id}`;
+        JSON.parse(localStorage.getItem(lsKey) || "[]").forEach((b: any) => myBlocked.add(b.id));
+      } catch { /* ignore */ }
+      const allBlocked = new Set<string>([...myBlocked, ...blockedBy]);
+
+      let mapped: Profile[] = (data || []).map((p: any) => ({
         id: p.id,
         name: p.name || "Unknown",
         avatar: p.avatar || "?",
@@ -146,6 +161,9 @@ export default function Discover() {
         skills: p.skills || [],
         openToCollab: p.open_to_collab ?? true,
       }));
+
+      // Filter out blocked users (both directions — mutual isolation)
+      mapped = mapped.filter(p => !allBlocked.has(p.id));
 
       cursor ? setProfiles(prev => [...prev, ...mapped]) : setProfiles(mapped);
       setHasMore((data || []).length === PAGE_SIZE);
