@@ -316,41 +316,38 @@ export function UserProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Real-time: sign out immediately if profile is deleted or soft-deleted from any device
+  // Poll for account deletion/soft-deletion — replaces realtime channel to eliminate
+  // always-active WAL subscription. Checks on tab focus + every 5 minutes.
   useEffect(() => {
     if (!authUser?.id) return;
     const id = authUser.id;
-    const ch = supabase
-      .channel(`profile-watch-${id}`)
-      .on("postgres_changes", {
-        event: "DELETE",
-        schema: "public",
-        table: "profiles",
-        filter: `id=eq.${id}`,
-      }, async () => {
+
+    const checkDeletion = async () => {
+      const { data } = await (supabase as any)
+        .from("profiles")
+        .select("deleted_at, permanently_deleted")
+        .eq("id", id)
+        .maybeSingle();
+      if (!data || data.permanently_deleted) {
         localStorage.removeItem(cacheKey(id));
         await supabase.auth.signOut();
-      })
-      .on("postgres_changes", {
-        event: "UPDATE",
-        schema: "public",
-        table: "profiles",
-        filter: `id=eq.${id}`,
-      }, async (payload: any) => {
-        if (payload.new?.permanently_deleted) {
+      } else if (data.deleted_at) {
+        setUser(prev => {
+          const next = { ...prev, deletedAt: data.deleted_at };
           localStorage.removeItem(cacheKey(id));
-          await supabase.auth.signOut();
-        } else if (payload.new?.deleted_at) {
-          // Soft-deleted: update state so ProtectedRoute redirects to /recover
-          setUser(prev => {
-            const next = { ...prev, deletedAt: payload.new.deleted_at };
-            localStorage.removeItem(cacheKey(id));
-            return next;
-          });
-        }
-      })
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
+          return next;
+        });
+      }
+    };
+
+    const onVisible = () => { if (document.visibilityState === "visible") checkDeletion(); };
+    document.addEventListener("visibilitychange", onVisible);
+    const timer = setInterval(checkDeletion, 5 * 60_000);
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      clearInterval(timer);
+    };
   }, [authUser?.id]);
 
   const updateUser = async (patch: Partial<CurrentUser>) => {
