@@ -99,7 +99,7 @@ function AppRoutes() {
       <Routes>
         <Route path="/"              element={<AuthRoute><Onboarding /></AuthRoute>} />
         <Route path="/verify-email"     element={<GuestOnlyRoute><VerifyEmail /></GuestOnlyRoute>} />
-        <Route path="/forgot-password"  element={<GuestOnlyRoute><ForgotPassword /></GuestOnlyRoute>} />
+        <Route path="/forgot-password"  element={<ForgotPassword />} />
         <Route path="/setup"         element={<SetupRoute><ProfileSetup /></SetupRoute>} />
         <Route path="/feed"          element={<ProtectedRoute><Feed /></ProtectedRoute>} />
         <Route path="/discover"      element={<ProtectedRoute><Discover /></ProtectedRoute>} />

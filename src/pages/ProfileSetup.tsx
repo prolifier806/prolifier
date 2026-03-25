@@ -163,7 +163,7 @@ export default function ProfileSetup() {
         <label className="text-sm font-medium text-foreground mb-1.5 block">
           Full name <span className="text-destructive">*</span>
         </label>
-        <Input value={name} onChange={e => setName(e.target.value)} placeholder="Jane Builder" className="h-11" />
+        <Input value={name} onChange={e => setName(e.target.value)} placeholder="Jane Builder" className="h-11" maxLength={50} />
       </div>
       <div>
         <label className="text-sm font-medium text-foreground mb-1.5 block">

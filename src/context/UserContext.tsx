@@ -190,10 +190,10 @@ export function UserProvider({ children }: { children: ReactNode }) {
           await supabase.auth.signOut();
           return;
         }
-        // Brand new user — use Google/OAuth metadata if available, else derive from email
-        const displayName = metadata?.full_name || metadata?.name || email.split("@")[0];
+        // Brand new user — use Google/OAuth metadata if available; leave name blank for email signups
+        const displayName = metadata?.full_name || metadata?.name || "";
         const googleAvatar = metadata?.avatar_url || metadata?.picture || "";
-        const initials = displayName.trim().split(" ").map((w: string) => w[0]).join("").slice(0, 2).toUpperCase();
+        const initials = displayName.trim().split(" ").filter(Boolean).map((w: string) => w[0]).join("").slice(0, 2).toUpperCase();
         setUser({
           ...DEFAULT_USER,
           id: userId,

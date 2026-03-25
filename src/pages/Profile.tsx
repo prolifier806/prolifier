@@ -266,17 +266,7 @@ export default function Profile() {
   };
 
   // ── Forgot password ────────────────────────────────────────────────────
-  const handleForgotPassword = async () => {
-    if (!user.email) return;
-    const { error } = await supabase.auth.resetPasswordForEmail(user.email, {
-      redirectTo: `${window.location.origin}/reset-password`,
-    });
-    if (error) {
-      toast({ title: "Failed to send reset email", variant: "destructive" });
-    } else {
-      toast({ title: "Reset email sent! 📧", description: `Check ${user.email} for instructions.` });
-    }
-  };
+  const handleForgotPassword = () => navigate("/forgot-password");
 
   // ── Delete account ─────────────────────────────────────────────────────
   const handleDeleteAccount = async () => {
@@ -481,7 +471,7 @@ export default function Profile() {
             <div className="flex-1 min-w-0">
               {editing ? (
                 <div className="space-y-2">
-                  <Input value={draftName} onChange={e => setDraftName(e.target.value)} className="h-9 font-semibold" placeholder="Your name"/>
+                  <Input value={draftName} onChange={e => setDraftName(e.target.value)} className="h-9 font-semibold" placeholder="Your name" maxLength={50} />
                   <Input value={draftLocation} onChange={e => setDraftLocation(e.target.value)} className="h-8 text-sm" placeholder="Location"/>
                 </div>
               ) : (
@@ -713,6 +703,18 @@ export default function Profile() {
             <div className="px-5 py-4 space-y-3">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Account</p>
 
+              {user.email && (
+                <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-secondary/50 border border-border">
+                  <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                    <span className="text-xs font-bold text-primary">{user.email[0].toUpperCase()}</span>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs text-muted-foreground">Connected as</p>
+                    <p className="text-sm font-medium text-foreground truncate">{user.email}</p>
+                  </div>
+                </div>
+              )}
+
               {!isGoogleUser && (
                 <>
                   <Button size="sm" variant="outline" className="gap-1.5 h-9 w-full justify-start text-sm font-normal"
@@ -759,7 +761,7 @@ export default function Profile() {
                       </div>
                       <button onClick={handleForgotPassword}
                         className="w-full text-center text-xs text-primary hover:underline">
-                        Forgot your password? Send reset email
+                        Forgot password
                       </button>
                     </div>
                   )}
