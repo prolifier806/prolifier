@@ -251,30 +251,6 @@ export function UserProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        // ── Single-provider enforcement ───────────────────────────────────────
-        // Prevent Supabase's automatic account-linking from mixing Google and
-        // email/password accounts that share the same email address.
-        if (event === "SIGNED_IN") {
-          const identities = newSession.user.identities ?? [];
-          const provider   = newSession.user.app_metadata?.provider as string | undefined;
-          const hasEmail   = identities.some(id => id.provider === "email");
-          const hasGoogle  = identities.some(id => id.provider === "google");
-
-          // Google sign-in but account also has email/password identity → email-registered user
-          if (provider === "google" && hasEmail) {
-            localStorage.setItem("prolifier_auth_error", "This email is registered with email & password. Please sign in with your password.");
-            await supabase.auth.signOut();
-            return;
-          }
-
-          // Email sign-in but account has any Google identity → block (Google account)
-          if (provider === "email" && hasGoogle) {
-            localStorage.setItem("prolifier_auth_error", "This account uses Google sign-in. Please use the Google sign-in button.");
-            await supabase.auth.signOut();
-            return;
-          }
-        }
-
         // ── Initial session load or fresh sign-in ────────────────────────────
         const userId   = newSession.user.id;
         const email    = newSession.user.email ?? "";

@@ -135,9 +135,9 @@ export default function ForgotPassword() {
 
         if (isGoogleAccount) {
           await supabase.auth.signOut();
-          setStep("email");
           setDigits(Array(OTP_LENGTH).fill(""));
-          setError("This account uses Google sign-in. Please go back and sign in with Google.");
+          setStep("email");
+          toast({ title: "This account uses Google sign-in.", description: "Please sign in with Google instead.", variant: "destructive" });
           return;
         }
         setStep("password");
