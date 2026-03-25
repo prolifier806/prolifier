@@ -193,7 +193,7 @@ export default function Onboarding() {
         provider: "google",
         // Redirect to "/" so AuthRoute checks profileComplete and sends the user
         // to /setup (new) or /feed (returning) — never hardcode /feed here.
-        options: { redirectTo: `${window.location.origin}/` },
+        options: { redirectTo: `${window.location.origin}/`, queryParams: { prompt: "select_account" } },
       });
       if (error) throw error;
     } catch (err: any) {
