@@ -40,13 +40,17 @@ function normalizeAuthError(message: string): string {
     return "Incorrect email or password.";
   }
   if (m.includes("already registered") || m.includes("user already exists")) {
-    return "An account already exists with this email. Please sign in.";
+    return "Email already exists. If you signed up with Google, use the Google sign-in button.";
   }
   if (m.includes("email not confirmed")) {
     return "Please confirm your email before signing in.";
   }
   if (m.includes("too many requests") || m.includes("rate limit")) {
     return "Too many attempts. Please wait a moment before trying again.";
+  }
+  // Supabase returns this when a Google-only account tries email/password login
+  if (m.includes("email login is not enabled") || m.includes("provider not found") || m.includes("identity not found")) {
+    return "This account uses Google sign-in. Please use the Google button above.";
   }
   return "Something went wrong. Please try again.";
 }
@@ -120,7 +124,7 @@ export default function Onboarding() {
         // Supabase returns identities: [] (or user: null) when email is already registered.
         const emailTaken = !data.user || data.user.identities?.length === 0;
         if (emailTaken) {
-          toast({ title: "An account already exists with this email.", description: "Please sign in instead.", variant: "destructive" });
+          toast({ title: "Email already exists.", description: "This email is already registered. If you signed up with Google, use the Google sign-in button.", variant: "destructive" });
           setAuthMode("login");
           setLoading(false);
           return;

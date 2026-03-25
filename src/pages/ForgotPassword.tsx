@@ -128,6 +128,15 @@ export default function ForgotPassword() {
         setDigits(Array(OTP_LENGTH).fill(""));
         inputRefs.current[0]?.focus();
       } else {
+        // Check if this is a Google-only account (no email identity = no password)
+        const hasEmailIdentity = data.user?.identities?.some(id => id.provider === "email");
+        if (!hasEmailIdentity) {
+          await supabase.auth.signOut();
+          setStep("email");
+          setDigits(Array(OTP_LENGTH).fill(""));
+          setError("This account uses Google sign-in. Please go back and sign in with Google.");
+          return;
+        }
         setStep("password");
       }
     } catch {
