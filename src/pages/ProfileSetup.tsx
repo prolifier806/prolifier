@@ -21,7 +21,7 @@ export default function ProfileSetup() {
   const navigate            = useNavigate();
   const { user, updateUser, completeProfileSetup } = useUser();
 
-  const [name, setName]         = useState("");
+  const [name, setName]         = useState(user.name || "");
   const [location, setLocation] = useState("");
   const [bio, setBio]           = useState("");
   const [building, setBuilding] = useState("");
@@ -32,7 +32,7 @@ export default function ProfileSetup() {
   const [twitter, setTwitter]   = useState("");
   const [finishing, setFinishing] = useState(false);
   const [customSkillInput, setCustomSkillInput] = useState("");
-  const [avatarUrl, setAvatarUrl] = useState("");
+  const [avatarUrl, setAvatarUrl] = useState(user.avatarUrl || "");
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const [locationSuggestions, setLocationSuggestions] = useState<string[]>([]);
@@ -176,7 +176,7 @@ export default function ProfileSetup() {
             onChange={e => handleLocationInput(e.target.value)}
             onFocus={() => { if (locationSuggestions.length > 0) setShowLocationDrop(true); }}
             onBlur={() => setTimeout(() => setShowLocationDrop(false), 150)}
-            placeholder="Country or State, Country"
+            placeholder="Select your country"
             className="h-11 pl-9"
           />
           {showLocationDrop && (

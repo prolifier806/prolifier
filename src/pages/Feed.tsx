@@ -27,7 +27,7 @@ import { checkContent, parseModerationError } from "@/lib/moderation";
 import { createNotification } from "@/lib/notifications";
 
 // ── Types ──────────────────────────────────────────────────────────────────
-type Comment = { id: string; user_id: string; author: string; avatar: string; avatarUrl?: string; color: string; text: string; time: string; };
+type Comment = { id: string; user_id: string; author: string; avatar: string; avatarUrl?: string; color: string; text: string; time: string; parentId?: string | null; };
 type Post = {
   id: string; user_id: string; author: string; avatar: string; avatarUrl?: string; avatarColor: string; location: string;
   authorSkills?: string[]; authorDeleted?: boolean;
@@ -422,7 +422,7 @@ function CommentSheet({ post, currentUserId, onClose, onAddComment, onDeleteComm
   post: Post;
   currentUserId: string;
   onClose: () => void;
-  onAddComment: (postId: string, text: string) => void;
+  onAddComment: (postId: string, text: string, parentId?: string | null) => void;
   onDeleteComment: (commentId: string, postId: string) => void;
   onEditComment: (commentId: string, postId: string, text: string) => void;
   onReportComment: (commentId: string) => void;
@@ -431,19 +431,71 @@ function CommentSheet({ post, currentUserId, onClose, onAddComment, onDeleteComm
   const [text, setText] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
+  const [replyingTo, setReplyingTo] = useState<{ id: string; author: string } | null>(null);
+  const [mentionSuggestions, setMentionSuggestions] = useState<{ id: string; name: string; avatar: string; color: string; avatar_url?: string }[]>([]);
+  const [mentionStart, setMentionStart] = useState(-1);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const editRef = useRef<HTMLTextAreaElement>(null);
   const [lightboxSrc, setLightboxSrc] = useState<string|null>(null);
   useEffect(() => { setTimeout(() => inputRef.current?.focus(), 100); }, []);
 
-  const submit = () => {
-    if (!text.trim()) return;
-    onAddComment(post.id, text.trim());
-    setText("");
+  // Build threaded structure
+  const topLevel = post.comments.filter(c => !c.parentId);
+  const repliesMap: Record<string, Comment[]> = {};
+  post.comments.forEach(c => {
+    if (c.parentId) {
+      if (!repliesMap[c.parentId]) repliesMap[c.parentId] = [];
+      repliesMap[c.parentId].push(c);
+    }
+  });
+
+  const handleTextChange = (val: string) => {
+    setText(val);
+    const cursor = inputRef.current?.selectionStart ?? val.length;
+    const before = val.slice(0, cursor);
+    const atMatch = before.match(/@([\w][\w ]*)$/);
+    if (atMatch) {
+      const query = atMatch[1].trimEnd();
+      setMentionStart(cursor - atMatch[0].length);
+      if (query.length >= 1) {
+        (supabase as any).from("profiles").select("id, name, avatar, color, avatar_url")
+          .ilike("name", `${query}%`).not("id", "eq", currentUserId).limit(5)
+          .then(({ data }: any) => setMentionSuggestions(data || []));
+      } else {
+        setMentionSuggestions([]);
+      }
+    } else {
+      setMentionSuggestions([]);
+      setMentionStart(-1);
+    }
   };
 
-  const startReply = (authorName: string) => {
-    setText(`@${authorName} `);
+  const selectMention = (profile: { name: string }) => {
+    const cursor = inputRef.current?.selectionStart ?? text.length;
+    const before = text.slice(0, mentionStart);
+    const after = text.slice(cursor);
+    const newText = `${before}@${profile.name} ${after}`;
+    setText(newText);
+    setMentionSuggestions([]);
+    setMentionStart(-1);
+    setTimeout(() => {
+      inputRef.current?.focus();
+      const pos = before.length + profile.name.length + 2;
+      inputRef.current?.setSelectionRange(pos, pos);
+    }, 0);
+  };
+
+  const submit = () => {
+    if (!text.trim()) return;
+    onAddComment(post.id, text.trim(), replyingTo?.id ?? null);
+    setText("");
+    setReplyingTo(null);
+    setMentionSuggestions([]);
+  };
+
+  const startReply = (c: Comment) => {
+    setReplyingTo({ id: c.id, author: c.author });
+    setText(`@${c.author} `);
     setTimeout(() => { inputRef.current?.focus(); inputRef.current?.setSelectionRange(9999, 9999); }, 50);
   };
 
@@ -458,6 +510,63 @@ function CommentSheet({ post, currentUserId, onClose, onAddComment, onDeleteComm
     onEditComment(editingId, post.id, editText.trim());
     setEditingId(null);
   };
+
+  const renderMentions = (txt: string) => {
+    const parts = txt.split(/(@[\w][\w ]*)/g);
+    return parts.map((part, i) =>
+      part.startsWith("@")
+        ? <span key={i} className="text-primary font-medium">{part}</span>
+        : <span key={i}>{part}</span>
+    );
+  };
+
+  const renderComment = (c: Comment, isReply = false) => (
+    <div key={c.id} className={`flex gap-3 ${isReply ? "ml-8 mt-2.5" : ""}`}>
+      <Avatar initials={c.avatar} color={c.color || AVATAR_COLORS[0]} url={c.avatarUrl} size="sm" />
+      <div className="flex-1 min-w-0">
+        {editingId === c.id ? (
+          <div className="bg-secondary rounded-xl px-3 py-2.5">
+            <textarea ref={editRef} value={editText} onChange={e => setEditText(e.target.value)}
+              className="w-full text-sm bg-transparent resize-none outline-none leading-relaxed" rows={2}
+              onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitEdit(); } if (e.key === "Escape") setEditingId(null); }} />
+            <div className="flex gap-3 mt-1.5">
+              <button onClick={submitEdit} className="text-xs text-primary font-semibold hover:opacity-80">Save</button>
+              <button onClick={() => setEditingId(null)} className="text-xs text-muted-foreground hover:text-foreground">Cancel</button>
+            </div>
+          </div>
+        ) : (
+          <div className={`bg-secondary rounded-xl px-3 py-2.5 ${isReply ? "border-l-2 border-primary/30" : ""}`}>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-xs font-semibold text-foreground">{c.author}</span>
+              <span className="text-xs text-muted-foreground">{c.time}</span>
+            </div>
+            <p className="text-sm text-foreground leading-relaxed">{renderMentions(c.text)}</p>
+          </div>
+        )}
+        {editingId !== c.id && (
+          <div className="flex items-center gap-3 mt-1 ml-1">
+            {c.user_id === currentUserId ? (
+              <>
+                <button onClick={() => startEdit(c)} className="text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors">Edit</button>
+                <button onClick={() => onDeleteComment(c.id, post.id)} className="text-[11px] font-medium text-destructive/60 hover:text-destructive transition-colors">Delete</button>
+              </>
+            ) : (
+              <>
+                {!isReply && (
+                  <button onClick={() => startReply(c)} className="text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors">Reply</button>
+                )}
+                {post.user_id === currentUserId ? (
+                  <button onClick={() => onDeleteComment(c.id, post.id)} className="text-[11px] font-medium text-destructive/60 hover:text-destructive transition-colors">Delete</button>
+                ) : (
+                  <button onClick={() => onReportComment(c.id)} className="text-[11px] font-medium text-muted-foreground/60 hover:text-destructive transition-colors">Report</button>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -483,79 +592,45 @@ function CommentSheet({ post, currentUserId, onClose, onAddComment, onDeleteComm
               <p className="text-sm text-muted-foreground">No comments yet. Be the first!</p>
             </div>
           )}
-          {post.comments.map((c) => (
-            <div key={c.id} className="flex gap-3">
-              <Avatar initials={c.avatar} color={c.color || AVATAR_COLORS[0]} url={c.avatarUrl} size="sm" />
-              <div className="flex-1 min-w-0">
-                {editingId === c.id ? (
-                  <div className="bg-secondary rounded-xl px-3 py-2.5">
-                    <textarea ref={editRef} value={editText} onChange={e => setEditText(e.target.value)}
-                      className="w-full text-sm bg-transparent resize-none outline-none leading-relaxed"
-                      rows={2}
-                      onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitEdit(); } if (e.key === "Escape") setEditingId(null); }} />
-                    <div className="flex gap-3 mt-1.5">
-                      <button onClick={submitEdit} className="text-xs text-primary font-semibold hover:opacity-80">Save</button>
-                      <button onClick={() => setEditingId(null)} className="text-xs text-muted-foreground hover:text-foreground">Cancel</button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="bg-secondary rounded-xl px-3 py-2.5">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-xs font-semibold text-foreground">{c.author}</span>
-                      <span className="text-xs text-muted-foreground">{c.time}</span>
-                    </div>
-                    <p className="text-sm text-foreground leading-relaxed">{c.text}</p>
-                  </div>
-                )}
-                {editingId !== c.id && (
-                  <div className="flex items-center gap-3 mt-1 ml-1">
-                    {c.user_id === currentUserId ? (
-                      <>
-                        <button onClick={() => startEdit(c)}
-                          className="text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors">
-                          Edit
-                        </button>
-                        <button onClick={() => onDeleteComment(c.id, post.id)}
-                          className="text-[11px] font-medium text-destructive/60 hover:text-destructive transition-colors">
-                          Delete
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <button onClick={() => startReply(c.author)}
-                          className="text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors">
-                          Reply
-                        </button>
-                        {post.user_id === currentUserId ? (
-                          <button onClick={() => onDeleteComment(c.id, post.id)}
-                            className="text-[11px] font-medium text-destructive/60 hover:text-destructive transition-colors">
-                            Delete
-                          </button>
-                        ) : (
-                          <button onClick={() => onReportComment(c.id)}
-                            className="text-[11px] font-medium text-muted-foreground/60 hover:text-destructive transition-colors">
-                            Report
-                          </button>
-                        )}
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
+          {topLevel.map(c => (
+            <div key={c.id}>
+              {renderComment(c, false)}
+              {(repliesMap[c.id] || []).map(r => renderComment(r, true))}
             </div>
           ))}
         </div>
-        <div className="px-5 py-4 border-t border-border shrink-0 flex gap-2">
-          <Avatar initials={user.avatar} color={user.color} url={user.avatarUrl || undefined} size="sm" />
-          <div className="flex-1 flex gap-2">
-            <Textarea ref={inputRef} value={text} onChange={(e) => setText(e.target.value)}
-              placeholder="Write a comment..." rows={1}
-              className="resize-none text-sm min-h-[38px] max-h-[100px] py-2"
-              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); } }} />
-            <button onClick={submit} disabled={!text.trim()}
-              className="h-9 w-9 rounded-lg bg-primary text-primary-foreground flex items-center justify-center hover:opacity-90 transition-opacity disabled:opacity-40 shrink-0">
-              <Send className="h-3.5 w-3.5" />
-            </button>
+        <div className="px-5 py-4 border-t border-border shrink-0">
+          {replyingTo && (
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-xs text-primary font-medium">Replying to @{replyingTo.author}</span>
+              <button onClick={() => { setReplyingTo(null); setText(""); }} className="ml-auto text-muted-foreground hover:text-foreground">
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          )}
+          {mentionSuggestions.length > 0 && (
+            <div className="mb-2 bg-card border border-border rounded-lg shadow-lg overflow-hidden">
+              {mentionSuggestions.map(p => (
+                <button key={p.id} type="button" onMouseDown={() => selectMention(p)}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-secondary transition-colors">
+                  <Avatar initials={p.avatar || p.name?.slice(0,2).toUpperCase()} color={p.color || "bg-primary"} url={p.avatar_url} size="sm" />
+                  <span className="font-medium text-foreground">{p.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="flex gap-2">
+            <Avatar initials={user.avatar} color={user.color} url={user.avatarUrl || undefined} size="sm" />
+            <div className="flex-1 flex gap-2">
+              <Textarea ref={inputRef} value={text} onChange={(e) => handleTextChange(e.target.value)}
+                placeholder={replyingTo ? `Reply to @${replyingTo.author}…` : "Write a comment…"} rows={1}
+                className="resize-none text-sm min-h-[38px] max-h-[100px] py-2"
+                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); } }} />
+              <button onClick={submit} disabled={!text.trim()}
+                className="h-9 w-9 rounded-lg bg-primary text-primary-foreground flex items-center justify-center hover:opacity-90 transition-opacity disabled:opacity-40 shrink-0">
+                <Send className="h-3.5 w-3.5" />
+              </button>
+            </div>
           </div>
         </div>
       </motion.div>
@@ -1064,6 +1139,19 @@ export default function Feed() {
     fetchFeed();
   }, [fetchFeed]);
 
+  // Re-fetch when user returns to the tab — catches posts missed while away
+  useEffect(() => {
+    let lastFetch = Date.now();
+    const onVisible = () => {
+      if (document.visibilityState === "visible" && Date.now() - lastFetch > 30_000) {
+        lastFetch = Date.now();
+        fetchFeed();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [fetchFeed]);
+
   const fetchMorePosts = useCallback(async () => {
     if (!postsCursorRef.current || loadingMorePosts) return;
     setLoadingMorePosts(true);
@@ -1281,6 +1369,7 @@ export default function Feed() {
       color: c.profiles?.color || "bg-primary",
       text: c.text,
       time: timeAgo(c.created_at),
+      parentId: c.parent_id || null,
     }));
 
     // Patch the post in state — sync count with real loaded count
@@ -1289,13 +1378,13 @@ export default function Feed() {
     setCommentingPost(updatedPost);
   }, []);
 
-  const handleAddComment = useCallback(async (postId: string, text: string) => {
+  const handleAddComment = useCallback(async (postId: string, text: string, parentId?: string | null) => {
     const pre = checkContent(text);
     if (!pre.allowed) { toast({ title: pre.message!, variant: "destructive" }); return; }
     const { data, error } = await (supabase as any)
       .from("comments")
-      .insert({ post_id: postId, user_id: user.id, text })
-      .select(`*, profiles:user_id (name, avatar, color)`)
+      .insert({ post_id: postId, user_id: user.id, text, parent_id: parentId ?? null })
+      .select(`*, profiles:user_id (name, avatar, color, avatar_url)`)
       .single();
     if (error) {
       const modMsg = parseModerationError(error);
@@ -1309,6 +1398,7 @@ export default function Feed() {
       avatarUrl: data.profiles?.avatar_url || user.avatarUrl || undefined,
       color: data.profiles?.color || user.color,
       text: data.text, time: "Just now",
+      parentId: parentId ?? null,
     };
     setPosts(p => p.map(x => x.id === postId ? { ...x, comments: [...x.comments, newComment], commentCount: x.commentCount + 1 } : x));
     setCommentingPost(prev => prev ? { ...prev, comments: [...prev.comments, newComment], commentCount: prev.commentCount + 1 } : null);
@@ -1322,16 +1412,32 @@ export default function Feed() {
         action: "feed",
       });
     }
-  }, [posts, user.id, user.name, user.avatar, user.color]);
+    // Notify @mentioned users
+    const mentionMatches = [...new Set((text.match(/@([\w][\w ]*)/g) || []).map(m => m.slice(1).trim()))];
+    if (mentionMatches.length > 0) {
+      const { data: mentioned } = await (supabase as any).from("profiles").select("id, name").in("name", mentionMatches);
+      (mentioned || []).forEach((p: any) => {
+        if (p.id !== user.id) {
+          createNotification({ userId: p.id, type: "comment", text: `${user.name} mentioned you in a comment`, subtext: text.slice(0, 60), action: "feed" });
+        }
+      });
+    }
+  }, [posts, user.id, user.name, user.avatar, user.color, user.avatarUrl]);
 
   const handleDeleteComment = useCallback(async (commentId: string, postId: string) => {
     await (supabase as any).from("comments").delete().eq("id", commentId);
-    setPosts(p => p.map(x => x.id === postId
-      ? { ...x, comments: x.comments.filter(c => c.id !== commentId), commentCount: Math.max(0, x.commentCount - 1) }
-      : x));
-    setCommentingPost(prev => prev && prev.id === postId
-      ? { ...prev, comments: prev.comments.filter(c => c.id !== commentId), commentCount: Math.max(0, prev.commentCount - 1) }
-      : prev);
+    // Remove the comment and any replies to it (cascaded in DB)
+    const prune = (comments: Comment[]) => comments.filter(c => c.id !== commentId && c.parentId !== commentId);
+    setPosts(p => p.map(x => {
+      if (x.id !== postId) return x;
+      const kept = prune(x.comments);
+      return { ...x, comments: kept, commentCount: kept.length };
+    }));
+    setCommentingPost(prev => {
+      if (!prev || prev.id !== postId) return prev;
+      const kept = prune(prev.comments);
+      return { ...prev, comments: kept, commentCount: kept.length };
+    });
   }, []);
 
   const handleReportComment = useCallback((commentId: string) => {

@@ -133,7 +133,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
   // Fetches profile from DB and updates state + cache silently.
   // Never touches the loading flag — callers decide that.
-  const syncProfile = async (userId: string, email: string) => {
+  const syncProfile = async (userId: string, email: string, metadata?: Record<string, any>) => {
     const thisVersion = ++syncVersionRef.current;
     try {
       const { data: row } = await supabase
@@ -190,13 +190,17 @@ export function UserProvider({ children }: { children: ReactNode }) {
           await supabase.auth.signOut();
           return;
         }
-        // Brand new user — profile row not created yet, allow setup
+        // Brand new user — use Google/OAuth metadata if available, else derive from email
+        const displayName = metadata?.full_name || metadata?.name || email.split("@")[0];
+        const googleAvatar = metadata?.avatar_url || metadata?.picture || "";
+        const initials = displayName.trim().split(" ").map((w: string) => w[0]).join("").slice(0, 2).toUpperCase();
         setUser({
           ...DEFAULT_USER,
           id: userId,
           email,
-          name: email.split("@")[0],
-          avatar: email.slice(0, 2).toUpperCase(),
+          name: displayName,
+          avatar: initials,
+          avatarUrl: googleAvatar,
           color: randomColor(),
           profileSetupDone: false,
         });
@@ -251,13 +255,14 @@ export function UserProvider({ children }: { children: ReactNode }) {
         }
 
         // ── Initial session load or fresh sign-in ────────────────────────────
-        const userId = newSession.user.id;
-        const email  = newSession.user.email ?? "";
+        const userId   = newSession.user.id;
+        const email    = newSession.user.email ?? "";
+        const metadata = newSession.user.user_metadata as Record<string, any> | undefined;
 
         // USER_UPDATED fires after profile/password edits — skip resetting to
         // potentially-stale cache (which causes visible data flash).
         if (event === "USER_UPDATED") {
-          syncProfile(userId, email);
+          syncProfile(userId, email, metadata);
           setLoading(false);
           return;
         }
@@ -269,11 +274,11 @@ export function UserProvider({ children }: { children: ReactNode }) {
           setUser(cached);
           setLoading(false);
           // Sync DB in background — updates state/cache silently if anything changed.
-          syncProfile(userId, email);
+          syncProfile(userId, email, metadata);
         } else {
           // First ever login — no cache yet, must wait for DB before routing.
           setLoading(true);
-          await syncProfile(userId, email);
+          await syncProfile(userId, email, metadata);
           setLoading(false);
         }
       }
