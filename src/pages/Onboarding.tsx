@@ -39,6 +39,9 @@ function normalizeAuthError(message: string): string {
   if (m.includes("invalid login credentials") || m.includes("invalid credentials") || m.includes("user not found")) {
     return "Incorrect email or password.";
   }
+  if (m.includes("already registered") || m.includes("user already exists")) {
+    return "An account already exists with this email. Please sign in.";
+  }
   if (m.includes("email not confirmed")) {
     return "Please confirm your email before signing in.";
   }
@@ -114,12 +117,13 @@ export default function Onboarding() {
         });
         if (error) throw error;
 
-        // Supabase returns identities: [] when the email is already registered.
+        // Supabase returns identities: [] (or user: null) when email is already registered.
         // Try signing in automatically with the same credentials instead of showing an error.
-        if (data.user?.identities?.length === 0) {
+        const emailTaken = !data.user || data.user.identities?.length === 0;
+        if (emailTaken) {
           const { error: loginErr } = await supabase.auth.signInWithPassword({ email: trimmedEmail, password });
           if (loginErr) {
-            toast({ title: "An account with this email already exists.", description: "Please sign in with the correct password.", variant: "destructive" });
+            toast({ title: "An account already exists with this email.", description: "Please sign in with the correct password, or use Google if you signed up that way.", variant: "destructive" });
             setAuthMode("login");
           } else {
             toast({ title: "Welcome back!" });
@@ -163,9 +167,14 @@ export default function Onboarding() {
         } else {
           setFailedAttempts(next);
           const remaining = MAX_ATTEMPTS - next;
+          const isWrongCreds = msg === "Incorrect email or password.";
           toast({
             title: msg,
-            description: remaining === 1 ? "1 attempt remaining before lockout." : undefined,
+            description: remaining === 1
+              ? "1 attempt remaining before lockout."
+              : isWrongCreds
+              ? "If you signed up with Google, use the Google sign-in button above."
+              : undefined,
             variant: "destructive",
           });
         }

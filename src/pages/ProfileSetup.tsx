@@ -6,11 +6,12 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { X, Plus, Camera } from "lucide-react";
+import { X, Plus, Camera, MapPin } from "lucide-react";
 import { useUser } from "@/context/UserContext";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/lib/supabase";
 import { SKILL_CATEGORIES } from "@/lib/skills";
+import { LOCATIONS } from "@/lib/locations";
 
 const TOTAL_STEPS = 3;
 const MAX_SKILLS = 3;
@@ -18,7 +19,7 @@ const MAX_SKILLS = 3;
 export default function ProfileSetup() {
   const [step, setStep]     = useState(0);
   const navigate            = useNavigate();
-  const { updateUser, completeProfileSetup } = useUser();
+  const { user, updateUser, completeProfileSetup } = useUser();
 
   const [name, setName]         = useState("");
   const [location, setLocation] = useState("");
@@ -34,6 +35,20 @@ export default function ProfileSetup() {
   const [avatarUrl, setAvatarUrl] = useState("");
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement>(null);
+  const [locationSuggestions, setLocationSuggestions] = useState<string[]>([]);
+  const [showLocationDrop, setShowLocationDrop] = useState(false);
+
+  const handleLocationInput = (val: string) => {
+    setLocation(val);
+    if (val.trim().length >= 1) {
+      const lower = val.toLowerCase();
+      const filtered = LOCATIONS.filter(l => l.toLowerCase().includes(lower)).slice(0, 8);
+      setLocationSuggestions(filtered);
+      setShowLocationDrop(filtered.length > 0);
+    } else {
+      setShowLocationDrop(false);
+    }
+  };
 
   const toggleSkill = (s: string) => {
     if (skills.includes(s)) {
@@ -56,7 +71,7 @@ export default function ProfileSetup() {
     if (!file) return;
     setUploadingAvatar(true);
     const ext = file.name.split(".").pop();
-    const path = `avatars/${Date.now()}.${ext}`;
+    const path = `${user.id}/avatar.${ext}`;
     const { error } = await (supabase as any).storage.from("avatars").upload(path, file, { upsert: true });
     if (error) {
       toast({ title: "Upload failed", description: error.message, variant: "destructive" });
@@ -154,7 +169,31 @@ export default function ProfileSetup() {
         <label className="text-sm font-medium text-foreground mb-1.5 block">
           Location <span className="text-destructive">*</span>
         </label>
-        <Input value={location} onChange={e => setLocation(e.target.value)} placeholder="San Francisco, CA" className="h-11" />
+        <div className="relative">
+          <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+          <Input
+            value={location}
+            onChange={e => handleLocationInput(e.target.value)}
+            onFocus={() => { if (locationSuggestions.length > 0) setShowLocationDrop(true); }}
+            onBlur={() => setTimeout(() => setShowLocationDrop(false), 150)}
+            placeholder="Country or State, Country"
+            className="h-11 pl-9"
+          />
+          {showLocationDrop && (
+            <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-card border border-border rounded-lg shadow-lg max-h-52 overflow-y-auto">
+              {locationSuggestions.map(loc => (
+                <button
+                  key={loc}
+                  type="button"
+                  onMouseDown={() => { setLocation(loc); setShowLocationDrop(false); }}
+                  className="w-full text-left px-3 py-2.5 text-sm hover:bg-secondary transition-colors"
+                >
+                  {loc}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
       <div>
         <label className="text-sm font-medium text-foreground mb-1.5 block">
