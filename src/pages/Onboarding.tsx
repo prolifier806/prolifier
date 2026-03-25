@@ -17,40 +17,22 @@ const slides = [
   { title: "Build in public", description: "Share your journey, get feedback, and grow with a supportive community of makers.", image: onboarding3 },
 ];
 
-function GoogleIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-      <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fill="#4285F4"/>
-      <path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 009 18z" fill="#34A853"/>
-      <path d="M3.964 10.71A5.41 5.41 0 013.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 000 9c0 1.452.348 2.827.957 4.042l3.007-2.332z" fill="#FBBC05"/>
-      <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 00.957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z" fill="#EA4335"/>
-    </svg>
-  );
-}
-
-// Max failed attempts before temporary lockout
 const MAX_ATTEMPTS = 5;
 const LOCKOUT_SECONDS = 30;
 
-// Normalize Supabase auth errors to generic messages so we don't leak
-// whether an email address exists in the system (prevents enumeration).
 function normalizeAuthError(message: string): string {
   const m = message.toLowerCase();
   if (m.includes("invalid login credentials") || m.includes("invalid credentials") || m.includes("user not found")) {
     return "Incorrect email or password.";
   }
   if (m.includes("already registered") || m.includes("user already exists")) {
-    return "Email already exists. If you signed up with Google, use the Google sign-in button.";
+    return "An account already exists with this email. Please sign in.";
   }
   if (m.includes("email not confirmed")) {
     return "Please confirm your email before signing in.";
   }
   if (m.includes("too many requests") || m.includes("rate limit")) {
     return "Too many attempts. Please wait a moment before trying again.";
-  }
-  // Supabase returns this when a Google-only account tries email/password login
-  if (m.includes("email login is not enabled") || m.includes("provider not found") || m.includes("identity not found")) {
-    return "This account uses Google sign-in. Please use the Google button above.";
   }
   return "Something went wrong. Please try again.";
 }
@@ -66,30 +48,18 @@ export default function Onboarding() {
   const [showPw, setShowPw]     = useState(false);
   const [loading, setLoading]   = useState(false);
 
-  // Brute-force protection: lock form after MAX_ATTEMPTS consecutive failures
   const [failedAttempts, setFailedAttempts] = useState(0);
-  const [lockoutSecs, setLockoutSecs] = useState(0);
+  const [lockoutSecs, setLockoutSecs]       = useState(0);
 
   const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
 
-  // Count down the lockout timer each second
   useEffect(() => {
     if (lockoutSecs <= 0) return;
     const t = setTimeout(() => setLockoutSecs(s => s - 1), 1000);
     return () => clearTimeout(t);
   }, [lockoutSecs]);
 
-  // Show provider-mismatch error set by UserContext when cross-provider sign-in is blocked
-  useEffect(() => {
-    const authError = localStorage.getItem("prolifier_auth_error");
-    if (authError) {
-      localStorage.removeItem("prolifier_auth_error");
-      toast({ title: authError, variant: "destructive" });
-    }
-  }, []);
-
-  // Show message if the user's account was permanently deleted after the 7-day window
   useEffect(() => {
     if (localStorage.getItem("prolifier_perm_deleted") === "true") {
       localStorage.removeItem("prolifier_perm_deleted");
@@ -110,12 +80,9 @@ export default function Onboarding() {
 
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
-
     if (lockoutSecs > 0) return;
 
     const trimmedEmail = email.trim().toLowerCase();
-
-    // Password minimum raised to 8 — 6 chars is too weak for user accounts
     if (!trimmedEmail || password.length < 8) {
       toast({ title: "Please enter a valid email and password (min 8 characters)", variant: "destructive" });
       return;
@@ -124,16 +91,12 @@ export default function Onboarding() {
     setLoading(true);
     try {
       if (authMode === "signup") {
-        const { data, error } = await supabase.auth.signUp({
-          email: trimmedEmail,
-          password,
-        });
+        const { data, error } = await supabase.auth.signUp({ email: trimmedEmail, password });
         if (error) throw error;
 
-        // Supabase returns identities: [] (or user: null) when email is already registered.
         const emailTaken = !data.user || data.user.identities?.length === 0;
         if (emailTaken) {
-          toast({ title: "Email already exists.", description: "This email is already registered. If you signed up with Google, use the Google sign-in button.", variant: "destructive" });
+          toast({ title: "An account already exists with this email.", description: "Please sign in instead.", variant: "destructive" });
           setAuthMode("login");
           setLoading(false);
           return;
@@ -145,20 +108,8 @@ export default function Onboarding() {
           navigate("/verify-email", { state: { email: trimmedEmail } });
         }
       } else {
-        const { data: signInData, error } = await supabase.auth.signInWithPassword({
-          email: trimmedEmail,
-          password,
-        });
+        const { error } = await supabase.auth.signInWithPassword({ email: trimmedEmail, password });
         if (error) throw error;
-
-        // Block Google accounts from signing in with email/password
-        const isGoogleAccount = signInData.user?.identities?.some(id => id.provider === "google");
-        if (isGoogleAccount) {
-          await supabase.auth.signOut();
-          toast({ title: "This account uses Google sign-in.", description: "Please use the Google sign-in button.", variant: "destructive" });
-          setLoading(false);
-          return;
-        }
 
         setFailedAttempts(0);
         toast({ title: "Welcome back!" });
@@ -166,28 +117,17 @@ export default function Onboarding() {
       }
     } catch (err: any) {
       const msg = normalizeAuthError(err.message ?? "");
-
-      // Increment failure counter for login attempts only
       if (authMode === "login") {
         const next = failedAttempts + 1;
         if (next >= MAX_ATTEMPTS) {
           setLockoutSecs(LOCKOUT_SECONDS);
           setFailedAttempts(0);
-          toast({
-            title: `Too many failed attempts. Please wait ${LOCKOUT_SECONDS} seconds.`,
-            variant: "destructive",
-          });
+          toast({ title: `Too many failed attempts. Please wait ${LOCKOUT_SECONDS} seconds.`, variant: "destructive" });
         } else {
           setFailedAttempts(next);
-          const remaining = MAX_ATTEMPTS - next;
-          const isWrongCreds = msg === "Incorrect email or password.";
           toast({
             title: msg,
-            description: remaining === 1
-              ? "1 attempt remaining before lockout."
-              : isWrongCreds
-              ? "If you signed up with Google, use the Google sign-in button above."
-              : undefined,
+            description: next === MAX_ATTEMPTS - 1 ? "1 attempt remaining before lockout." : undefined,
             variant: "destructive",
           });
         }
@@ -195,22 +135,6 @@ export default function Onboarding() {
         toast({ title: msg, variant: "destructive" });
       }
     } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleGoogle = async () => {
-    setLoading(true);
-    try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: "google",
-        // Redirect to "/" so AuthRoute checks profileComplete and sends the user
-        // to /setup (new) or /feed (returning) — never hardcode /feed here.
-        options: { redirectTo: `${window.location.origin}/`, queryParams: { prompt: "select_account" } },
-      });
-      if (error) throw error;
-    } catch (err: any) {
-      toast({ title: "Google sign in failed. Please try again.", variant: "destructive" });
       setLoading(false);
     }
   };
@@ -237,18 +161,6 @@ export default function Onboarding() {
             <p className="text-sm text-muted-foreground mt-1">
               {authMode === "signup" ? "Join a global community of makers" : "Sign in to continue building"}
             </p>
-          </div>
-
-          <button onClick={handleGoogle} disabled={isFormDisabled}
-            className="w-full h-11 flex items-center justify-center gap-3 rounded-xl border border-border bg-card text-sm font-medium text-foreground hover:bg-secondary transition-colors disabled:opacity-50 mb-4">
-            <GoogleIcon />
-            Continue with Google
-          </button>
-
-          <div className="flex items-center gap-3 mb-4">
-            <div className="flex-1 h-px bg-border" />
-            <span className="text-xs text-muted-foreground">or</span>
-            <div className="flex-1 h-px bg-border" />
           </div>
 
           <form onSubmit={handleEmailAuth} className="space-y-3">
@@ -278,9 +190,7 @@ export default function Onboarding() {
             </div>
 
             {lockoutSecs > 0 && (
-              <p className="text-xs text-destructive text-center">
-                Too many failed attempts. Try again in {lockoutSecs}s.
-              </p>
+              <p className="text-xs text-destructive text-center">Too many failed attempts. Try again in {lockoutSecs}s.</p>
             )}
 
             <Button type="submit" disabled={isFormDisabled} className="w-full h-11 font-semibold mt-1">

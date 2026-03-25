@@ -55,12 +55,7 @@ function timeAgo(date: string) {
 export default function Profile() {
   const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
-  const { user, updateUser, signOut, authUser } = useUser();
-  const isGoogleUser =
-    authUser?.app_metadata?.provider === "google" ||
-    (authUser?.app_metadata?.providers as string[] | undefined)?.includes("google") ||
-    authUser?.identities?.some(id => id.provider === "google") ||
-    false;
+  const { user, updateUser, signOut } = useUser();
 
   // ── Edit state ─────────────────────────────────────────────────────────
   const [editing, setEditing]       = useState(false);
@@ -471,7 +466,7 @@ export default function Profile() {
             <div className="flex-1 min-w-0">
               {editing ? (
                 <div className="space-y-2">
-                  <Input value={draftName} onChange={e => setDraftName(e.target.value)} className="h-9 font-semibold" placeholder="Your name" maxLength={50} />
+                  <Input value={draftName} onChange={e => setDraftName(e.target.value)} className="h-9 font-semibold" placeholder="Your name" maxLength={20} />
                   <Input value={draftLocation} onChange={e => setDraftLocation(e.target.value)} className="h-8 text-sm" placeholder="Location"/>
                 </div>
               ) : (
@@ -715,57 +710,53 @@ export default function Profile() {
                 </div>
               )}
 
-              {!isGoogleUser && (
-                <>
-                  <Button size="sm" variant="outline" className="gap-1.5 h-9 w-full justify-start text-sm font-normal"
-                    onClick={() => setShowChangePw(v => !v)}>
-                    <Lock className="h-4 w-4 text-muted-foreground" /> Change password
-                  </Button>
+              <Button size="sm" variant="outline" className="gap-1.5 h-9 w-full justify-start text-sm font-normal"
+                onClick={() => setShowChangePw(v => !v)}>
+                <Lock className="h-4 w-4 text-muted-foreground" /> Change password
+              </Button>
 
-                  {showChangePw && (
-                    <div className="rounded-xl border border-border bg-background p-4 space-y-3">
-                      <div className="relative">
-                        <label className="text-xs font-medium text-muted-foreground block mb-1">Current password</label>
-                        <input type={showCurrentPw ? "text" : "password"} value={currentPw} onChange={e => setCurrentPw(e.target.value)}
-                          placeholder="Enter current password"
-                          className="w-full h-9 rounded-lg border border-border bg-card px-3 pr-9 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-primary"/>
-                        <button type="button" onClick={() => setShowCurrentPw(v => !v)}
-                          className="absolute right-3 top-7 text-muted-foreground hover:text-foreground">
-                          {showCurrentPw ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                        </button>
-                      </div>
-                      <div className="relative">
-                        <label className="text-xs font-medium text-muted-foreground block mb-1">New password</label>
-                        <input type={showNewPw ? "text" : "password"} value={newPw} onChange={e => setNewPw(e.target.value)}
-                          placeholder="Min. 6 characters"
-                          className="w-full h-9 rounded-lg border border-border bg-card px-3 pr-9 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-primary"/>
-                        <button type="button" onClick={() => setShowNewPw(v => !v)}
-                          className="absolute right-3 top-7 text-muted-foreground hover:text-foreground">
-                          {showNewPw ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                        </button>
-                      </div>
-                      <div>
-                        <label className="text-xs font-medium text-muted-foreground block mb-1">Confirm new password</label>
-                        <input type="password" value={confirmPw} onChange={e => setConfirmPw(e.target.value)}
-                          placeholder="Repeat new password"
-                          className="w-full h-9 rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-primary"/>
-                      </div>
-                      <div className="flex gap-2 pt-1">
-                        <Button size="sm" className="flex-1 h-8 text-xs" onClick={handleChangePw} disabled={pwLoading}>
-                          {pwLoading ? "Updating…" : "Update password"}
-                        </Button>
-                        <Button size="sm" variant="outline" className="flex-1 h-8 text-xs"
-                          onClick={() => { setShowChangePw(false); setCurrentPw(""); setNewPw(""); setConfirmPw(""); }}>
-                          Cancel
-                        </Button>
-                      </div>
-                      <button onClick={handleForgotPassword}
-                        className="w-full text-center text-xs text-primary hover:underline">
-                        Forgot password
-                      </button>
-                    </div>
-                  )}
-                </>
+              {showChangePw && (
+                <div className="rounded-xl border border-border bg-background p-4 space-y-3">
+                  <div className="relative">
+                    <label className="text-xs font-medium text-muted-foreground block mb-1">Current password</label>
+                    <input type={showCurrentPw ? "text" : "password"} value={currentPw} onChange={e => setCurrentPw(e.target.value)}
+                      placeholder="Enter current password"
+                      className="w-full h-9 rounded-lg border border-border bg-card px-3 pr-9 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-primary"/>
+                    <button type="button" onClick={() => setShowCurrentPw(v => !v)}
+                      className="absolute right-3 top-7 text-muted-foreground hover:text-foreground">
+                      {showCurrentPw ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                    </button>
+                  </div>
+                  <div className="relative">
+                    <label className="text-xs font-medium text-muted-foreground block mb-1">New password</label>
+                    <input type={showNewPw ? "text" : "password"} value={newPw} onChange={e => setNewPw(e.target.value)}
+                      placeholder="Min. 6 characters"
+                      className="w-full h-9 rounded-lg border border-border bg-card px-3 pr-9 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-primary"/>
+                    <button type="button" onClick={() => setShowNewPw(v => !v)}
+                      className="absolute right-3 top-7 text-muted-foreground hover:text-foreground">
+                      {showNewPw ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                    </button>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground block mb-1">Confirm new password</label>
+                    <input type="password" value={confirmPw} onChange={e => setConfirmPw(e.target.value)}
+                      placeholder="Repeat new password"
+                      className="w-full h-9 rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-primary"/>
+                  </div>
+                  <div className="flex gap-2 pt-1">
+                    <Button size="sm" className="flex-1 h-8 text-xs" onClick={handleChangePw} disabled={pwLoading}>
+                      {pwLoading ? "Updating…" : "Update password"}
+                    </Button>
+                    <Button size="sm" variant="outline" className="flex-1 h-8 text-xs"
+                      onClick={() => { setShowChangePw(false); setCurrentPw(""); setNewPw(""); setConfirmPw(""); }}>
+                      Cancel
+                    </Button>
+                  </div>
+                  <button onClick={handleForgotPassword}
+                    className="w-full text-center text-xs text-primary hover:underline">
+                    Forgot password
+                  </button>
+                </div>
               )}
 
               <Button size="sm" variant="outline"

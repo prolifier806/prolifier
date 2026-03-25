@@ -128,18 +128,6 @@ export default function ForgotPassword() {
         setDigits(Array(OTP_LENGTH).fill(""));
         inputRefs.current[0]?.focus();
       } else {
-        // verifyOtp response may not include full identities — call getUser() to be sure
-        const { data: { user: fullUser } } = await supabase.auth.getUser();
-        const identities = fullUser?.identities ?? [];
-        const isGoogleAccount = identities.some(id => id.provider === "google");
-
-        if (isGoogleAccount) {
-          await supabase.auth.signOut();
-          setDigits(Array(OTP_LENGTH).fill(""));
-          setStep("email");
-          toast({ title: "This account uses Google sign-in.", description: "Please sign in with Google instead.", variant: "destructive" });
-          return;
-        }
         setStep("password");
       }
     } catch {
