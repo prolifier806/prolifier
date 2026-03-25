@@ -267,8 +267,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
             return;
           }
 
-          // Email sign-in but account only has Google identity → Google-only user
-          if (provider === "email" && hasGoogle && !hasEmail) {
+          // Email sign-in but account has any Google identity → block (Google account)
+          if (provider === "email" && hasGoogle) {
             localStorage.setItem("prolifier_auth_error", "This account uses Google sign-in. Please use the Google sign-in button.");
             await supabase.auth.signOut();
             return;
