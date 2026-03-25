@@ -80,6 +80,15 @@ export default function Onboarding() {
     return () => clearTimeout(t);
   }, [lockoutSecs]);
 
+  // Show provider-mismatch error set by UserContext when cross-provider sign-in is blocked
+  useEffect(() => {
+    const authError = localStorage.getItem("prolifier_auth_error");
+    if (authError) {
+      localStorage.removeItem("prolifier_auth_error");
+      toast({ title: authError, variant: "destructive" });
+    }
+  }, []);
+
   // Show message if the user's account was permanently deleted after the 7-day window
   useEffect(() => {
     if (localStorage.getItem("prolifier_perm_deleted") === "true") {
