@@ -136,14 +136,17 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const syncProfile = async (userId: string, email: string, metadata?: Record<string, any>) => {
     const thisVersion = ++syncVersionRef.current;
     try {
-      const { data: row } = await supabase
+      const { data: row, error: rowError } = await (supabase as any)
         .from("profiles")
         .select("*")
         .eq("id", userId)
-        .single() as any;
+        .single();
 
       // Discard result if a newer sync has started (prevents flicker from stale fetches)
       if (thisVersion !== syncVersionRef.current) return;
+
+      // Unexpected DB error (not "row not found") — keep current state, don't sign out
+      if (rowError && rowError.code !== "PGRST116") return;
 
       // Account was permanently deleted by the server (pg_cron tombstone)
       if (row?.permanently_deleted) {
@@ -227,31 +230,60 @@ export function UserProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
+    // ── Seed from stored session first ───────────────────────────────────────
+    // getSession() transparently refreshes an expired access token before
+    // returning, so we never get a null-session flash during token refresh.
+    // This prevents users being briefly redirected to the intro page on
+    // tab focus or app resume when the access token has just expired.
+    supabase.auth.getSession().then(({ data: { session: s } }) => {
+      const userId   = s?.user?.id;
+      const email    = s?.user?.email ?? "";
+      const metadata = s?.user?.user_metadata as Record<string, any> | undefined;
+
+      setSession(s ?? null);
+      setAuthUser(s?.user ?? null);
+
+      if (!userId) { setLoading(false); return; }
+
+      const cached = readCache(userId);
+      if (cached) {
+        setUser(cached);
+        setLoading(false);
+        syncProfile(userId, email, metadata);
+      } else {
+        syncProfile(userId, email, metadata).finally(() => setLoading(false));
+      }
+    });
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, newSession) => {
+        // INITIAL_SESSION is already handled by getSession() above — skip it
+        // to prevent the null-session flash that can occur during token refresh.
+        if (event === "INITIAL_SESSION") return;
+
         setSession(newSession);
         setAuthUser(newSession?.user ?? null);
 
-        // ── Signed out ───────────────────────────────────────────────────────
+        // ── Signed out ─────────────────────────────────────────────────────
         if (!newSession?.user) {
           setUser(DEFAULT_USER);
           setLoading(false);
           return;
         }
 
-        // ── Token refreshed (tab switch, auto-refresh) ───────────────────────
+        // ── Token refreshed (tab switch, auto-refresh) ─────────────────────
         if (event === "TOKEN_REFRESHED") {
           setLoading(false);
           return;
         }
 
-        // ── Password recovery OTP verified ───────────────────────────────────
+        // ── Password recovery OTP verified ─────────────────────────────────
         if (event === "PASSWORD_RECOVERY") {
           setLoading(false);
           return;
         }
 
-        // ── Initial session load or fresh sign-in ────────────────────────────
+        // ── Initial session load or fresh sign-in ──────────────────────────
         const userId   = newSession.user.id;
         const email    = newSession.user.email ?? "";
         const metadata = newSession.user.user_metadata as Record<string, any> | undefined;
@@ -264,8 +296,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
           return;
         }
 
+        // ── SIGNED_IN ──────────────────────────────────────────────────────
         const cached = readCache(userId);
-
         if (cached) {
           // Apply cache instantly → no spinner, routing works immediately.
           setUser(cached);

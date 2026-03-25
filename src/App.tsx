@@ -43,7 +43,15 @@ const Feedback        = lazyWithReload(() => import("./pages/Feedback"));
 const AccountRecovery = lazyWithReload(() => import("./pages/AccountRecovery"));
 const NotFound        = lazyWithReload(() => import("./pages/NotFound"));
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 60_000,          // data stays fresh for 1 min — prevents refetch spam
+      refetchOnWindowFocus: false, // don't refetch on every tab switch
+      retry: 1,                   // only retry once on failure (default 3 is too slow)
+    },
+  },
+});
 
 const PageLoader = () => (
   <div className="min-h-screen flex items-center justify-center bg-background">
@@ -53,7 +61,8 @@ const PageLoader = () => (
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { session, loading, user } = useUser();
-  if (loading) return <PageLoader />;
+  // Also hold the loader while session is set but user data hasn't populated yet
+  if (loading || (session && !user.id)) return <PageLoader />;
   if (!session) return <Navigate to="/" replace />;
   if (user.deletedAt) return <Navigate to="/recover" replace />;
   return <>{children}</>;

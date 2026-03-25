@@ -1143,7 +1143,7 @@ export default function Feed() {
   useEffect(() => {
     let lastFetch = Date.now();
     const onVisible = () => {
-      if (document.visibilityState === "visible" && Date.now() - lastFetch > 30_000) {
+      if (document.visibilityState === "visible" && Date.now() - lastFetch > 90_000) {
         lastFetch = Date.now();
         fetchFeed();
       }
