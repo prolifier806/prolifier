@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -6,9 +6,10 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { X, Plus } from "lucide-react";
+import { X, Plus, Camera } from "lucide-react";
 import { useUser } from "@/context/UserContext";
 import { toast } from "@/hooks/use-toast";
+import { supabase } from "@/lib/supabase";
 import { SKILL_CATEGORIES } from "@/lib/skills";
 
 const TOTAL_STEPS = 3;
@@ -30,6 +31,9 @@ export default function ProfileSetup() {
   const [twitter, setTwitter]   = useState("");
   const [finishing, setFinishing] = useState(false);
   const [customSkillInput, setCustomSkillInput] = useState("");
+  const [avatarUrl, setAvatarUrl] = useState("");
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
 
   const toggleSkill = (s: string) => {
     if (skills.includes(s)) {
@@ -47,10 +51,28 @@ export default function ProfileSetup() {
     setCustomSkillInput("");
   };
 
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingAvatar(true);
+    const ext = file.name.split(".").pop();
+    const path = `avatars/${Date.now()}.${ext}`;
+    const { error } = await (supabase as any).storage.from("avatars").upload(path, file, { upsert: true });
+    if (error) {
+      toast({ title: "Upload failed", description: error.message, variant: "destructive" });
+      setUploadingAvatar(false);
+      return;
+    }
+    const { data } = (supabase as any).storage.from("avatars").getPublicUrl(path);
+    setAvatarUrl(data.publicUrl);
+    setUploadingAvatar(false);
+  };
+
   const buildPayload = () => {
     const initials = name.trim().split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
     return {
       name: name.trim(), avatar: initials,
+      avatarUrl,
       location: location.trim(), bio: bio.trim(), project: building.trim(),
       skills, lookingFor: [], roles: [],
       github: github.trim(), website: website.trim(), twitter: twitter.trim(),
@@ -101,6 +123,27 @@ export default function ProfileSetup() {
   const steps = [
     // ── Step 1: Basic info ────────────────────────────────────
     <div className="space-y-5" key="s1">
+      <div className="flex flex-col items-center gap-2 mb-2">
+        <div className="relative">
+          <div className={`h-20 w-20 rounded-full overflow-hidden flex items-center justify-center text-2xl font-bold text-white shrink-0 ${!avatarUrl ? "bg-primary" : ""}`}>
+            {avatarUrl
+              ? <img src={avatarUrl} alt="avatar" className="w-full h-full object-cover" />
+              : <span>{name ? name.trim().split(" ").map((w: string) => w[0]).join("").slice(0,2).toUpperCase() || "?" : "?"}</span>}
+          </div>
+          <button
+            type="button"
+            onClick={() => avatarInputRef.current?.click()}
+            disabled={uploadingAvatar}
+            className="absolute bottom-0 right-0 h-7 w-7 bg-primary rounded-full flex items-center justify-center shadow-md hover:opacity-90 transition-opacity disabled:opacity-50"
+          >
+            <Camera className="h-3.5 w-3.5 text-white" />
+          </button>
+          <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} />
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {uploadingAvatar ? "Uploading…" : avatarUrl ? "Tap to change photo" : "Add profile photo (optional)"}
+        </p>
+      </div>
       <div>
         <label className="text-sm font-medium text-foreground mb-1.5 block">
           Full name <span className="text-destructive">*</span>

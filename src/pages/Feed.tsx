@@ -1140,7 +1140,7 @@ export default function Feed() {
   useEffect(() => {
     if (!user.id) return;
     const channel = supabase
-      .channel("feed-realtime")
+      .channel(`feed-realtime-${user.id}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "posts" },
         (payload: any) => {
           // Don't add own posts via realtime (already added optimistically)
@@ -1148,7 +1148,7 @@ export default function Feed() {
           // Fetch the profile for this new post's author
           (supabase as any)
             .from("profiles")
-            .select("name, avatar, avatar_url, color, location, roles")
+            .select("name, avatar, avatar_url, color, location, skills")
             .eq("id", payload.new.user_id)
             .single()
             .then(({ data: profile }: any) => {
@@ -1183,7 +1183,7 @@ export default function Feed() {
           if (payload.new.user_id === user.id) return;
           (supabase as any)
             .from("profiles")
-            .select("name, avatar, avatar_url, color, location, roles")
+            .select("name, avatar, avatar_url, color, location, skills")
             .eq("id", payload.new.user_id)
             .single()
             .then(({ data: profile }: any) => {

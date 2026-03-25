@@ -176,17 +176,36 @@ export function UserProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      const next = row
-        ? profileFromRow(userId, email, row)
-        : {
-            ...DEFAULT_USER,
-            id: userId,
-            email,
-            name: email.split("@")[0],
-            avatar: email.slice(0, 2).toUpperCase(),
-            color: randomColor(),
-            profileSetupDone: false,
-          };
+      if (!row) {
+        // Profile row not found — check if they previously had a complete profile
+        const cached = readCache(userId);
+        if (cached?.profileSetupDone) {
+          // Profile was deleted while user was authenticated → sign out immediately
+          localStorage.removeItem(cacheKey(userId));
+          await supabase.auth.signOut();
+          return;
+        }
+        // Brand new user — profile row not created yet, allow setup
+        setUser({
+          ...DEFAULT_USER,
+          id: userId,
+          email,
+          name: email.split("@")[0],
+          avatar: email.slice(0, 2).toUpperCase(),
+          color: randomColor(),
+          profileSetupDone: false,
+        });
+        return;
+      }
+
+      const next = profileFromRow(userId, email, row);
+
+      // If deleted_at is set, sign out immediately (don't allow access with deleted account)
+      if (next.deletedAt) {
+        localStorage.removeItem(cacheKey(userId));
+        await supabase.auth.signOut();
+        return;
+      }
 
       setUser(prev => {
         // If the user saved locally more recently than what the DB returned,
@@ -262,6 +281,36 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  // Real-time: sign out immediately if profile is deleted or soft-deleted from any device
+  useEffect(() => {
+    if (!authUser?.id) return;
+    const id = authUser.id;
+    const ch = supabase
+      .channel(`profile-watch-${id}`)
+      .on("postgres_changes", {
+        event: "DELETE",
+        schema: "public",
+        table: "profiles",
+        filter: `id=eq.${id}`,
+      }, async () => {
+        localStorage.removeItem(cacheKey(id));
+        await supabase.auth.signOut();
+      })
+      .on("postgres_changes", {
+        event: "UPDATE",
+        schema: "public",
+        table: "profiles",
+        filter: `id=eq.${id}`,
+      }, async (payload: any) => {
+        if (payload.new?.deleted_at || payload.new?.permanently_deleted) {
+          localStorage.removeItem(cacheKey(id));
+          await supabase.auth.signOut();
+        }
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [authUser?.id]);
 
   const updateUser = async (patch: Partial<CurrentUser>) => {
     if (!authUser) return;
