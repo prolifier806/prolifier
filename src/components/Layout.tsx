@@ -48,29 +48,17 @@ export default function Layout({ children }: { children: ReactNode }) {
 
     fetchCounts();
 
-    const refreshDiscoverCount = () => {
-      (supabase as any).from("connections")
-        .select("id", { count: "exact", head: true })
-        .eq("receiver_id", user.id).eq("status", "pending")
-        .then(({ count }: any) => setDiscoverCount(count ?? 0));
+    // Refresh badge counts when user returns to the tab (no realtime subscription needed)
+    const onVisible = () => { if (document.visibilityState === "visible") fetchCounts(); };
+    document.addEventListener("visibilitychange", onVisible);
+
+    // Poll every 30s as a fallback so badges stay fresh while tab is open
+    const timer = setInterval(fetchCounts, 30_000);
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      clearInterval(timer);
     };
-
-    const channel = supabase
-      .channel(`layout-counts-${user.id}`)
-      .on("postgres_changes", {
-        event: "INSERT", schema: "public", table: "notifications",
-        filter: `user_id=eq.${user.id}`,
-      }, (payload: any) => {
-        if (payload.new.type === "message") setMsgCount(n => n + 1);
-        else if (payload.new.type !== "match") setNotifCount(n => n + 1);
-      })
-      .on("postgres_changes", {
-        event: "*", schema: "public", table: "connections",
-        filter: `receiver_id=eq.${user.id}`,
-      }, () => refreshDiscoverCount())
-      .subscribe();
-
-    return () => { supabase.removeChannel(channel); };
   }, [user.id]);
 
   // Clear relevant badge + mark notifs read when visiting the page
