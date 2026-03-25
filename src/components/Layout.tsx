@@ -31,14 +31,14 @@ export default function Layout({ children }: { children: ReactNode }) {
     const fetchCounts = async () => {
       const [notifRes, msgRes, discoverRes] = await Promise.all([
         (supabase as any).from("notifications")
-          .select("*", { count: "exact", head: true })
+          .select("id", { count: "exact", head: true })
           .eq("user_id", user.id).eq("read", false)
           .not("type", "in", "(message,match)"),
         (supabase as any).from("notifications")
-          .select("*", { count: "exact", head: true })
+          .select("id", { count: "exact", head: true })
           .eq("user_id", user.id).eq("read", false).eq("type", "message"),
         (supabase as any).from("connections")
-          .select("*", { count: "exact", head: true })
+          .select("id", { count: "exact", head: true })
           .eq("receiver_id", user.id).eq("status", "pending"),
       ]);
       setNotifCount(notifRes.count ?? 0);
@@ -50,7 +50,7 @@ export default function Layout({ children }: { children: ReactNode }) {
 
     const refreshDiscoverCount = () => {
       (supabase as any).from("connections")
-        .select("*", { count: "exact", head: true })
+        .select("id", { count: "exact", head: true })
         .eq("receiver_id", user.id).eq("status", "pending")
         .then(({ count }: any) => setDiscoverCount(count ?? 0));
     };
@@ -64,15 +64,10 @@ export default function Layout({ children }: { children: ReactNode }) {
         if (payload.new.type === "message") setMsgCount(n => n + 1);
         else if (payload.new.type !== "match") setNotifCount(n => n + 1);
       })
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "connections" },
-        () => refreshDiscoverCount()
-      )
-      .on("postgres_changes", { event: "DELETE", schema: "public", table: "connections" },
-        () => refreshDiscoverCount()
-      )
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "connections" },
-        () => refreshDiscoverCount()
-      )
+      .on("postgres_changes", {
+        event: "*", schema: "public", table: "connections",
+        filter: `receiver_id=eq.${user.id}`,
+      }, () => refreshDiscoverCount())
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
