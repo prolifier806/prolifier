@@ -145,16 +145,23 @@ export default function Onboarding() {
           navigate("/verify-email", { state: { email: trimmedEmail } });
         }
       } else {
-        const { error } = await supabase.auth.signInWithPassword({
+        const { data: signInData, error } = await supabase.auth.signInWithPassword({
           email: trimmedEmail,
           password,
         });
         if (error) throw error;
 
-        // Reset failure counter on success
+        // Block Google accounts from signing in with email/password
+        const isGoogleAccount = signInData.user?.identities?.some(id => id.provider === "google");
+        if (isGoogleAccount) {
+          await supabase.auth.signOut();
+          toast({ title: "This account uses Google sign-in.", description: "Please use the Google sign-in button.", variant: "destructive" });
+          setLoading(false);
+          return;
+        }
+
         setFailedAttempts(0);
         toast({ title: "Welcome back!" });
-        // Navigate to "/" — AuthRoute reads profileComplete and sends to /feed or /setup
         navigate("/");
       }
     } catch (err: any) {
