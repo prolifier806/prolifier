@@ -56,7 +56,11 @@ export default function Profile() {
   const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
   const { user, updateUser, signOut, authUser } = useUser();
-  const isGoogleUser = authUser?.app_metadata?.provider === "google";
+  const isGoogleUser =
+    authUser?.app_metadata?.provider === "google" ||
+    (authUser?.app_metadata?.providers as string[] | undefined)?.includes("google") ||
+    authUser?.identities?.some(id => id.provider === "google") ||
+    false;
 
   // ── Edit state ─────────────────────────────────────────────────────────
   const [editing, setEditing]       = useState(false);
