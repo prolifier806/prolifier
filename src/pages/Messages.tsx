@@ -135,6 +135,8 @@ export default function Messages() {
   const imageRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const selectedIdRef = useRef<string | null>(null);
+  useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
 
   const selectedConvo = conversations.find(c => c.id === selectedId) ?? null;
 
@@ -291,7 +293,7 @@ export default function Messages() {
         filter: `receiver_id=eq.${user.id}`,
       }, async (payload) => {
         const row = payload.new as any;
-        if (row.sender_id === selectedId) {
+        if (row.sender_id === selectedIdRef.current) {
           setMessages(prev => [...prev, {
             id: row.id, sender_id: row.sender_id, text: row.text,
             media_url: row.media_url, media_type: row.media_type,
@@ -322,8 +324,7 @@ export default function Messages() {
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user.id, selectedId]);
+  }, [user.id]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });

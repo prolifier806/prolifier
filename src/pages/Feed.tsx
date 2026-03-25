@@ -1060,8 +1060,8 @@ export default function Feed() {
     if (!user.id) return;
     setLoading(true);
     try {
-      // OPT: all queries fire at the same time instead of sequentially
-      const [postsRes, collabsRes, likesRes, savedPostsRes, savedCollabsRes, interestedRes, myBlocksRes, blockedByRes] = await Promise.all([
+      // Step 1: posts, collabs, blocks in parallel
+      const [postsRes, collabsRes, myBlocksRes, blockedByRes] = await Promise.all([
         (supabase as any)
           .from("posts")
           .select(`id, user_id, tag, content, image_url, video_url, created_at, likes, profiles:user_id (name, avatar, avatar_url, color, location, skills, deleted_at)`)
@@ -1072,19 +1072,31 @@ export default function Feed() {
           .select(`id, user_id, title, looking, description, skills, image_url, video_url, created_at, profiles:user_id (name, avatar, avatar_url, color, location, skills, deleted_at)`)
           .order("created_at", { ascending: false })
           .limit(30),
-        (supabase as any)
-          .from("post_likes")
-          .select("post_id")
-          .eq("user_id", user.id),
-        (supabase as any).from("saved_posts").select("post_id").eq("user_id", user.id),
-        (supabase as any).from("saved_collabs").select("collab_id").eq("user_id", user.id),
-        (supabase as any).from("collab_interests").select("collab_id").eq("user_id", user.id),
         (supabase as any).from("blocks").select("blocked_id").eq("blocker_id", user.id),
         (supabase as any).from("blocks").select("blocker_id").eq("blocked_id", user.id),
       ]);
 
       if (postsRes.error) throw postsRes.error;
       if (collabsRes.error) throw collabsRes.error;
+
+      // Step 2: scope likes/saves to only the posts/collabs we just loaded
+      const postIds  = (postsRes.data  || []).map((p: any) => p.id);
+      const collabIds = (collabsRes.data || []).map((c: any) => c.id);
+
+      const [likesRes, savedPostsRes, savedCollabsRes, interestedRes] = await Promise.all([
+        postIds.length > 0
+          ? (supabase as any).from("post_likes").select("post_id").eq("user_id", user.id).in("post_id", postIds)
+          : Promise.resolve({ data: [] }),
+        postIds.length > 0
+          ? (supabase as any).from("saved_posts").select("post_id").eq("user_id", user.id).in("post_id", postIds)
+          : Promise.resolve({ data: [] }),
+        collabIds.length > 0
+          ? (supabase as any).from("saved_collabs").select("collab_id").eq("user_id", user.id).in("collab_id", collabIds)
+          : Promise.resolve({ data: [] }),
+        collabIds.length > 0
+          ? (supabase as any).from("collab_interests").select("collab_id").eq("user_id", user.id).in("collab_id", collabIds)
+          : Promise.resolve({ data: [] }),
+      ]);
 
       setPostsHasMore((postsRes.data || []).length === 30);
       setCollabsHasMore((collabsRes.data || []).length === 30);
@@ -1280,10 +1292,6 @@ export default function Feed() {
       }
     }
 
-    // Sync real count from DB to fix concurrent-like race condition
-    const { count } = await (supabase as any)
-      .from("post_likes").select("*", { count: "exact", head: true }).eq("post_id", id);
-    if (count !== null) setPosts(p => p.map(x => x.id === id ? { ...x, likes: count } : x));
   }, [likedPosts, posts, user.id, user.name]);
 
   const handleSavePost = useCallback(async (id: string) => {

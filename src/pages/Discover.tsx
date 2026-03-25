@@ -221,7 +221,7 @@ export default function Discover() {
     if (!user.id) return;
     (supabase as any)
       .from("connections")
-      .select("*", { count: "exact", head: true })
+      .select("id", { count: "exact", head: true })
       .eq("receiver_id", user.id)
       .eq("status", "pending")
       .then(({ count }: any) => setRequestCount(count ?? 0));

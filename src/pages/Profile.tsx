@@ -213,6 +213,9 @@ export default function Profile() {
     } catch { /* silent */ }
   }, [user.id]);
 
+  const loadAnalyticsRef = useRef(loadAnalytics);
+  useEffect(() => { loadAnalyticsRef.current = loadAnalytics; }, [loadAnalytics]);
+
   useEffect(() => {
     if (user.id) loadAnalytics();
   }, [user.id, loadAnalytics]);
@@ -222,11 +225,11 @@ export default function Profile() {
     if (!user.id) return;
     const ch = (supabase as any)
       .channel(`profile-connections-${user.id}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "connections", filter: `requester_id=eq.${user.id}` }, () => loadAnalytics())
-      .on("postgres_changes", { event: "*", schema: "public", table: "connections", filter: `receiver_id=eq.${user.id}` }, () => loadAnalytics())
+      .on("postgres_changes", { event: "*", schema: "public", table: "connections", filter: `requester_id=eq.${user.id}` }, () => loadAnalyticsRef.current())
+      .on("postgres_changes", { event: "*", schema: "public", table: "connections", filter: `receiver_id=eq.${user.id}` }, () => loadAnalyticsRef.current())
       .subscribe();
     return () => { (supabase as any).removeChannel(ch); };
-  }, [user.id, loadAnalytics]);
+  }, [user.id]);
 
   // Close location dropdown on outside click
   useEffect(() => {
