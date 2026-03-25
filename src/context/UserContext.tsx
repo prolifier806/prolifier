@@ -177,10 +177,15 @@ export function UserProvider({ children }: { children: ReactNode }) {
       }
 
       if (!row) {
-        // Profile row not found — check if they previously had a complete profile
+        // Profile row not found — determine why before acting
         const cached = readCache(userId);
+        if (cached?.deletedAt) {
+          // Soft-deleted account: row may be hidden by RLS — preserve current state
+          // so ProtectedRoute keeps the user on /recover.
+          return;
+        }
         if (cached?.profileSetupDone) {
-          // Profile was deleted while user was authenticated → sign out immediately
+          // Profile was hard-deleted while user was authenticated → sign out immediately
           localStorage.removeItem(cacheKey(userId));
           await supabase.auth.signOut();
           return;
