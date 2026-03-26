@@ -864,6 +864,10 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
   const isSaved = savedCollabs.has(collab.id);
   const navigate = useNavigate();
   const [lightboxSrc, setLightboxSrc] = useState<string|null>(null);
+  const [descExpanded, setDescExpanded] = useState(false);
+  const DESC_PREVIEW = 100;
+  const descLong = collab.description.length > DESC_PREVIEW;
+  const displayDesc = !descExpanded && descLong ? collab.description.slice(0, DESC_PREVIEW) + "…" : collab.description;
 
   const goToProfile = () => {
     if (collab.authorDeleted) return;
@@ -920,9 +924,17 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
           <p className="text-sm font-medium text-foreground/70 leading-snug truncate">{collab.title}</p>
           <p className="text-[15px] leading-snug">
             <span className="text-muted-foreground">Looking for </span>
-            <span className="font-semibold italic text-foreground">{collab.looking}</span>
+            <span className="font-semibold text-primary">{collab.looking}</span>
           </p>
-          <p className="text-xs text-muted-foreground/80 leading-relaxed break-words line-clamp-2">{collab.description}</p>
+          <div>
+            <p className="text-xs text-muted-foreground/80 leading-relaxed break-words">{displayDesc}</p>
+            {descLong && (
+              <button onClick={e => { e.stopPropagation(); setDescExpanded(v => !v); }}
+                className="text-xs text-primary font-medium mt-0.5 hover:opacity-75 transition-opacity">
+                {descExpanded ? "Show less" : "Read more"}
+              </button>
+            )}
+          </div>
           {collab.image && <SmartImage src={collab.image} alt="collab" onClick={() => setLightboxSrc(collab.image!)} />}
           {collab.video && <SmartVideo src={collab.video} />}
           {collab.skills.length > 0 && (
