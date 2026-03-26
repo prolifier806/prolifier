@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect, useCallback, memo, useMemo } from "react";
-import ReactPlayer from "react-player/file";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -118,26 +117,60 @@ async function deleteFromStorage(url: string) {
   }
 }
 
-// ── Smart Video — react-player ──────────────────────────────────────────────
+// ── Smart Video ─────────────────────────────────────────────────────────────
 function SmartVideo({ src, className }: { src: string; className?: string }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [portrait,      setPortrait]      = useState(false);
+  const [speed,         setSpeed]         = useState(1);
+  const [showSpeedMenu, setShowSpeedMenu] = useState(false);
+  const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
+
+  const selectSpeed = (s: number) => {
+    if (videoRef.current) videoRef.current.playbackRate = s;
+    setSpeed(s);
+    setShowSpeedMenu(false);
+  };
+
   return (
-    <div className={`rounded-xl overflow-hidden bg-black w-full ${className ?? ""}`}>
-      <ReactPlayer
-        url={src}
+    <div className={`relative rounded-xl overflow-hidden bg-black ${className ?? ""}`}>
+      <video
+        ref={videoRef}
+        src={src}
         controls
-        width="100%"
-        height="auto"
-        style={{ display: "block", maxHeight: "288px" }}
-        config={{
-          file: {
-            attributes: {
-              controlsList: "nodownload nopictureinpicture",
-              disablePictureInPicture: true,
-              style: { maxHeight: "288px", width: "100%", backgroundColor: "#000" },
-            },
-          },
+        disablePictureInPicture
+        controlsList="nodownload nopictureinpicture"
+        className={`block ${portrait ? "w-auto max-h-[70vh] mx-auto" : "w-full max-h-72"}`}
+        style={{ backgroundColor: "#000" }}
+        onLoadedMetadata={e => {
+          const v = e.currentTarget;
+          setPortrait(v.videoHeight > v.videoWidth);
         }}
       />
+
+      {/* Speed selector — top-right corner */}
+      <div className="absolute top-2 right-2 z-10">
+        <button
+          type="button"
+          onClick={() => setShowSpeedMenu(v => !v)}
+          className="text-[11px] font-bold text-white bg-black/60 hover:bg-black/80 rounded-md px-2 py-1 transition-colors leading-none backdrop-blur-sm"
+        >
+          {speed}×
+        </button>
+        {showSpeedMenu && (
+          <div className="absolute top-8 right-0 bg-zinc-900/95 backdrop-blur-sm rounded-xl overflow-hidden shadow-xl border border-white/10 min-w-[68px]">
+            {SPEEDS.map(s => (
+              <button
+                type="button"
+                key={s}
+                onClick={() => selectSpeed(s)}
+                className={`block w-full text-center px-4 py-2 text-sm font-medium transition-colors ${speed === s ? "text-primary bg-white/5" : "text-white/75 hover:text-white hover:bg-white/10"}`}
+              >
+                {s}×
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
