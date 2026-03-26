@@ -469,7 +469,8 @@ function CommentSheet({ post, currentUserId, onClose, onAddComment, onDeleteComm
     const cursor = inputRef.current?.selectionStart ?? text.length;
     const before = text.slice(0, mentionStart);
     const after = text.slice(cursor);
-    const newText = `${before}@${profile.name} ${after}`;
+    // Use non-breaking spaces in multi-word names so the mention is one token
+    const newText = `${before}@${profile.name.replace(/ /g, '\u00A0')} ${after}`;
     setText(newText);
     setMentionSuggestions([]);
     setMentionStart(-1);
@@ -490,7 +491,7 @@ function CommentSheet({ post, currentUserId, onClose, onAddComment, onDeleteComm
 
   const startReply = (c: Comment) => {
     setReplyingTo({ id: c.id, author: c.author });
-    setText(`@${c.author} `);
+    setText(`@${c.author.replace(/ /g, '\u00A0')} `);
     setTimeout(() => { inputRef.current?.focus(); inputRef.current?.setSelectionRange(9999, 9999); }, 50);
   };
 
@@ -507,13 +508,12 @@ function CommentSheet({ post, currentUserId, onClose, onAddComment, onDeleteComm
   };
 
   const renderMentions = (txt: string) => {
-    // Match @Name (single or multi-word) followed by a space — the trailing space
-    // acts as the delimiter inserted when a mention is selected from suggestions.
-    // This prevents the regex from greedy-matching the rest of the message.
-    const parts = txt.split(/(@\w+(?:\s\w+)* )/g);
+    // @[^\s]+ stops at the first regular space — multi-word names use non-breaking
+    // spaces (inserted by selectMention) so they stay as one token.
+    const parts = txt.split(/(@[^\s]+)/g);
     return parts.map((part, i) =>
       part.startsWith("@")
-        ? <span key={i} className="text-primary font-medium">{part}</span>
+        ? <span key={i} className="text-primary font-medium mr-0.5">{part.replace(/\u00A0/g, ' ')}</span>
         : <span key={i}>{part}</span>
     );
   };
@@ -580,8 +580,13 @@ function CommentSheet({ post, currentUserId, onClose, onAddComment, onDeleteComm
           </button>
         </div>
         {post.image && (
-          <div className="px-5 pt-4">
-            <SmartImage src={post.image} alt="post" onClick={() => setLightboxSrc(post.image!)} />
+          <div className="px-5 pt-3">
+            <img
+              src={post.image}
+              alt="post"
+              className="w-full max-h-40 object-cover rounded-xl cursor-pointer"
+              onClick={() => setLightboxSrc(post.image!)}
+            />
           </div>
         )}
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
