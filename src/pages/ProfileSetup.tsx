@@ -206,7 +206,7 @@ export default function ProfileSetup() {
           }}
           placeholder="Tell the community a bit about yourself..." rows={3} />
         <p className="text-xs text-muted-foreground text-right mt-1">
-          {bio.trim() ? bio.trim().split(/\s+/).length : 0}/120 words
+          {(bio.match(/\S+/g) || []).length}/120 words
         </p>
       </div>
       <div>

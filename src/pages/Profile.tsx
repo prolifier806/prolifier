@@ -1047,7 +1047,7 @@ export default function Profile() {
                     }}
                     rows={3} placeholder="Tell people about yourself..." />
                   <p className="text-xs text-muted-foreground text-right mt-1">
-                    {draftBio.trim() ? draftBio.trim().split(/\s+/).length : 0}/120 words
+                    {(draftBio.match(/\S+/g) || []).length}/120 words
                   </p>
                 </>
               : <p className="text-sm text-foreground leading-relaxed">{user.bio || <span className="text-muted-foreground italic">No bio yet</span>}</p>}

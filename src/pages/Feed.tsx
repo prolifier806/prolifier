@@ -1640,7 +1640,7 @@ export default function Feed() {
                       }}
                       placeholder="Share what you're working on, ask for advice, or celebrate a win..." rows={4}/>
                     <p className="text-xs text-muted-foreground text-right mt-1">
-                      {postDialog.content.trim() ? postDialog.content.trim().split(/\s+/).length : 0}/500 words
+                      {(postDialog.content.match(/\S+/g) || []).length}/500 words
                     </p>
                   </div>
                   <div>
@@ -1774,7 +1774,7 @@ export default function Feed() {
                       }}
                       placeholder="What are you building? What kind of help do you need?" rows={3}/>
                     <p className="text-xs text-muted-foreground text-right mt-1">
-                      {collabDialog.desc.trim() ? collabDialog.desc.trim().split(/\s+/).length : 0}/120 words
+                      {(collabDialog.desc.match(/\S+/g) || []).length}/120 words
                     </p>
                   </div>
                   <div>
