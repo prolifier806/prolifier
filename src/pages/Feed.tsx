@@ -15,7 +15,7 @@ import {
   Heart, MessageCircle, MapPin, Search, Plus, Send, MoreHorizontal,
   Trash2, Edit3, Bookmark, Share2, Flag, EyeOff, Handshake,
   X, Check, BookmarkCheck, ImageIcon, Link2, Video as VideoIcon, ZoomIn,
-  SlidersHorizontal,
+  SlidersHorizontal, Play, Pause, RotateCcw, RotateCw, Maximize2,
 } from "lucide-react";
 import Layout from "@/components/Layout";
 import { toast } from "@/hooks/use-toast";
@@ -117,21 +117,183 @@ async function deleteFromStorage(url: string) {
   }
 }
 
-// ── Smart Video — auto portrait/landscape sizing ──────────────────────────
+// ── Custom Video Player ─────────────────────────────────────────────────────
 function SmartVideo({ src, className }: { src: string; className?: string }) {
-  const [portrait, setPortrait] = useState(false);
+  const videoRef    = useRef<HTMLVideoElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const hideTimer   = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const [portrait,      setPortrait]      = useState(false);
+  const [playing,       setPlaying]       = useState(false);
+  const [progress,      setProgress]      = useState(0);
+  const [currentTime,   setCurrentTime]   = useState(0);
+  const [duration,      setDuration]      = useState(0);
+  const [speed,         setSpeed]         = useState(1);
+  const [showControls,  setShowControls]  = useState(true);
+  const [showSpeedMenu, setShowSpeedMenu] = useState(false);
+
+  const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
+
+  const scheduleHide = () => {
+    if (hideTimer.current) clearTimeout(hideTimer.current);
+    hideTimer.current = setTimeout(() => setShowControls(false), 2500);
+  };
+
+  const reveal = () => {
+    setShowControls(true);
+    if (videoRef.current && !videoRef.current.paused) scheduleHide();
+  };
+
+  const togglePlay = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const v = videoRef.current;
+    if (!v) return;
+    if (v.paused) { v.play(); scheduleHide(); } else { v.pause(); }
+  };
+
+  const skip = (e: React.MouseEvent, secs: number) => {
+    e.stopPropagation();
+    const v = videoRef.current;
+    if (!v) return;
+    v.currentTime = Math.max(0, Math.min(v.duration, v.currentTime + secs));
+    reveal();
+  };
+
+  const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+    const v = videoRef.current;
+    if (!v || !v.duration) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    v.currentTime = ((e.clientX - rect.left) / rect.width) * v.duration;
+    reveal();
+  };
+
+  const changeSpeed = (e: React.MouseEvent, s: number) => {
+    e.stopPropagation();
+    if (videoRef.current) videoRef.current.playbackRate = s;
+    setSpeed(s);
+    setShowSpeedMenu(false);
+    reveal();
+  };
+
+  const toggleFullscreen = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    const el = containerRef.current;
+    if (!el) return;
+    if (document.fullscreenElement) document.exitFullscreen();
+    else el.requestFullscreen().catch(() => {});
+  };
+
+  const fmt = (s: number) => {
+    if (!s || isNaN(s)) return "0:00";
+    return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+  };
+
   return (
-    <div className={portrait ? "flex justify-center" : ""}>
+    <div
+      ref={containerRef}
+      className={`relative rounded-xl overflow-hidden bg-black select-none ${portrait ? "flex justify-center" : ""}`}
+      onMouseMove={reveal}
+      onTouchStart={reveal}
+    >
       <video
+        ref={videoRef}
         src={src}
-        controls
-        className={`rounded-xl ${portrait ? "max-h-[70vh] w-auto max-w-full" : "w-full max-h-72"} ${className ?? ""}`}
+        disablePictureInPicture
+        className={`block rounded-xl ${portrait ? "max-h-[70vh] w-auto max-w-full" : "w-full max-h-72"} ${className ?? ""}`}
         style={{ backgroundColor: "#000" }}
         onLoadedMetadata={e => {
           const v = e.currentTarget;
           setPortrait(v.videoHeight > v.videoWidth);
+          setDuration(v.duration);
         }}
+        onTimeUpdate={e => {
+          const v = e.currentTarget;
+          if (!v.duration) return;
+          setCurrentTime(v.currentTime);
+          setProgress((v.currentTime / v.duration) * 100);
+        }}
+        onPlay={() => { setPlaying(true); scheduleHide(); }}
+        onPause={() => { setPlaying(false); setShowControls(true); if (hideTimer.current) clearTimeout(hideTimer.current); }}
+        onEnded={() => { setPlaying(false); setShowControls(true); }}
+        onClick={() => toggleFullscreen()}
       />
+
+      {/* Overlay — gradient + controls */}
+      <div
+        className={`absolute inset-0 flex flex-col justify-end transition-opacity duration-200 ${showControls ? "opacity-100" : "opacity-0 pointer-events-none"}`}
+        style={{ background: "linear-gradient(to bottom, transparent 35%, rgba(0,0,0,0.72) 100%)" }}
+      >
+        {/* Centre: skip-back · play/pause · skip-forward */}
+        <div
+          className="absolute inset-0 flex items-center justify-center gap-8 pointer-events-auto"
+          onClick={e => e.stopPropagation()}
+        >
+          <button onClick={e => skip(e, -10)} className="flex flex-col items-center text-white/85 hover:text-white active:scale-90 transition-all">
+            <RotateCcw className="h-7 w-7" />
+            <span className="text-[10px] font-semibold mt-0.5 leading-none">10s</span>
+          </button>
+
+          <button
+            onClick={togglePlay}
+            className="h-14 w-14 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center hover:bg-white/30 active:scale-90 transition-all"
+          >
+            {playing
+              ? <Pause  className="h-6 w-6 text-white fill-white" />
+              : <Play   className="h-6 w-6 text-white fill-white ml-0.5" />}
+          </button>
+
+          <button onClick={e => skip(e, 10)} className="flex flex-col items-center text-white/85 hover:text-white active:scale-90 transition-all">
+            <RotateCw className="h-7 w-7" />
+            <span className="text-[10px] font-semibold mt-0.5 leading-none">10s</span>
+          </button>
+        </div>
+
+        {/* Bottom: seek bar + speed + fullscreen */}
+        <div className="px-3 pb-3 space-y-1.5 pointer-events-auto" onClick={e => e.stopPropagation()}>
+          {/* Seek bar */}
+          <div className="flex items-center gap-2">
+            <span className="text-white/70 text-[11px] tabular-nums w-8 shrink-0">{fmt(currentTime)}</span>
+            <div className="relative flex-1 h-1.5 bg-white/20 rounded-full cursor-pointer" onClick={handleSeek}>
+              <div className="h-full bg-primary rounded-full pointer-events-none" style={{ width: `${progress}%` }} />
+              <div
+                className="absolute top-1/2 h-3 w-3 rounded-full bg-white shadow pointer-events-none"
+                style={{ left: `${progress}%`, transform: "translate(-50%, -50%)" }}
+              />
+            </div>
+            <span className="text-white/70 text-[11px] tabular-nums w-8 text-right shrink-0">{fmt(duration)}</span>
+          </div>
+
+          {/* Speed selector + fullscreen */}
+          <div className="flex items-center justify-between">
+            <div className="relative">
+              <button
+                onClick={e => { e.stopPropagation(); setShowSpeedMenu(v => !v); }}
+                className="text-[11px] font-bold text-white bg-white/15 hover:bg-white/25 rounded-md px-2.5 py-1 transition-colors leading-none"
+              >
+                {speed}×
+              </button>
+              {showSpeedMenu && (
+                <div className="absolute bottom-9 left-0 bg-zinc-900/95 backdrop-blur-sm rounded-xl overflow-hidden shadow-xl border border-white/10 z-10 min-w-[72px]">
+                  {SPEEDS.map(s => (
+                    <button
+                      key={s}
+                      onClick={e => changeSpeed(e, s)}
+                      className={`block w-full text-center px-4 py-2 text-sm font-medium transition-colors ${speed === s ? "text-primary bg-white/5" : "text-white/75 hover:text-white hover:bg-white/10"}`}
+                    >
+                      {s}×
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <button onClick={e => toggleFullscreen(e)} className="text-white/80 hover:text-white transition-colors p-0.5">
+              <Maximize2 className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
