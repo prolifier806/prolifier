@@ -395,11 +395,12 @@ export default function Profile() {
     }
   };
 
-  const handleUnblock = (userId: string) => {
+  const handleUnblock = async (userId: string) => {
     if (!blockedKey) return;
     const updated = blockedList.filter(u => u.id !== userId);
     localStorage.setItem(blockedKey, JSON.stringify(updated));
     setBlockedList(updated);
+    await (supabase as any).from("blocks").delete().eq("blocker_id", user.id).eq("blocked_id", userId);
     toast({ title: "User unblocked" });
   };
 

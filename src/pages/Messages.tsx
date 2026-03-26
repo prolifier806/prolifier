@@ -291,6 +291,11 @@ export default function Messages() {
         filter: `receiver_id=eq.${user.id}`,
       }, async (payload) => {
         const row = payload.new as any;
+        // Drop messages from blocked users silently
+        const blockedKey = `prolifier_blocked_${user.id}`;
+        let blockedIds: string[] = [];
+        try { blockedIds = JSON.parse(localStorage.getItem(blockedKey) || "[]").map((b: any) => b.id); } catch {}
+        if (blockedIds.includes(row.sender_id)) return;
         if (row.sender_id === selectedIdRef.current) {
           setMessages(prev => [...prev, {
             id: row.id, sender_id: row.sender_id, text: row.text,

@@ -422,6 +422,7 @@ function CommentSheet({ post, currentUserId, onClose, onAddComment, onDeleteComm
   onReportComment: (commentId: string) => void;
 }) {
   const { user } = useUser();
+  const navigate = useNavigate();
   const [text, setText] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
@@ -534,7 +535,10 @@ function CommentSheet({ post, currentUserId, onClose, onAddComment, onDeleteComm
         ) : (
           <div className={`bg-secondary rounded-xl px-3 py-2.5 ${isReply ? "border-l-2 border-primary/30" : ""}`}>
             <div className="flex items-center gap-2 mb-1">
-              <span className="text-xs font-semibold text-foreground">{c.author}</span>
+              <span
+                className={`text-xs font-semibold text-foreground ${c.user_id !== currentUserId ? "cursor-pointer hover:underline" : ""}`}
+                onClick={() => { if (c.user_id === currentUserId) navigate("/profile"); else navigate(`/profile/${c.user_id}`); }}
+              >{c.author}</span>
               <span className="text-xs text-muted-foreground">{c.time}</span>
             </div>
             <p className="text-sm text-foreground leading-relaxed">{renderMentions(c.text)}</p>
@@ -913,11 +917,11 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
           </DropdownMenu>
         </div>
         <div className="px-5 pb-4 space-y-2">
-          <p className="text-xs font-medium text-muted-foreground truncate">{collab.title}</p>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center rounded-full bg-primary/10 border border-primary/20 px-2.5 py-0.5 text-[11px] font-semibold text-primary uppercase tracking-wide shrink-0">Looking for</span>
-            <span className="text-[15px] font-bold text-foreground leading-tight">{collab.looking}</span>
-          </div>
+          <p className="text-sm font-medium text-foreground/70 leading-snug truncate">{collab.title}</p>
+          <p className="text-[15px] leading-snug">
+            <span className="text-muted-foreground">Looking for </span>
+            <span className="font-semibold italic text-foreground">{collab.looking}</span>
+          </p>
           <p className="text-xs text-muted-foreground/80 leading-relaxed break-words line-clamp-2">{collab.description}</p>
           {collab.image && <SmartImage src={collab.image} alt="collab" onClick={() => setLightboxSrc(collab.image!)} />}
           {collab.video && <SmartVideo src={collab.video} />}
@@ -1336,11 +1340,13 @@ export default function Feed() {
       parentId: c.parent_id || null,
     }));
 
+    // Filter out comments from blocked users (both directions)
+    const visibleComments = loadedComments.filter(c => !blockedUserIds.has(c.user_id));
     // Patch the post in state — sync count with real loaded count
-    const updatedPost = { ...post, comments: loadedComments, commentCount: loadedComments.length };
+    const updatedPost = { ...post, comments: visibleComments, commentCount: visibleComments.length };
     setPosts(p => p.map(x => x.id === post.id ? updatedPost : x));
     setCommentingPost(updatedPost);
-  }, []);
+  }, [blockedUserIds]);
 
   const handleAddComment = useCallback(async (postId: string, text: string, parentId?: string | null) => {
     const pre = checkContent(text);
@@ -1641,10 +1647,10 @@ export default function Feed() {
                     <Textarea
                       value={postDialog.content}
                       onChange={e => setPostDialog(d => ({ ...d, content: e.target.value }))}
-                      maxLength={150}
+                      maxLength={500}
                       placeholder="Share what you're working on, ask for advice, or celebrate a win..." rows={4}/>
                     <p className="text-xs text-muted-foreground text-right mt-1">
-                      {postDialog.content.length}/150
+                      {postDialog.content.length}/500
                     </p>
                   </div>
                   <div>
@@ -1766,10 +1772,10 @@ export default function Feed() {
                     <label className="text-sm font-medium mb-1.5 block">Describe your project</label>
                     <Textarea value={collabDialog.desc}
                       onChange={e => setCollabDialog(d => ({ ...d, desc: e.target.value }))}
-                      maxLength={150}
+                      maxLength={500}
                       placeholder="What are you building? What kind of help do you need?" rows={3}/>
                     <p className="text-xs text-muted-foreground text-right mt-1">
-                      {collabDialog.desc.length}/150
+                      {collabDialog.desc.length}/500
                     </p>
                   </div>
                   <div>
