@@ -1,3 +1,4 @@
+
 import { createClient } from '@supabase/supabase-js'
 import type { Database } from './database.types'
 
@@ -9,6 +10,7 @@ export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: true,
+
     flowType: "implicit",
     storageKey: "prolifier_auth_v1",
     // Replace the default Web Locks implementation with a simple pass-through.
