@@ -68,17 +68,27 @@ export default function ProfileSetup() {
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    e.target.value = "";
     setUploadingAvatar(true);
-    const ext = file.name.split(".").pop();
-    const path = `${user.id}/avatar.${ext}`;
-    const { error } = await (supabase as any).storage.from("avatars").upload(path, file, { upsert: true });
+    const path = `${user.id}/avatar`;
+    const { error } = await (supabase as any).storage.from("avatars").upload(path, file, { upsert: true, contentType: file.type });
     if (error) {
       toast({ title: "Upload failed", description: error.message, variant: "destructive" });
       setUploadingAvatar(false);
       return;
     }
     const { data } = (supabase as any).storage.from("avatars").getPublicUrl(path);
-    setAvatarUrl(data.publicUrl);
+    setAvatarUrl(data.publicUrl + "?t=" + Date.now());
+    setUploadingAvatar(false);
+  };
+
+  const handleRemoveAvatar = async () => {
+    setUploadingAvatar(true);
+    const { data: files } = await (supabase as any).storage.from("avatars").list(user.id);
+    if (files?.length > 0) {
+      await (supabase as any).storage.from("avatars").remove(files.map((f: any) => `${user.id}/${f.name}`));
+    }
+    setAvatarUrl("");
     setUploadingAvatar(false);
   };
 
@@ -155,9 +165,14 @@ export default function ProfileSetup() {
           </button>
           <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} />
         </div>
-        <p className="text-xs text-muted-foreground">
-          {uploadingAvatar ? "Uploading…" : avatarUrl ? "Tap to change photo" : "Add profile photo (optional)"}
-        </p>
+        <div className="flex items-center gap-3">
+          <p className="text-xs text-muted-foreground">
+            {uploadingAvatar ? "Uploading…" : avatarUrl ? "Tap to change photo" : "Add profile photo (optional)"}
+          </p>
+          {avatarUrl && !uploadingAvatar && (
+            <button type="button" onClick={handleRemoveAvatar} className="text-xs text-destructive hover:opacity-75 transition-opacity">Remove</button>
+          )}
+        </div>
       </div>
       <div>
         <label className="text-sm font-medium text-foreground mb-1.5 block">
@@ -201,10 +216,10 @@ export default function ProfileSetup() {
         </label>
         <Textarea value={bio}
           onChange={e => setBio(e.target.value)}
-          maxLength={500}
+          maxLength={100}
           placeholder="Tell the community a bit about yourself..." rows={3} />
         <p className="text-xs text-muted-foreground text-right mt-1">
-          {bio.length}/500
+          {bio.length}/100
         </p>
       </div>
       <div>

@@ -1791,14 +1791,22 @@ export default function Feed() {
                     </p>
                   </div>
                   <div>
-                    <label className="text-sm font-medium mb-1.5 block">Relevant skills / areas</label>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-sm font-medium">Relevant skills / areas</label>
+                      <span className={`text-xs font-medium ${collabDialog.skills.length >= 3 ? "text-primary" : "text-muted-foreground"}`}>{collabDialog.skills.length}/3</span>
+                    </div>
                     <div className="flex flex-wrap gap-2">
-                      {SKILL_OPTIONS.map(s => (
-                        <Badge key={s} variant={collabDialog.skills.includes(s)?"default":"outline"} className="cursor-pointer"
-                          onClick={() => setCollabDialog(d => ({ ...d, skills: d.skills.includes(s) ? d.skills.filter(x => x !== s) : [...d.skills, s] }))}>
-                          {s}
-                        </Badge>
-                      ))}
+                      {SKILL_OPTIONS.map(s => {
+                        const selected = collabDialog.skills.includes(s);
+                        const maxed = !selected && collabDialog.skills.length >= 3;
+                        return (
+                          <Badge key={s} variant={selected ? "default" : "outline"}
+                            className={`cursor-pointer transition-all ${maxed ? "opacity-40 cursor-not-allowed" : "hover:scale-105"}`}
+                            onClick={() => { if (maxed) return; setCollabDialog(d => ({ ...d, skills: selected ? d.skills.filter(x => x !== s) : [...d.skills, s] })); }}>
+                            {s}
+                          </Badge>
+                        );
+                      })}
                       {/* Custom skills added via "Other" */}
                       {collabDialog.skills.filter(s => !(SKILL_OPTIONS as readonly string[]).includes(s)).map(s => (
                         <Badge key={s} variant="default" className="cursor-pointer gap-1"
@@ -1819,7 +1827,7 @@ export default function Feed() {
                           if (e.key === "Enter") {
                             e.preventDefault();
                             const val = collabDialog.customSkillInput.trim();
-                            if (val && !collabDialog.skills.includes(val)) {
+                            if (val && !collabDialog.skills.includes(val) && collabDialog.skills.length < 3) {
                               setCollabDialog(d => ({ ...d, skills: [...d.skills, val], customSkillInput: "" }));
                             } else {
                               setCollabDialog(d => ({ ...d, customSkillInput: "" }));
@@ -1828,9 +1836,10 @@ export default function Feed() {
                         }}
                       />
                       <Button type="button" size="sm" variant="outline" className="h-8 px-3 shrink-0"
+                        disabled={collabDialog.skills.length >= 3}
                         onClick={() => {
                           const val = collabDialog.customSkillInput.trim();
-                          if (val && !collabDialog.skills.includes(val)) {
+                          if (val && !collabDialog.skills.includes(val) && collabDialog.skills.length < 3) {
                             setCollabDialog(d => ({ ...d, skills: [...d.skills, val], customSkillInput: "" }));
                           } else {
                             setCollabDialog(d => ({ ...d, customSkillInput: "" }));

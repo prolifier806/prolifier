@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useRealtimeChannel } from "@/hooks/useRealtimeChannel";
 import { useSearchParams } from "react-router-dom";
 import { Input } from "@/components/ui/input";
@@ -140,6 +140,25 @@ export default function Messages() {
   useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
 
   const selectedConvo = conversations.find(c => c.id === selectedId) ?? null;
+
+  // Track who the current user has blocked (reactive — updates on unblock)
+  const [blockedSet, setBlockedSet] = useState<Set<string>>(() => {
+    try { return new Set(JSON.parse(localStorage.getItem(`prolifier_blocked_${user.id}`) || "[]").map((b: any) => b.id)); }
+    catch { return new Set(); }
+  });
+  const iBlockedThem = useMemo(() => selectedId ? blockedSet.has(selectedId) : false, [selectedId, blockedSet]);
+
+  const handleUnblockHere = async () => {
+    if (!selectedId) return;
+    const key = `prolifier_blocked_${user.id}`;
+    try {
+      const current: { id: string }[] = JSON.parse(localStorage.getItem(key) || "[]");
+      localStorage.setItem(key, JSON.stringify(current.filter(b => b.id !== selectedId)));
+      setBlockedSet(prev => { const n = new Set(prev); n.delete(selectedId); return n; });
+      await (supabase as any).from("blocks").delete().eq("blocker_id", user.id).eq("blocked_id", selectedId);
+      toast({ title: "User unblocked" });
+    } catch { /* ignore */ }
+  };
 
   // ── Fetch conversations ──────────────────────────────────────────────
   const fetchConversations = useCallback(async () => {
@@ -338,6 +357,8 @@ export default function Messages() {
   const sendMessage = async (text?: string, mediaUrl?: string, mediaType?: string) => {
     const trimmed = text?.trim();
     if ((!trimmed && !mediaUrl) || !selectedId || sending) return;
+    // Don't allow sending to a user you've blocked
+    if (blockedSet.has(selectedId)) return;
     setSending(true);
 
     // Block check: if receiver has blocked sender, silently drop (like WhatsApp)
@@ -649,8 +670,16 @@ export default function Messages() {
                 </div>
               )}
 
+              {/* Blocked banner */}
+              {iBlockedThem && (
+                <div className="p-4 border-t border-border shrink-0 flex items-center justify-center gap-3 bg-muted/40">
+                  <p className="text-sm text-muted-foreground">You've blocked this user.</p>
+                  <button onClick={handleUnblockHere} className="text-sm text-primary font-semibold hover:opacity-75 transition-opacity">Unblock</button>
+                </div>
+              )}
+
               {/* Input bar */}
-              {!recording && (
+              {!recording && !iBlockedThem && (
                 <div className="p-3 border-t border-border shrink-0">
                   <div className="flex items-center gap-2 bg-muted rounded-2xl px-3 py-1.5">
                     <div className="flex items-center gap-0.5 shrink-0">

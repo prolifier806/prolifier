@@ -360,6 +360,18 @@ export default function Profile() {
     toast({ title: "Profile photo updated! 📸" });
   };
 
+  const handleRemoveAvatar = async () => {
+    setAvatarUploading(true);
+    const { data: files } = await (supabase as any).storage.from("avatars").list(user.id);
+    if (files?.length > 0) {
+      await (supabase as any).storage.from("avatars").remove(files.map((f: any) => `${user.id}/${f.name}`));
+    }
+    setAvatarUrl(null);
+    await updateUser({ avatarUrl: "" });
+    setAvatarUploading(false);
+    toast({ title: "Profile photo removed" });
+  };
+
   const handleChangePw = async () => {
     if (!currentPw) { toast({ title: "Enter your current password", variant: "destructive" }); return; }
     if (newPw.length < 6) { toast({ title: "New password must be at least 6 characters", variant: "destructive" }); return; }
@@ -973,6 +985,9 @@ export default function Profile() {
                 </button>
               )}
             </div>
+            {avatarUrl && !avatarUploading && (
+              <button onClick={handleRemoveAvatar} className="text-xs text-destructive hover:opacity-75 transition-opacity mt-1">Remove photo</button>
+            )}
 
             <div className="flex-1 min-w-0">
               {editing ? (
