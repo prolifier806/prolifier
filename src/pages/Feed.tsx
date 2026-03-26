@@ -1027,13 +1027,6 @@ export default function Feed() {
   const postsCursorRef = useRef<string | null>(null);
   const collabsCursorRef = useRef<string | null>(null);
   const deepLinkHandledRef = useRef<string | null>(null);
-  const [fabVisible, setFabVisible] = useState(false);
-
-  useEffect(() => {
-    const onScroll = () => setFabVisible(window.scrollY > 120);
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
 
   // OPT: grouped compose state — fewer useState hooks, fewer re-renders when
   // one compose field changes (only the compose area re-renders, not the whole feed)
@@ -1924,17 +1917,6 @@ export default function Feed() {
       {shareTarget && <ShareDialog onClose={() => setShareTarget(null)} link={shareLink}/>}
       {reportTarget && <ReportDialog open={!!reportTarget} onClose={() => setReportTarget(null)} target={reportTarget.type==="post"?"this post":reportTarget.type==="collab"?"this collab":"this comment"} targetType={reportTarget.type} targetId={reportTarget.id}/>}
 
-      {fabVisible && (
-        <button
-          onClick={() => activeTab === "feed"
-            ? setPostDialog(d => ({ ...d, open: true }))
-            : setCollabDialog(d => ({ ...d, open: true }))}
-          className="fixed bottom-24 right-4 z-50 h-14 w-14 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center hover:opacity-90 active:scale-95 transition-all"
-          aria-label={activeTab === "feed" ? "Share an update" : "Post a collaboration"}
-        >
-          <Plus className="h-6 w-6" />
-        </button>
-      )}
     </Layout>
   );
 }
