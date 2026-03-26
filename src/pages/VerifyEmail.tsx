@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { motion } from "framer-motion";
 import { Mail, RefreshCw, Sun, Moon, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase";
@@ -158,12 +157,7 @@ export default function VerifyEmail() {
         {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
       </button>
 
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.35 }}
-        className="w-full max-w-sm text-center"
-      >
+      <div className="w-full max-w-sm text-center animate-in fade-in slide-in-from-bottom-4 duration-300">
         {/* Header */}
         <div className="flex flex-col items-center mb-8">
           <div className="h-16 w-16 rounded-2xl bg-primary/10 flex items-center justify-center mb-4">
@@ -210,13 +204,9 @@ export default function VerifyEmail() {
         {/* Error message */}
         <div className="h-6 flex items-center justify-center mb-4">
           {error && (
-            <motion.p
-              initial={{ opacity: 0, y: -4 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="text-sm text-destructive"
-            >
+            <p className="text-sm text-destructive animate-in fade-in duration-150">
               {error}
-            </motion.p>
+            </p>
           )}
         </div>
 
@@ -248,7 +238,7 @@ export default function VerifyEmail() {
           <ArrowLeft className="h-3.5 w-3.5" />
           Back to sign up
         </button>
-      </motion.div>
+      </div>
     </div>
   );
 }

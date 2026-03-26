@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { motion, AnimatePresence } from "framer-motion";
 import { KeyRound, RefreshCw, Sun, Moon, ArrowLeft, Eye, EyeOff, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -233,15 +232,7 @@ export default function ForgotPassword() {
         {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
       </button>
 
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={step}
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -16 }}
-          transition={{ duration: 0.25 }}
-          className="w-full max-w-sm"
-        >
+      <div className="w-full max-w-sm animate-in fade-in slide-in-from-bottom-4 duration-200">
           {/* Header */}
           <div className="flex flex-col items-center mb-8 text-center">
             <div className={`h-16 w-16 rounded-2xl flex items-center justify-center mb-4 ${step === "success" ? "bg-emerald-500/10" : "bg-primary/10"}`}>
@@ -303,8 +294,7 @@ export default function ForgotPassword() {
 
               <div className="h-6 flex items-center justify-center mb-4">
                 {error && (
-                  <motion.p initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}
-                    className="text-sm text-destructive">{error}</motion.p>
+                  <p className="text-sm text-destructive animate-in fade-in duration-150">{error}</p>
                 )}
               </div>
 
@@ -394,8 +384,7 @@ export default function ForgotPassword() {
               {step === "email" ? "Back to sign in" : "Back"}
             </button>
           )}
-        </motion.div>
-      </AnimatePresence>
+      </div>
     </div>
   );
 }

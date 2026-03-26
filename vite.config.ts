@@ -31,7 +31,6 @@ export default defineConfig(({ mode }) => ({
           if (id.includes("lucide-react")) return "vendor-icons";
           if (id.includes("react-dom") || id.includes("react-router-dom") || id.includes("/react/")) return "vendor-react";
           if (id.includes("@supabase")) return "vendor-supabase";
-          if (id.includes("framer-motion")) return "vendor-framer";
           if (id.includes("recharts")) return "vendor-charts";
           if (id.includes("@radix-ui")) return "vendor-radix";
         },

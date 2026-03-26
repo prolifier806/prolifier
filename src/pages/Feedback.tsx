@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
 import { Star, Send, CheckCircle2, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -118,21 +117,14 @@ export default function Feedback() {
           <p className="text-sm text-muted-foreground mt-1">Help us make Prolifier better for everyone.</p>
         </div>
 
-        <AnimatePresence mode="wait">
-          {submitted ? (
-            <motion.div
-              key="success"
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0 }}
-              className="rounded-xl border border-border bg-card p-10 flex flex-col items-center text-center"
-            >
+        {submitted ? (
+          <div className="rounded-xl border border-border bg-card p-10 flex flex-col items-center text-center animate-in fade-in zoom-in-95 duration-200">
               <CheckCircle2 className="h-14 w-14 text-emerald-500 mb-4" />
               <h2 className="text-xl font-bold mb-1">Thanks for your feedback!</h2>
               <p className="text-sm text-muted-foreground">We read every submission and use it to improve Prolifier.</p>
-            </motion.div>
+            </div>
           ) : (
-            <motion.div key="form" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+            <div>
               <div className="rounded-xl border border-border bg-card p-6 space-y-6">
 
                 {/* Category */}
@@ -241,9 +233,8 @@ export default function Feedback() {
                     : <><Send className="h-4 w-4" /> Submit Feedback</>}
                 </Button>
               </div>
-            </motion.div>
+            </div>
           )}
-        </AnimatePresence>
 
         {/* Past submissions */}
         {!loadingHistory && history.length > 0 && (
@@ -256,14 +247,8 @@ export default function Feedback() {
               Your past submissions ({history.length})
             </button>
 
-            <AnimatePresence>
-              {showHistory && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: "auto" }}
-                  exit={{ opacity: 0, height: 0 }}
-                  className="overflow-hidden"
-                >
+            {showHistory && (
+                <div className="overflow-hidden animate-in fade-in duration-200">
                   <div className="mt-3 space-y-3">
                     {history.map(fb => {
                       const cat = CATEGORIES.find(c => c.value === fb.category);
@@ -286,9 +271,8 @@ export default function Feedback() {
                       );
                     })}
                   </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
+                </div>
+            )}
           </div>
         )}
       </div>

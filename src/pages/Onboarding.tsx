@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Leaf, Eye, EyeOff, Sun, Moon, X, ArrowLeft, Check } from "lucide-react";
@@ -184,8 +183,7 @@ export default function Onboarding() {
           {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
         </button>
 
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }}
-          className="w-full max-w-sm">
+        <div className="w-full max-w-sm animate-in fade-in slide-in-from-bottom-4 duration-300">
           <div className="flex flex-col items-center mb-8">
             <div className="h-12 w-12 rounded-2xl bg-primary flex items-center justify-center mb-3">
               <Leaf className="h-6 w-6 text-primary-foreground" />
@@ -281,7 +279,7 @@ export default function Onboarding() {
               {authMode === "signup" ? "Sign in" : "Sign up"}
             </button>
           </p>
-        </motion.div>
+        </div>
       </div>
     );
   }
@@ -294,16 +292,12 @@ export default function Onboarding() {
       </button>
 
       <div className="w-full max-w-md">
-        <AnimatePresence mode="wait">
-          <motion.div key={current} initial={{ opacity: 0, x: 40 }} animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -40 }} transition={{ duration: 0.35 }}
-            className="flex flex-col items-center text-center">
+        <div className="flex flex-col items-center text-center animate-in fade-in duration-300">
             <img src={slides[current].image} alt={slides[current].title}
               className="w-72 h-52 object-contain mb-8 rounded-xl" />
             <h1 className="font-display text-3xl font-bold mb-3 text-foreground">{slides[current].title}</h1>
             <p className="text-muted-foreground text-base leading-relaxed mb-8 max-w-xs">{slides[current].description}</p>
-          </motion.div>
-        </AnimatePresence>
+          </div>
 
         <div className="flex justify-center gap-2 mb-8">
           {slides.map((_, i) => (

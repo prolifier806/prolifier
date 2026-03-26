@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { motion } from "framer-motion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -358,12 +357,9 @@ export default function Discover() {
                 {filtered.map((p, i) => {
                   const isConnected = connected.has(p.id);
                   return (
-                    <motion.div
+                    <div
                       key={p.id}
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: i * 0.04 }}
-                      className="p-5 rounded-xl border border-border bg-card hover:shadow-md transition-shadow flex flex-col"
+                      className="p-5 rounded-xl border border-border bg-card hover:shadow-md transition-shadow flex flex-col animate-in fade-in slide-in-from-bottom-2 duration-300"
                     >
                       {/* Header */}
                       <div className="flex items-start gap-3 mb-3">
@@ -440,7 +436,7 @@ export default function Discover() {
                           {isConnected ? "Connected" : "Connect"}
                         </Button>
                       </div>
-                    </motion.div>
+                    </div>
                   );
                 })}
               </div>
@@ -478,12 +474,9 @@ export default function Discover() {
               <div className="space-y-3">
                 <p className="text-xs text-muted-foreground mb-2">{requests.length} pending request{requests.length !== 1 ? "s" : ""}</p>
                 {requests.map((r, i) => (
-                  <motion.div
+                  <div
                     key={r.requesterId}
-                    initial={{ opacity: 0, y: 12 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: i * 0.04 }}
-                    className="flex items-center gap-4 p-4 rounded-xl border border-border bg-card"
+                    className="flex items-center gap-4 p-4 rounded-xl border border-border bg-card animate-in fade-in duration-200"
                   >
                     <button
                       onClick={() => navigate(`/profile/${r.requesterId}`)}
@@ -534,7 +527,7 @@ export default function Discover() {
                         Decline
                       </Button>
                     </div>
-                  </motion.div>
+                  </div>
                 ))}
               </div>
             )}

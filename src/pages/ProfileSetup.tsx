@@ -1,6 +1,5 @@
 import { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -296,24 +295,15 @@ export default function ProfileSetup() {
         </p>
 
         <div className="h-1.5 bg-secondary rounded-full mb-8 overflow-hidden">
-          <motion.div
-            className="h-full bg-primary rounded-full"
-            animate={{ width: `${((step + 1) / TOTAL_STEPS) * 100}%` }}
-            transition={{ duration: 0.4 }}
+          <div
+            className="h-full bg-primary rounded-full transition-all duration-400"
+            style={{ width: `${((step + 1) / TOTAL_STEPS) * 100}%` }}
           />
         </div>
 
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={step}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            transition={{ duration: 0.3 }}
-          >
+        <div className="animate-in fade-in slide-in-from-bottom-4 duration-300">
             {steps[step]}
-          </motion.div>
-        </AnimatePresence>
+          </div>
 
         <div className="flex gap-3 mt-8">
           {step > 0 && (

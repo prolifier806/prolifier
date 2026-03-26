@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect, useCallback, memo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { motion, AnimatePresence } from "framer-motion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -197,20 +196,18 @@ function ImageLightbox({ src, onClose }: { src: string; onClose: () => void }) {
   }, [onClose]);
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4"
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 animate-in fade-in duration-150"
       onClick={onClose}>
       <button onClick={onClose}
         className="absolute top-4 right-4 h-9 w-9 rounded-full bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition-colors">
         <X className="h-5 w-5" />
       </button>
-      <motion.img
-        initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+      <img
         src={src} alt="Full size"
         className="max-w-full max-h-[90vh] rounded-xl object-contain"
         onClick={e => e.stopPropagation()}
       />
-    </motion.div>
+    </div>
   );
 }
 
@@ -304,12 +301,9 @@ function ShareDialog({ onClose, link }: { onClose: () => void; link: string }) {
     onClose();
   };
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center animate-in fade-in duration-150">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
-      <motion.div initial={{ y: 60, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 60, opacity: 0 }}
-        transition={{ type: "spring", damping: 26, stiffness: 320 }}
-        className="relative z-10 w-full max-w-sm bg-background rounded-t-2xl sm:rounded-2xl shadow-2xl border border-border">
+      <div className="relative z-10 w-full max-w-sm bg-background rounded-t-2xl sm:rounded-2xl shadow-2xl border border-border animate-in slide-in-from-bottom-4 duration-200">
         <div className="flex items-center justify-between px-5 py-4 border-b border-border">
           <div>
             <h3 className="font-semibold text-foreground">Share</h3>
@@ -346,8 +340,8 @@ function ShareDialog({ onClose, link }: { onClose: () => void; link: string }) {
             </div>
           </button>
         </div>
-      </motion.div>
-    </motion.div>
+      </div>
+    </div>
   );
 }
 
@@ -569,12 +563,9 @@ function CommentSheet({ post, currentUserId, onClose, onAddComment, onDeleteComm
   );
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center animate-in fade-in duration-150">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
-      <motion.div initial={{ y: 60, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 60, opacity: 0 }}
-        transition={{ type: "spring", damping: 26, stiffness: 320 }}
-        className="relative z-10 w-full max-w-lg bg-background rounded-t-2xl sm:rounded-2xl shadow-2xl border border-border flex flex-col max-h-[80vh]">
+      <div className="relative z-10 w-full max-w-lg bg-background rounded-t-2xl sm:rounded-2xl shadow-2xl border border-border flex flex-col max-h-[80vh] animate-in slide-in-from-bottom-4 duration-200">
         <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
           <h3 className="font-semibold text-foreground">Comments · {post.commentCount}</h3>
           <button onClick={onClose} className="h-7 w-7 rounded-full bg-muted flex items-center justify-center hover:bg-secondary transition-colors">
@@ -633,11 +624,9 @@ function CommentSheet({ post, currentUserId, onClose, onAddComment, onDeleteComm
             </div>
           </div>
         </div>
-      </motion.div>
-      <AnimatePresence>
-        {lightboxSrc && <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />}
-      </AnimatePresence>
-    </motion.div>
+      </div>
+      {lightboxSrc && <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />}
+    </div>
   );
 }
 
@@ -760,8 +749,7 @@ const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, highligh
 
   return (
     <>
-      <motion.div layout initial={{opacity:0,y:16}} animate={{opacity:1,y:0}} exit={{opacity:0,scale:0.97}}
-        data-post-id={post.id}
+      <div data-post-id={post.id}
         className={`rounded-xl border border-border bg-card hover:shadow-sm transition-shadow overflow-hidden${highlighted ? " ring-2 ring-primary" : ""}`}>
         <div className="flex items-center gap-3 px-5 pt-5 pb-3">
           <div className={`shrink-0 ${!post.authorDeleted ? "cursor-pointer hover:opacity-80 transition-opacity" : ""}`} onClick={goToProfile}>
@@ -829,10 +817,8 @@ const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, highligh
             <Share2 className="h-4 w-4"/>
           </button>
         </div>
-      </motion.div>
-      <AnimatePresence>
-        {lightboxSrc && <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />}
-      </AnimatePresence>
+      </div>
+      {lightboxSrc && <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />}
     </>
   );
 }, (prev, next) => {
@@ -865,8 +851,7 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
 
   return (
     <>
-      <motion.div layout initial={{opacity:0,y:16}} animate={{opacity:1,y:0}} exit={{opacity:0,scale:0.97}}
-        className="rounded-xl border border-border bg-card hover:shadow-sm transition-shadow overflow-hidden">
+      <div className="rounded-xl border border-border bg-card hover:shadow-sm transition-shadow overflow-hidden">
         <div className="flex items-center gap-3 px-5 pt-5 pb-3">
           <div className={`shrink-0 ${!collab.authorDeleted ? "cursor-pointer hover:opacity-80 transition-opacity" : ""}`} onClick={goToProfile}>
             <Avatar initials={collab.authorDeleted ? "?" : collab.avatar} color={collab.authorDeleted ? "bg-muted" : collab.avatarColor} url={collab.authorDeleted ? undefined : collab.avatarUrl}/>
@@ -935,10 +920,8 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
             </Button>
           </div>
         )}
-      </motion.div>
-      <AnimatePresence>
-        {lightboxSrc && <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />}
-      </AnimatePresence>
+      </div>
+      {lightboxSrc && <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />}
     </>
   );
 }, (prev, next) => {
@@ -1673,8 +1656,7 @@ export default function Feed() {
               </DropdownMenu>
             </div>
 
-            <AnimatePresence>
-              {loading ? <FeedSkeleton /> : filteredPosts.length === 0 ? (
+            {loading ? <FeedSkeleton /> : filteredPosts.length === 0 ? (
                 <div className="text-center py-14 text-muted-foreground">
                   <p className="text-sm font-medium mb-1">
                     {postSearch ? `No results for "${postSearch}"` : activePostTag !== "All" ? `No "${activePostTag}" posts yet` : "No posts yet"}
@@ -1695,7 +1677,6 @@ export default function Feed() {
                   onShare={id => setShareTarget({type:"post",id})}
                 />
               ))}
-            </AnimatePresence>
             {postsHasMore && !loading && (
               <div className="flex justify-center pt-2 pb-4">
                 <Button variant="outline" onClick={fetchMorePosts} disabled={loadingMorePosts} className="gap-2">
@@ -1811,7 +1792,7 @@ export default function Feed() {
                 <button className="text-xs text-primary hover:underline mt-1" onClick={() => { setSearch(""); setActiveFilter("All"); }}>Clear filters</button>
               </div>
             ) : (
-              <AnimatePresence>
+              <>
                 {filteredCollabs.map(c => (
                   <CollabCard key={c.id} collab={c} interestedSet={interestedCollabs} savedCollabs={savedCollabs}
                     onInterest={handleInterest} onMessage={() => navigate("/messages")}
@@ -1821,7 +1802,7 @@ export default function Feed() {
                     onShare={id => setShareTarget({type:"collab",id})}
                   />
                 ))}
-              </AnimatePresence>
+              </>
             )}
             {collabsHasMore && !loading && (
               <div className="flex justify-center pt-2 pb-4">
@@ -1836,14 +1817,10 @@ export default function Feed() {
         </Tabs>
       </div>
 
-      <AnimatePresence>
-        {commentingPost && <CommentSheet post={commentingPost} currentUserId={user.id} onClose={() => setCommentingPost(null)} onAddComment={handleAddComment} onDeleteComment={handleDeleteComment} onEditComment={handleEditComment} onReportComment={handleReportComment}/>}
-      </AnimatePresence>
+      {commentingPost && <CommentSheet post={commentingPost} currentUserId={user.id} onClose={() => setCommentingPost(null)} onAddComment={handleAddComment} onDeleteComment={handleDeleteComment} onEditComment={handleEditComment} onReportComment={handleReportComment}/>}
       {editingPost && <EditPostDialog post={editingPost} open={!!editingPost} onClose={() => setEditingPost(null)} onSave={handleEditPost}/>}
       {editingCollab && <EditCollabDialog collab={editingCollab} open={!!editingCollab} onClose={() => setEditingCollab(null)} onSave={handleEditCollab}/>}
-      <AnimatePresence>
-        {shareTarget && <ShareDialog onClose={() => setShareTarget(null)} link={shareLink}/>}
-      </AnimatePresence>
+      {shareTarget && <ShareDialog onClose={() => setShareTarget(null)} link={shareLink}/>}
       {reportTarget && <ReportDialog open={!!reportTarget} onClose={() => setReportTarget(null)} target={reportTarget.type==="post"?"this post":reportTarget.type==="collab"?"this collab":"this comment"} targetType={reportTarget.type} targetId={reportTarget.id}/>}
     </Layout>
   );
