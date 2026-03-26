@@ -161,6 +161,38 @@ export function UserProvider({ children }: { children: ReactNode }) {
         const elapsed = Date.now() - new Date(row.deleted_at).getTime();
         const sevenDays = 7 * 24 * 60 * 60 * 1000;
         if (elapsed > sevenDays) {
+          // ── Clean up storage before deleting rows ──────────────────────
+          // Extract storage path from a Supabase public URL
+          const storagePath = (url: string, bucket: string) => {
+            try {
+              const m = url.match(new RegExp(`/storage/v1/object/public/${bucket}/(.+?)(?:\\?|$)`));
+              return m ? m[1] : null;
+            } catch { return null; }
+          };
+
+          // Delete post & collab media files
+          const [{ data: userPosts }, { data: userCollabs }] = await Promise.all([
+            (supabase as any).from("posts").select("image_url,video_url").eq("user_id", userId),
+            (supabase as any).from("collabs").select("image_url,video_url").eq("user_id", userId),
+          ]);
+          const mediaPaths = [...(userPosts ?? []), ...(userCollabs ?? [])]
+            .flatMap((r: any) => [r.image_url, r.video_url])
+            .filter(Boolean)
+            .map((url: string) => storagePath(url, "posts"))
+            .filter(Boolean) as string[];
+          if (mediaPaths.length > 0) {
+            await (supabase as any).storage.from("posts").remove(mediaPaths);
+          }
+
+          // Delete avatar (list the folder to catch any file extension)
+          const { data: avatarFiles } = await (supabase as any).storage
+            .from("avatars").list(userId);
+          if (avatarFiles?.length > 0) {
+            await (supabase as any).storage.from("avatars")
+              .remove(avatarFiles.map((f: any) => `${userId}/${f.name}`));
+          }
+          // ───────────────────────────────────────────────────────────────
+
           await Promise.all([
             (supabase as any).from("post_likes").delete().eq("user_id", userId),
             (supabase as any).from("comments").delete().eq("user_id", userId),

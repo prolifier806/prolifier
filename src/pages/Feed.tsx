@@ -1413,13 +1413,16 @@ export default function Feed() {
   const handleEditPost = useCallback(async (id: string, content: string, tag: string, image?: string, video?: string) => {
     const pre = checkContent(content);
     if (!pre.allowed) { toast({ title: pre.message!, variant: "destructive" }); return; }
+    const old = posts.find(p => p.id === id);
+    if (old?.image && old.image !== image) await deleteFromStorage(old.image);
+    if (old?.video && old.video !== video) await deleteFromStorage(old.video);
     const { error } = await (supabase as any).from("posts")
       .update({ content, tag, image_url: image || null, video_url: video || null })
       .eq("id", id).eq("user_id", user.id);
     if (error) { const modMsg = parseModerationError(error); toast({ title: modMsg ?? "Failed to update post", variant: "destructive" }); return; }
     setPosts(p => p.map(x => x.id === id ? { ...x, content, tag, image, video } : x));
     toast({ title: "Post updated ✓" });
-  }, [user.id]);
+  }, [posts, user.id]);
 
   const handleHidePost = useCallback((id: string) => {
     setPosts(p => p.filter(x => x.id !== id));
@@ -1507,6 +1510,9 @@ export default function Feed() {
     const textToCheck = [updates.title, updates.description].filter(Boolean).join(" ");
     const pre = checkContent(textToCheck);
     if (!pre.allowed) { toast({ title: pre.message!, variant: "destructive" }); return; }
+    const old = collabs.find(c => c.id === id);
+    if (old?.image && old.image !== updates.image) await deleteFromStorage(old.image);
+    if (old?.video && old.video !== updates.video) await deleteFromStorage(old.video);
     const { error } = await (supabase as any).from("collabs").update({
       title: updates.title, looking: updates.looking, description: updates.description,
       skills: updates.skills, image_url: updates.image || null, video_url: updates.video || null,
@@ -1514,7 +1520,7 @@ export default function Feed() {
     if (error) { const modMsg = parseModerationError(error); toast({ title: modMsg ?? "Failed to update collab", variant: "destructive" }); return; }
     setCollabs(p => p.map(x => x.id === id ? { ...x, ...updates } : x));
     toast({ title: "Collab updated ✓" });
-  }, [user.id]);
+  }, [collabs, user.id]);
 
   const handleHideCollab = useCallback((id: string) => {
     setCollabs(p => p.filter(x => x.id !== id));

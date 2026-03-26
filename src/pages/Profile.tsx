@@ -341,9 +341,9 @@ export default function Profile() {
     if (!file) return;
     e.target.value = "";
     setAvatarUploading(true);
-    const ext = file.name.split(".").pop();
-    const path = `${user.id}/avatar.${ext}`;
-    const { error } = await (supabase as any).storage.from("avatars").upload(path, file, { upsert: true });
+    // Always write to the same path so the old file is atomically replaced
+    const path = `${user.id}/avatar`;
+    const { error } = await (supabase as any).storage.from("avatars").upload(path, file, { upsert: true, contentType: file.type });
     if (error) {
       toast({ title: "Upload failed", description: error.message, variant: "destructive" });
       setAvatarUploading(false);
