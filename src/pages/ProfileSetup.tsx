@@ -120,6 +120,7 @@ export default function ProfileSetup() {
     if (step === 0) {
       if (!name.trim()) return;
       if (!location.trim()) { toast({ title: "Location is required", variant: "destructive" }); return; }
+      if (!LOCATIONS.includes(location.trim())) { toast({ title: "Please select a location from the list", variant: "destructive" }); return; }
       if (!bio.trim()) { toast({ title: "Bio is required", variant: "destructive" }); return; }
     }
     if (step === 1 && skills.length === 0) {

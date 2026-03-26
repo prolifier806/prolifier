@@ -325,6 +325,9 @@ export default function Profile() {
 
   const saveEdits = async () => {
     if (!draftName.trim()) return;
+    if (draftLocation.trim() && !LOCATIONS.includes(draftLocation.trim())) {
+      toast({ title: "Please select a valid location from the list", variant: "destructive" }); return;
+    }
     setSaving(true);
     await updateUser({
       name: draftName.trim(), location: draftLocation.trim(), bio: draftBio.trim(),

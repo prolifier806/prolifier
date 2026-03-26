@@ -47,12 +47,7 @@ export function useRealtimeChannel(
     const ch = setupRef.current(supabase.channel(key));
 
     ch.subscribe((status, err) => {
-      if (import.meta.env.DEV) {
-        const active = (supabase as any).getChannels?.()?.length ?? "?";
-        // eslint-disable-next-line no-console
-        console.log(`[Realtime] ${key} → ${status} | active channels: ${active}`);
-        if (err) console.error(`[Realtime] ${key} error:`, err);
-      }
+      if (err && import.meta.env.DEV) console.error(`[Realtime] ${key} error:`, err);
       onStatusRef.current?.(status, err ?? undefined);
     });
 
@@ -62,11 +57,6 @@ export function useRealtimeChannel(
       if (channelRef.current) {
         supabase.removeChannel(channelRef.current);
         channelRef.current = null;
-        if (import.meta.env.DEV) {
-          const active = (supabase as any).getChannels?.()?.length ?? "?";
-          // eslint-disable-next-line no-console
-          console.log(`[Realtime] ${key} → removed | active channels: ${active}`);
-        }
       }
     };
   }, [key]); // key encodes all deps (userId, groupId, etc.) — no spreading needed

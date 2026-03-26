@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, memo } from "react";
+import { useState, useRef, useEffect, useCallback, memo, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -913,11 +913,11 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
           </DropdownMenu>
         </div>
         <div className="px-5 pb-4 space-y-2">
-          <p className="text-sm font-medium text-foreground/70 leading-snug truncate">{collab.title}</p>
-          <p className="text-[15px] leading-snug">
-            <span className="text-muted-foreground">Looking for </span>
-            <span className="font-semibold italic text-foreground">{collab.looking}</span>
-          </p>
+          <p className="text-xs font-medium text-muted-foreground truncate">{collab.title}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center rounded-full bg-primary/10 border border-primary/20 px-2.5 py-0.5 text-[11px] font-semibold text-primary uppercase tracking-wide shrink-0">Looking for</span>
+            <span className="text-[15px] font-bold text-foreground leading-tight">{collab.looking}</span>
+          </div>
           <p className="text-xs text-muted-foreground/80 leading-relaxed break-words line-clamp-2">{collab.description}</p>
           {collab.image && <SmartImage src={collab.image} alt="collab" onClick={() => setLightboxSrc(collab.image!)} />}
           {collab.video && <SmartVideo src={collab.video} />}
@@ -1026,6 +1026,7 @@ export default function Feed() {
     image: undefined as string|undefined,
     video: undefined as string|undefined,
     uploading: false,
+    publishing: false,
     customSkillInput: "",
   });
 
@@ -1551,26 +1552,32 @@ export default function Feed() {
   }, []);
 
   const handleCreateCollab = useCallback(async () => {
-    if (!collabDialog.title.trim() || !collabDialog.looking.trim() || !collabDialog.desc.trim()) return;
+    if (!collabDialog.title.trim() || !collabDialog.looking.trim() || !collabDialog.desc.trim() || collabDialog.publishing) return;
     const pre = checkContent(`${collabDialog.title} ${collabDialog.desc}`);
     if (!pre.allowed) { toast({ title: pre.message!, variant: "destructive" }); return; }
-    const { data, error } = await (supabase as any)
-      .from("collabs")
-      .insert({
-        user_id: user.id, title: collabDialog.title, looking: collabDialog.looking,
-        description: collabDialog.desc, skills: collabDialog.skills,
-        image_url: collabDialog.image || null, video_url: collabDialog.video || null,
-      })
-      .select().single();
-    if (error) { const modMsg = parseModerationError(error); toast({ title: modMsg ?? "Failed to create collab", variant: "destructive" }); return; }
-    setCollabs(p => [{
-      id: data.id, user_id: user.id, author: user.name, avatar: user.avatar,
-      avatarColor: user.color, location: user.location, title: collabDialog.title,
-      looking: collabDialog.looking, description: collabDialog.desc, skills: collabDialog.skills,
-      image: collabDialog.image, video: collabDialog.video, isOwn: true,
-    }, ...p]);
-    setCollabDialog({ open: false, title: "", looking: "", desc: "", skills: [], image: undefined, video: undefined, uploading: false, customSkillInput: "" });
-    toast({ title: "Collab posted! 🤝" });
+    setCollabDialog(d => ({ ...d, publishing: true }));
+    try {
+      const { data, error } = await (supabase as any)
+        .from("collabs")
+        .insert({
+          user_id: user.id, title: collabDialog.title, looking: collabDialog.looking,
+          description: collabDialog.desc, skills: collabDialog.skills,
+          image_url: collabDialog.image || null, video_url: collabDialog.video || null,
+        })
+        .select().single();
+      if (error) { const modMsg = parseModerationError(error); toast({ title: modMsg ?? "Failed to create collab", variant: "destructive" }); return; }
+      setCollabs(p => [{
+        id: data.id, user_id: user.id, author: user.name, avatar: user.avatar,
+        avatarUrl: user.avatarUrl || undefined,
+        avatarColor: user.color, location: user.location, title: collabDialog.title,
+        looking: collabDialog.looking, description: collabDialog.desc, skills: collabDialog.skills,
+        image: collabDialog.image, video: collabDialog.video, isOwn: true,
+      }, ...p]);
+      setCollabDialog({ open: false, title: "", looking: "", desc: "", skills: [], image: undefined, video: undefined, uploading: false, publishing: false, customSkillInput: "" });
+      toast({ title: "Collab posted! 🤝" });
+    } finally {
+      setCollabDialog(d => ({ ...d, publishing: false }));
+    }
   }, [collabDialog, user]);
 
   const handleRemoveCollabImage = async () => {
@@ -1587,13 +1594,13 @@ export default function Feed() {
       ? `${window.location.origin}/feed?post=${shareTarget.id}`
       : `${window.location.origin}/feed?tab=collabs`
     : "";
-  const filteredPosts = posts.filter(p => {
+  const filteredPosts = useMemo(() => posts.filter(p => {
     const matchTag = activePostTag === "All" || p.tag === activePostTag;
     const q = postSearch.toLowerCase().trim();
     const matchSearch = !q || p.author.toLowerCase().includes(q) || p.content.toLowerCase().includes(q) || p.tag.toLowerCase().includes(q);
     return matchTag && matchSearch;
-  });
-  const filteredCollabs = collabs.filter(c => {
+  }), [posts, activePostTag, postSearch]);
+  const filteredCollabs = useMemo(() => collabs.filter(c => {
     const q = search.toLowerCase();
     const ms = !search || c.author.toLowerCase().includes(q) || c.title.toLowerCase().includes(q) || c.looking.toLowerCase().includes(q) || c.description.toLowerCase().includes(q) || c.skills.some(s => s.toLowerCase().includes(q));
     const mf = activeFilter === "All"
@@ -1602,7 +1609,7 @@ export default function Feed() {
         ? c.skills.some(s => !(SKILL_OPTIONS as readonly string[]).includes(s))
         : c.skills.some(s => s.toLowerCase().includes(activeFilter.toLowerCase())) || c.looking.toLowerCase().includes(activeFilter.toLowerCase());
     return ms && mf;
-  });
+  }), [collabs, search, activeFilter]);
 
   return (
     <Layout>
@@ -1747,22 +1754,16 @@ export default function Feed() {
                   <div>
                     <label className="text-sm font-medium mb-1.5 block">Project / idea name</label>
                     <Input value={collabDialog.title}
-                      onChange={e => {
-                        const raw = e.target.value;
-                        const words = raw.trim() ? raw.trim().split(/\s+/) : [];
-                        setCollabDialog(d => ({ ...d, title: words.length > 25 ? words.slice(0, 25).join(" ") : raw }));
-                      }}
-                      placeholder="e.g. Community Book Club Network" className="h-10"/>
+                      onChange={e => setCollabDialog(d => ({ ...d, title: e.target.value }))}
+                      maxLength={20}
+                      placeholder="e.g. Community Book Club" className="h-10"/>
                   </div>
                   <div>
                     <label className="text-sm font-medium mb-1.5 block">Looking for</label>
                     <Input value={collabDialog.looking}
-                      onChange={e => {
-                        const raw = e.target.value;
-                        const words = raw.trim() ? raw.trim().split(/\s+/) : [];
-                        setCollabDialog(d => ({ ...d, looking: words.length > 40 ? words.slice(0, 40).join(" ") : raw }));
-                      }}
-                      placeholder="e.g. Photographer, Sound Engineer, Marketing help" className="h-10"/>
+                      onChange={e => setCollabDialog(d => ({ ...d, looking: e.target.value }))}
+                      maxLength={30}
+                      placeholder="e.g. Designer, Sound Engineer" className="h-10"/>
                   </div>
                   <div>
                     <label className="text-sm font-medium mb-1.5 block">Describe your project</label>
@@ -1829,8 +1830,8 @@ export default function Feed() {
                   </div>
                 </div>
                 <DialogFooter>
-                  <Button onClick={handleCreateCollab} disabled={!collabDialog.title.trim()||!collabDialog.looking.trim()||!collabDialog.desc.trim()||collabDialog.uploading} className="gap-2">
-                    <Send className="h-4 w-4"/> {collabDialog.uploading ? "Uploading..." : "Post collab"}
+                  <Button onClick={handleCreateCollab} disabled={!collabDialog.title.trim()||!collabDialog.looking.trim()||!collabDialog.desc.trim()||collabDialog.uploading||collabDialog.publishing} className="gap-2">
+                    <Send className="h-4 w-4"/> {collabDialog.uploading ? "Uploading..." : collabDialog.publishing ? "Posting..." : "Post collab"}
                   </Button>
                 </DialogFooter>
               </DialogContent>
