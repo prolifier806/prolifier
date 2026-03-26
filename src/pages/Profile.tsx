@@ -1040,14 +1040,11 @@ export default function Profile() {
             {editing
               ? <>
                   <Textarea value={draftBio}
-                    onChange={e => {
-                      const raw = e.target.value;
-                      const words = raw.trim() ? raw.trim().split(/\s+/) : [];
-                      setDraftBio(words.length > 120 ? words.slice(0, 120).join(" ") : raw);
-                    }}
+                    onChange={e => setDraftBio(e.target.value)}
+                    maxLength={500}
                     rows={3} placeholder="Tell people about yourself..." />
                   <p className="text-xs text-muted-foreground text-right mt-1">
-                    {(draftBio.match(/\S+/g) || []).length}/120 words
+                    {draftBio.length}/500
                   </p>
                 </>
               : <p className="text-sm text-foreground leading-relaxed">{user.bio || <span className="text-muted-foreground italic">No bio yet</span>}</p>}
