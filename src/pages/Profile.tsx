@@ -1038,7 +1038,18 @@ export default function Profile() {
           <div className="mb-4">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">About</p>
             {editing
-              ? <Textarea value={draftBio} onChange={e => setDraftBio(e.target.value)} rows={3} placeholder="Tell people about yourself..." maxLength={100} />
+              ? <>
+                  <Textarea value={draftBio}
+                    onChange={e => {
+                      const raw = e.target.value;
+                      const words = raw.trim() ? raw.trim().split(/\s+/) : [];
+                      setDraftBio(words.length > 120 ? words.slice(0, 120).join(" ") : raw);
+                    }}
+                    rows={3} placeholder="Tell people about yourself..." />
+                  <p className="text-xs text-muted-foreground text-right mt-1">
+                    {draftBio.trim() ? draftBio.trim().split(/\s+/).length : 0}/120 words
+                  </p>
+                </>
               : <p className="text-sm text-foreground leading-relaxed">{user.bio || <span className="text-muted-foreground italic">No bio yet</span>}</p>}
           </div>
 
@@ -1083,6 +1094,7 @@ export default function Profile() {
                     <Input placeholder="Other skill…" value={customSkillInput}
                       onChange={e => setCustomSkillInput(e.target.value)}
                       className="h-8 text-sm"
+                      maxLength={20}
                       onKeyDown={e => {
                         if (e.key === "Enter") {
                           e.preventDefault();

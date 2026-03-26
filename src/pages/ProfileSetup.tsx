@@ -198,7 +198,16 @@ export default function ProfileSetup() {
         <label className="text-sm font-medium text-foreground mb-1.5 block">
           Bio <span className="text-destructive">*</span>
         </label>
-        <Textarea value={bio} onChange={e => setBio(e.target.value)} placeholder="Tell the community a bit about yourself..." rows={3} maxLength={600} />
+        <Textarea value={bio}
+          onChange={e => {
+            const raw = e.target.value;
+            const words = raw.trim() ? raw.trim().split(/\s+/) : [];
+            setBio(words.length > 120 ? words.slice(0, 120).join(" ") : raw);
+          }}
+          placeholder="Tell the community a bit about yourself..." rows={3} />
+        <p className="text-xs text-muted-foreground text-right mt-1">
+          {bio.trim() ? bio.trim().split(/\s+/).length : 0}/120 words
+        </p>
       </div>
       <div>
         <div className="flex items-center justify-between mb-1.5">
@@ -245,6 +254,7 @@ export default function ProfileSetup() {
             <div className="flex gap-2">
               <Input placeholder="Other skill…" value={customSkillInput}
                 onChange={e => setCustomSkillInput(e.target.value)} className="h-9 text-sm"
+                maxLength={20}
                 onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addCustomSkill(); } }} />
               <Button type="button" size="sm" variant="outline" className="h-9 px-3 shrink-0 gap-1" onClick={addCustomSkill}>
                 <Plus className="h-3.5 w-3.5" /> Add
