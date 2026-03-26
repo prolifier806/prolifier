@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, memo, useMemo } from "react";
+import ReactPlayer from "react-player/file";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,7 +16,7 @@ import {
   Heart, MessageCircle, MapPin, Search, Plus, Send, MoreHorizontal,
   Trash2, Edit3, Bookmark, Share2, Flag, EyeOff, Handshake,
   X, Check, BookmarkCheck, ImageIcon, Link2, Video as VideoIcon, ZoomIn,
-  SlidersHorizontal, Play, Pause, RotateCcw, RotateCw, Maximize2,
+  SlidersHorizontal,
 } from "lucide-react";
 import Layout from "@/components/Layout";
 import { toast } from "@/hooks/use-toast";
@@ -117,214 +118,26 @@ async function deleteFromStorage(url: string) {
   }
 }
 
-// ── Custom Video Player ─────────────────────────────────────────────────────
+// ── Smart Video — react-player ──────────────────────────────────────────────
 function SmartVideo({ src, className }: { src: string; className?: string }) {
-  const videoRef      = useRef<HTMLVideoElement>(null);
-  const containerRef  = useRef<HTMLDivElement>(null);
-  const seekBarRef    = useRef<HTMLDivElement>(null);
-  const hideTimer     = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const dragging      = useRef(false);
-  const speedMenuOpen = useRef(false);
-
-  const [portrait,      setPortrait]      = useState(false);
-  const [playing,       setPlaying]       = useState(false);
-  const [progress,      setProgress]      = useState(0);
-  const [currentTime,   setCurrentTime]   = useState(0);
-  const [duration,      setDuration]      = useState(0);
-  const [speed,         setSpeed]         = useState(1);
-  const [showControls,  setShowControls]  = useState(true);
-  const [showSpeedMenu, setShowSpeedMenu] = useState(false);
-
-  const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
-
-  const scheduleHide = () => {
-    if (hideTimer.current) clearTimeout(hideTimer.current);
-    // never hide while speed menu is open
-    if (speedMenuOpen.current) return;
-    hideTimer.current = setTimeout(() => setShowControls(false), 2500);
-  };
-  const reveal = () => {
-    setShowControls(true);
-    if (videoRef.current && !videoRef.current.paused) scheduleHide();
-  };
-  const cancelHide = () => { if (hideTimer.current) clearTimeout(hideTimer.current); };
-
-  /* ── Play / pause ─────────────────────────────────────────────── */
-  const togglePlay = () => {
-    const v = videoRef.current; if (!v) return;
-    if (v.paused) { v.play(); scheduleHide(); } else { v.pause(); }
-  };
-
-  /* ── Skip ±10 s ───────────────────────────────────────────────── */
-  const skip = (secs: number) => {
-    const v = videoRef.current; if (!v) return;
-    v.currentTime = Math.max(0, Math.min(v.duration, v.currentTime + secs));
-    reveal();
-  };
-
-  /* ── Seek bar — Pointer Events (works for mouse + touch) ─────── */
-  const applySeek = (clientX: number) => {
-    const bar = seekBarRef.current; const v = videoRef.current;
-    if (!bar || !v || !v.duration) return;
-    const rect  = bar.getBoundingClientRect();
-    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-    v.currentTime = ratio * v.duration;
-    setProgress(ratio * 100);
-    setCurrentTime(v.currentTime);
-  };
-  const onSeekPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    e.stopPropagation();
-    e.currentTarget.setPointerCapture(e.pointerId);
-    dragging.current = true;
-    applySeek(e.clientX);
-    cancelHide();
-  };
-  const onSeekPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!dragging.current) return;
-    e.stopPropagation();
-    applySeek(e.clientX);
-  };
-  const onSeekPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
-    e.stopPropagation();
-    dragging.current = false;
-    reveal();
-  };
-
-  /* ── Speed ────────────────────────────────────────────────────── */
-  const openSpeedMenu = () => {
-    speedMenuOpen.current = true;
-    cancelHide();
-    setShowSpeedMenu(true);
-  };
-  const selectSpeed = (s: number) => {
-    if (videoRef.current) videoRef.current.playbackRate = s;
-    setSpeed(s);
-    speedMenuOpen.current = false;
-    setShowSpeedMenu(false);
-    scheduleHide();
-  };
-
-  /* ── Fullscreen (webkit + standard) ──────────────────────────── */
-  const doFullscreen = () => {
-    const el = containerRef.current; const v = videoRef.current;
-    const doc = document as any;
-    if (doc.fullscreenElement || doc.webkitFullscreenElement) {
-      (doc.exitFullscreen || doc.webkitExitFullscreen)?.call(doc);
-      return;
-    }
-    const el2 = el as any;
-    if (el?.requestFullscreen)          { el.requestFullscreen().catch(() => { if (v && (v as any).webkitEnterFullscreen) (v as any).webkitEnterFullscreen(); }); }
-    else if (el2?.webkitRequestFullscreen) { el2.webkitRequestFullscreen(); }
-    else if (v && (v as any).webkitEnterFullscreen) { (v as any).webkitEnterFullscreen(); }
-  };
-
-  const fmt = (s: number) => {
-    if (!s || isNaN(s)) return "0:00";
-    return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
-  };
-
   return (
-    <div
-      ref={containerRef}
-      className="relative rounded-xl overflow-hidden bg-black select-none"
-      onPointerMove={reveal}
-    >
-      <video
-        ref={videoRef}
-        src={src}
-        disablePictureInPicture
-        className={`block w-full max-h-72 ${portrait ? "object-contain" : "object-cover"} ${className ?? ""}`}
-        style={{ backgroundColor: "#000" }}
-        onLoadedMetadata={e => { const v = e.currentTarget; setPortrait(v.videoHeight > v.videoWidth); setDuration(v.duration); }}
-        onTimeUpdate={e => {
-          if (dragging.current) return;
-          const v = e.currentTarget;
-          if (!v.duration) return;
-          setCurrentTime(v.currentTime);
-          setProgress((v.currentTime / v.duration) * 100);
+    <div className={`rounded-xl overflow-hidden bg-black w-full ${className ?? ""}`}>
+      <ReactPlayer
+        url={src}
+        controls
+        width="100%"
+        height="auto"
+        style={{ display: "block", maxHeight: "288px" }}
+        config={{
+          file: {
+            attributes: {
+              controlsList: "nodownload nopictureinpicture",
+              disablePictureInPicture: true,
+              style: { maxHeight: "288px", width: "100%", backgroundColor: "#000" },
+            },
+          },
         }}
-        onPlay={()  => { setPlaying(true);  scheduleHide(); }}
-        onPause={()  => { setPlaying(false); cancelHide(); setShowControls(true); }}
-        onEnded={()  => { setPlaying(false); cancelHide(); setShowControls(true); }}
       />
-
-      {/* ── Overlay ──────────────────────────────────────────────── */}
-      <div
-        className={`absolute inset-0 transition-opacity duration-200 ${showControls ? "opacity-100" : "opacity-0 pointer-events-none"}`}
-        style={{ background: "linear-gradient(to bottom, transparent 30%, rgba(0,0,0,0.8) 100%)" }}
-      >
-        {/* Tap-to-fullscreen layer (behind buttons) */}
-        <div className="absolute inset-0" onClick={doFullscreen} />
-
-        {/* Centre buttons — above tap layer */}
-        <div className="absolute inset-0 flex items-center justify-center gap-10 pointer-events-none">
-          <button type="button" className="pointer-events-auto flex flex-col items-center gap-0.5 text-white/85 hover:text-white active:scale-90 transition-all"
-            onClick={e => { e.stopPropagation(); skip(-10); reveal(); }}>
-            <RotateCcw className="h-7 w-7" />
-            <span className="text-[10px] font-semibold leading-none">10s</span>
-          </button>
-          <button type="button"
-            className="pointer-events-auto h-14 w-14 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center hover:bg-white/30 active:scale-90 transition-all"
-            onClick={e => { e.stopPropagation(); togglePlay(); }}>
-            {playing ? <Pause className="h-6 w-6 text-white fill-white" /> : <Play className="h-6 w-6 text-white fill-white ml-0.5" />}
-          </button>
-          <button type="button" className="pointer-events-auto flex flex-col items-center gap-0.5 text-white/85 hover:text-white active:scale-90 transition-all"
-            onClick={e => { e.stopPropagation(); skip(10); reveal(); }}>
-            <RotateCw className="h-7 w-7" />
-            <span className="text-[10px] font-semibold leading-none">10s</span>
-          </button>
-        </div>
-
-        {/* Bottom bar — above tap layer */}
-        <div className="absolute bottom-0 left-0 right-0 px-3 pb-3 pt-1 space-y-1.5" onClick={e => e.stopPropagation()}>
-          {/* Seek bar */}
-          <div className="flex items-center gap-2">
-            <span className="text-white/70 text-[11px] tabular-nums w-8 shrink-0">{fmt(currentTime)}</span>
-            <div
-              ref={seekBarRef}
-              className="relative flex-1 h-4 flex items-center cursor-pointer touch-none"
-              onPointerDown={onSeekPointerDown}
-              onPointerMove={onSeekPointerMove}
-              onPointerUp={onSeekPointerUp}
-              onPointerCancel={onSeekPointerUp}
-            >
-              <div className="absolute inset-x-0 h-1.5 bg-white/25 rounded-full">
-                <div className="h-full bg-primary rounded-full" style={{ width: `${progress}%` }} />
-              </div>
-              <div
-                className="absolute h-3.5 w-3.5 rounded-full bg-white shadow-md"
-                style={{ left: `${progress}%`, transform: "translateX(-50%)" }}
-              />
-            </div>
-            <span className="text-white/70 text-[11px] tabular-nums w-8 text-right shrink-0">{fmt(duration)}</span>
-          </div>
-
-          {/* Speed + fullscreen */}
-          <div className="flex items-center justify-between">
-            <div className="relative">
-              <button type="button"
-                onClick={e => { e.stopPropagation(); showSpeedMenu ? (speedMenuOpen.current = false, setShowSpeedMenu(false), scheduleHide()) : openSpeedMenu(); }}
-                className="text-[11px] font-bold text-white bg-white/15 hover:bg-white/25 rounded-md px-2.5 py-1 transition-colors leading-none"
-              >
-                {speed}×
-              </button>
-              {showSpeedMenu && (
-                <div className="absolute bottom-9 left-0 bg-zinc-900 rounded-xl overflow-hidden shadow-xl border border-white/10 z-30 min-w-[72px]">
-                  {SPEEDS.map(s => (
-                    <button type="button" key={s}
-                      onClick={e => { e.stopPropagation(); selectSpeed(s); }}
-                      className={`block w-full text-center px-4 py-2 text-sm font-medium transition-colors ${speed === s ? "text-primary bg-white/5" : "text-white/75 hover:text-white hover:bg-white/10"}`}
-                    >{s}×</button>
-                  ))}
-                </div>
-              )}
-            </div>
-            <button type="button" onClick={e => { e.stopPropagation(); doFullscreen(); }} className="text-white/80 hover:text-white transition-colors p-1">
-              <Maximize2 className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
