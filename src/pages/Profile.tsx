@@ -1038,7 +1038,7 @@ export default function Profile() {
           <div className="mb-4">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">About</p>
             {editing
-              ? <Textarea value={draftBio} onChange={e => setDraftBio(e.target.value)} rows={3} placeholder="Tell people about yourself..." />
+              ? <Textarea value={draftBio} onChange={e => setDraftBio(e.target.value)} rows={3} placeholder="Tell people about yourself..." maxLength={600} />
               : <p className="text-sm text-foreground leading-relaxed">{user.bio || <span className="text-muted-foreground italic">No bio yet</span>}</p>}
           </div>
 
@@ -1046,7 +1046,7 @@ export default function Profile() {
           <div className="mb-4">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Currently building</p>
             {editing
-              ? <Input value={draftProject} onChange={e => setDraftProject(e.target.value)} className="h-9" placeholder="Project name — short description" />
+              ? <Input value={draftProject} onChange={e => setDraftProject(e.target.value)} className="h-9" placeholder="Project name — short description" maxLength={150} />
               : <p className="text-sm text-primary font-medium">{user.project || <span className="text-muted-foreground italic font-normal">Nothing listed yet</span>}</p>}
           </div>
 

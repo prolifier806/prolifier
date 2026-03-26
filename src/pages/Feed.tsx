@@ -743,6 +743,13 @@ const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, highligh
   const isSaved = savedPosts.has(post.id);
   const navigate = useNavigate();
   const [lightboxSrc, setLightboxSrc] = useState<string|null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const POST_PREVIEW_WORDS = 150;
+  const postWords = post.content.split(/\s+/);
+  const needsReadMore = postWords.length > POST_PREVIEW_WORDS;
+  const displayContent = !expanded && needsReadMore
+    ? postWords.slice(0, POST_PREVIEW_WORDS).join(" ") + "…"
+    : post.content;
 
   const goToProfile = () => {
     if (post.authorDeleted) return;
@@ -799,7 +806,15 @@ const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, highligh
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-        <p className="text-sm text-foreground leading-relaxed px-5 pb-3 break-words">{post.content}</p>
+        <div className="px-5 pb-3">
+          <p className="text-sm text-foreground leading-relaxed break-words">{displayContent}</p>
+          {needsReadMore && (
+            <button onClick={e => { e.stopPropagation(); setExpanded(v => !v); }}
+              className="text-xs text-primary font-medium mt-1 hover:opacity-75 transition-opacity">
+              {expanded ? "Show less" : "Read more"}
+            </button>
+          )}
+        </div>
         {post.image && (
           <div className="px-5 pb-3">
             <SmartImage src={post.image} alt="post" onClick={() => setLightboxSrc(post.image!)} />
@@ -897,14 +912,13 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-        <div className="px-5 pb-4 space-y-3">
-          <h3 className="font-bold text-base text-foreground leading-snug">{collab.title}</h3>
-          <div className="flex items-center gap-2 flex-wrap">
-            <Handshake className="h-3.5 w-3.5 text-primary shrink-0" />
-            <span className="text-xs text-muted-foreground font-medium">Looking for</span>
-            <span className="text-xs font-semibold bg-primary/10 text-primary px-2.5 py-0.5 rounded-full">{collab.looking}</span>
-          </div>
-          <p className="text-sm text-muted-foreground leading-relaxed break-words">{collab.description}</p>
+        <div className="px-5 pb-4 space-y-2">
+          <p className="text-sm font-medium text-foreground/70 leading-snug truncate">{collab.title}</p>
+          <p className="text-[15px] leading-snug">
+            <span className="text-muted-foreground">Looking for </span>
+            <span className="font-semibold italic text-foreground">{collab.looking}</span>
+          </p>
+          <p className="text-xs text-muted-foreground/80 leading-relaxed break-words line-clamp-2">{collab.description}</p>
           {collab.image && <SmartImage src={collab.image} alt="collab" onClick={() => setLightboxSrc(collab.image!)} />}
           {collab.video && <SmartVideo src={collab.video} />}
           {collab.skills.length > 0 && (
@@ -1617,7 +1631,8 @@ export default function Feed() {
                 <div className="space-y-4 py-2">
                   <div>
                     <label className="text-sm font-medium mb-1.5 block">What's on your mind?</label>
-                    <Textarea value={postDialog.content} onChange={e => setPostDialog(d => ({ ...d, content: e.target.value }))} placeholder="Share what you're working on, ask for advice, or celebrate a win..." rows={4}/>
+                    <Textarea value={postDialog.content} onChange={e => setPostDialog(d => ({ ...d, content: e.target.value }))} placeholder="Share what you're working on, ask for advice, or celebrate a win..." rows={4} maxLength={1500}/>
+                    <p className="text-xs text-muted-foreground text-right mt-1">{postDialog.content.length}/1500</p>
                   </div>
                   <div>
                     <label className="text-sm font-medium mb-1.5 block">Category</label>
@@ -1720,9 +1735,9 @@ export default function Feed() {
                   <DialogDescription>Tell the community what you're building and who you're looking for.</DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4 py-2">
-                  <div><label className="text-sm font-medium mb-1.5 block">Project / idea name</label><Input value={collabDialog.title} onChange={e => setCollabDialog(d => ({ ...d, title: e.target.value }))} placeholder="e.g. Community Book Club Network" className="h-10"/></div>
-                  <div><label className="text-sm font-medium mb-1.5 block">Looking for</label><Input value={collabDialog.looking} onChange={e => setCollabDialog(d => ({ ...d, looking: e.target.value }))} placeholder="e.g. Photographer, Sound Engineer, Marketing help" className="h-10"/></div>
-                  <div><label className="text-sm font-medium mb-1.5 block">Describe your project</label><Textarea value={collabDialog.desc} onChange={e => setCollabDialog(d => ({ ...d, desc: e.target.value }))} placeholder="What are you building? What kind of help do you need?" rows={3}/></div>
+                  <div><label className="text-sm font-medium mb-1.5 block">Project / idea name</label><Input value={collabDialog.title} onChange={e => setCollabDialog(d => ({ ...d, title: e.target.value }))} placeholder="e.g. Community Book Club Network" className="h-10" maxLength={100}/></div>
+                  <div><label className="text-sm font-medium mb-1.5 block">Looking for</label><Input value={collabDialog.looking} onChange={e => setCollabDialog(d => ({ ...d, looking: e.target.value }))} placeholder="e.g. Photographer, Sound Engineer, Marketing help" className="h-10" maxLength={200}/></div>
+                  <div><label className="text-sm font-medium mb-1.5 block">Describe your project</label><Textarea value={collabDialog.desc} onChange={e => setCollabDialog(d => ({ ...d, desc: e.target.value }))} placeholder="What are you building? What kind of help do you need?" rows={3} maxLength={750}/><p className="text-xs text-muted-foreground text-right mt-1">{collabDialog.desc.length}/750</p></div>
                   <div>
                     <label className="text-sm font-medium mb-1.5 block">Relevant skills / areas</label>
                     <div className="flex flex-wrap gap-2">

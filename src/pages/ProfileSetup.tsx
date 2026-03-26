@@ -198,14 +198,14 @@ export default function ProfileSetup() {
         <label className="text-sm font-medium text-foreground mb-1.5 block">
           Bio <span className="text-destructive">*</span>
         </label>
-        <Textarea value={bio} onChange={e => setBio(e.target.value)} placeholder="Tell the community a bit about yourself..." rows={3} />
+        <Textarea value={bio} onChange={e => setBio(e.target.value)} placeholder="Tell the community a bit about yourself..." rows={3} maxLength={600} />
       </div>
       <div>
         <div className="flex items-center justify-between mb-1.5">
           <label className="text-sm font-medium text-foreground">What are you working on?</label>
           <span className="text-xs text-muted-foreground">Optional</span>
         </div>
-        <Input value={building} onChange={e => setBuilding(e.target.value)} placeholder="A ceramics shop, a podcast, an app…" className="h-11" />
+        <Input value={building} onChange={e => setBuilding(e.target.value)} placeholder="A ceramics shop, a podcast, an app…" className="h-11" maxLength={150} />
       </div>
     </div>,
 
