@@ -506,7 +506,10 @@ function CommentSheet({ post, currentUserId, onClose, onAddComment, onDeleteComm
   };
 
   const renderMentions = (txt: string) => {
-    const parts = txt.split(/(@[\w][\w ]*)/g);
+    // Match @Name (single or multi-word) followed by a space — the trailing space
+    // acts as the delimiter inserted when a mention is selected from suggestions.
+    // This prevents the regex from greedy-matching the rest of the message.
+    const parts = txt.split(/(@\w+(?:\s\w+)* )/g);
     return parts.map((part, i) =>
       part.startsWith("@")
         ? <span key={i} className="text-primary font-medium">{part}</span>
@@ -1002,6 +1005,7 @@ export default function Feed() {
     image: undefined as string|undefined,
     video: undefined as string|undefined,
     uploading: false,
+    publishing: false,
   });
   const [collabDialog, setCollabDialog] = useState({
     open: false, title: "", looking: "", desc: "", skills: [] as string[],
@@ -1430,27 +1434,32 @@ export default function Feed() {
   }, []);
 
   const handleCreatePost = useCallback(async () => {
-    if (!postDialog.content.trim()) return;
+    if (!postDialog.content.trim() || postDialog.publishing) return;
     const pre = checkContent(postDialog.content);
     if (!pre.allowed) { toast({ title: pre.message!, variant: "destructive" }); return; }
-    const { data, error } = await (supabase as any)
-      .from("posts")
-      .insert({
-        user_id: user.id, content: postDialog.content, tag: postDialog.tag,
-        image_url: postDialog.image || null, video_url: postDialog.video || null,
-      })
-      .select().single();
-    if (error) { const modMsg = parseModerationError(error); toast({ title: modMsg ?? "Failed to create post", variant: "destructive" }); return; }
-    // OPT: prepend new post directly to state — no refetch needed
-    setPosts(p => [{
-      id: data.id, user_id: user.id, author: user.name, avatar: user.avatar,
-      avatarUrl: user.avatarUrl || undefined,
-      avatarColor: user.color, location: user.location, tag: postDialog.tag, time: "Just now",
-      content: postDialog.content, image: postDialog.image, video: postDialog.video,
-      likes: 0, commentCount: 0, isOwn: true, comments: [],
-    }, ...p]);
-    setPostDialog({ open: false, content: "", tag: "General", image: undefined, video: undefined, uploading: false });
-    toast({ title: "Post published! 🎉" });
+    setPostDialog(d => ({ ...d, publishing: true }));
+    try {
+      const { data, error } = await (supabase as any)
+        .from("posts")
+        .insert({
+          user_id: user.id, content: postDialog.content, tag: postDialog.tag,
+          image_url: postDialog.image || null, video_url: postDialog.video || null,
+        })
+        .select().single();
+      if (error) { const modMsg = parseModerationError(error); toast({ title: modMsg ?? "Failed to create post", variant: "destructive" }); return; }
+      // OPT: prepend new post directly to state — no refetch needed
+      setPosts(p => [{
+        id: data.id, user_id: user.id, author: user.name, avatar: user.avatar,
+        avatarUrl: user.avatarUrl || undefined,
+        avatarColor: user.color, location: user.location, tag: postDialog.tag, time: "Just now",
+        content: postDialog.content, image: postDialog.image, video: postDialog.video,
+        likes: 0, commentCount: 0, isOwn: true, comments: [],
+      }, ...p]);
+      setPostDialog({ open: false, content: "", tag: "General", image: undefined, video: undefined, uploading: false, publishing: false });
+      toast({ title: "Post published! 🎉" });
+    } finally {
+      setPostDialog(d => ({ ...d, publishing: false }));
+    }
   }, [postDialog, user]);
 
   const handleRemovePostImage = async () => {
@@ -1598,11 +1607,11 @@ export default function Feed() {
               setPostDialog(d => ({ ...d, open: v }));
             }}>
               <Button className="w-full h-12 gap-2 font-semibold" onClick={() => setPostDialog(d => ({ ...d, open: true }))}>
-                <Plus className="h-4 w-4"/> What are you building?
+                <Plus className="h-4 w-4"/> Share an update
               </Button>
               <DialogContent className="sm:max-w-md">
                 <DialogHeader>
-                  <DialogTitle>What are you building?</DialogTitle>
+                  <DialogTitle>Share an update</DialogTitle>
                   <DialogDescription>Share your journey, ask a question, or celebrate a milestone.</DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4 py-2">
@@ -1632,8 +1641,10 @@ export default function Feed() {
                   )}
                 </div>
                 <DialogFooter>
-                  <Button onClick={handleCreatePost} disabled={!postDialog.content.trim() || postDialog.uploading} className="gap-2">
-                    <Send className="h-4 w-4"/> {postDialog.uploading ? "Uploading..." : "Publish"}
+                  <Button onClick={handleCreatePost} disabled={!postDialog.content.trim() || postDialog.uploading || postDialog.publishing} className="gap-2">
+                    {postDialog.publishing
+                      ? <><div className="h-3.5 w-3.5 rounded-full border-2 border-primary-foreground border-t-transparent animate-spin" /> Publishing…</>
+                      : <><Send className="h-4 w-4"/> {postDialog.uploading ? "Uploading..." : "Publish"}</>}
                   </Button>
                 </DialogFooter>
               </DialogContent>
