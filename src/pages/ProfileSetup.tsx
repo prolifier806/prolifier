@@ -69,8 +69,9 @@ export default function ProfileSetup() {
     const file = e.target.files?.[0];
     if (!file) return;
     setUploadingAvatar(true);
-    const path = `${user.id}/avatar`;
-    const { error } = await (supabase as any).storage.from("avatars").upload(path, file, { upsert: true, contentType: file.type });
+    const ext = file.name.split(".").pop();
+    const path = `${user.id}/avatar.${ext}`;
+    const { error } = await (supabase as any).storage.from("avatars").upload(path, file, { upsert: true });
     if (error) {
       toast({ title: "Upload failed", description: error.message, variant: "destructive" });
       setUploadingAvatar(false);
@@ -199,10 +200,10 @@ export default function ProfileSetup() {
         </label>
         <Textarea value={bio}
           onChange={e => setBio(e.target.value)}
-          maxLength={100}
+          maxLength={500}
           placeholder="Tell the community a bit about yourself..." rows={3} />
         <p className="text-xs text-muted-foreground text-right mt-1">
-          {bio.length}/100
+          {bio.length}/500
         </p>
       </div>
       <div>
