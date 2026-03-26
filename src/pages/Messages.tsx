@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { useRealtimeChannel } from "@/hooks/useRealtimeChannel";
 import { useSearchParams } from "react-router-dom";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -281,15 +282,12 @@ export default function Messages() {
   }, [user.id]);
 
   // ── Realtime for incoming messages + read receipts ───────────────────
-  useEffect(() => {
-    if (!user.id) return;
-    const channel = supabase
-      .channel(`dm-${user.id}`)
+  useRealtimeChannel(
+    user.id ? `dm-${user.id}` : null,
+    ch => ch
       // New messages sent TO current user
       .on("postgres_changes", {
-        event: "INSERT",
-        schema: "public",
-        table: "messages",
+        event: "INSERT", schema: "public", table: "messages",
         filter: `receiver_id=eq.${user.id}`,
       }, async (payload) => {
         const row = payload.new as any;
@@ -299,32 +297,25 @@ export default function Messages() {
             media_url: row.media_url, media_type: row.media_type,
             created_at: row.created_at, read: false,
           }]);
-          // Mark as read immediately since the chat is open
           await (supabase as any).from("messages").update({ read: true }).eq("id", row.id);
         } else {
           setConversations(prev => prev.map(c =>
-            c.id === row.sender_id ? { ...c, unread: c.unread + 1, lastMsg: row.text || "", lastTime: fmtTime(row.created_at) } : c
+            c.id === row.sender_id
+              ? { ...c, unread: c.unread + 1, lastMsg: row.text || "", lastTime: fmtTime(row.created_at) }
+              : c
           ));
-          if (!conversations.find(c => c.id === row.sender_id)) {
-            fetchConversations();
-          }
+          if (!conversations.find(c => c.id === row.sender_id)) fetchConversations();
         }
       })
-      // Read receipts: messages sent BY current user that the recipient marked read
+      // Read receipts: messages sent BY current user that recipient marked read
       .on("postgres_changes", {
-        event: "UPDATE",
-        schema: "public",
-        table: "messages",
+        event: "UPDATE", schema: "public", table: "messages",
         filter: `sender_id=eq.${user.id}`,
       }, (payload) => {
         const row = payload.new as any;
-        if (row.read) {
-          setMessages(prev => prev.map(m => m.id === row.id ? { ...m, read: true } : m));
-        }
-      })
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [user.id]);
+        if (row.read) setMessages(prev => prev.map(m => m.id === row.id ? { ...m, read: true } : m));
+      }),
+  );
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });

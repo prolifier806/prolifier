@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useRealtimeChannel } from "@/hooks/useRealtimeChannel";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -124,28 +125,25 @@ export default function Notifications() {
   useEffect(() => { fetchNotifs(); }, [fetchNotifs]);
 
   // ── Realtime subscription ─────────────────────────────────────────────
-  useEffect(() => {
-    if (!user.id) return;
-    const channel = supabase
-      .channel(`notifs-${user.id}`)
+  // INSERT: live new notifications. DELETE: admin removal.
+  // UPDATE omitted — mark-as-read is applied optimistically on this device.
+  useRealtimeChannel(
+    user.id ? `notifs-${user.id}` : null,
+    ch => ch
       .on("postgres_changes", {
-        event: "*",
-        schema: "public",
-        table: "notifications",
+        event: "INSERT", schema: "public", table: "notifications",
         filter: `user_id=eq.${user.id}`,
       }, (payload) => {
-        if (payload.eventType === "INSERT") {
-          if (payload.new.type === "message" || payload.new.type === "match") return;
-          setNotifs(prev => [payload.new as Notif, ...prev]);
-        } else if (payload.eventType === "UPDATE") {
-          setNotifs(prev => prev.map(n => n.id === payload.new.id ? payload.new as Notif : n));
-        } else if (payload.eventType === "DELETE") {
-          setNotifs(prev => prev.filter(n => n.id !== payload.old.id));
-        }
+        if (payload.new.type === "message" || payload.new.type === "match") return;
+        setNotifs(prev => [payload.new as Notif, ...prev]);
       })
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [user.id]);
+      .on("postgres_changes", {
+        event: "DELETE", schema: "public", table: "notifications",
+        filter: `user_id=eq.${user.id}`,
+      }, (payload) => {
+        setNotifs(prev => prev.filter(n => n.id !== payload.old.id));
+      }),
+  );
 
   // ── Actions ────────────────────────────────────────────────────────────
   const markRead = async (id: string) => {

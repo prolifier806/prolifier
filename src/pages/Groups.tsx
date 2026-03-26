@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, memo } from "react";
+import { useRealtimeChannel } from "@/hooks/useRealtimeChannel";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -288,72 +289,59 @@ export default function Groups() {
   }, []);
 
   // ── Realtime WebSocket for messages ─────────────────────────────────────
+  // Reset status immediately when group changes so the UI shows "connecting"
   useEffect(() => {
-    if (!activeGroup?.id) return;
-    const gid = activeGroup.id;
-    setWsStatus("connecting");
-
-    const getProfile = async (uid: string) => {
-      if (profileCache.current[uid]) return profileCache.current[uid];
-      const { data } = await (supabase as any)
-        .from("profiles").select("name, color").eq("id", uid).single();
-      const p = { name: data?.name || "Unknown", color: data?.color || "bg-primary" };
-      profileCache.current[uid] = p;
-      return p;
-    };
-
-    const channel = supabase
-      .channel(`grp-${gid}`, { config: { broadcast: { self: false } } })
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "group_messages", filter: `group_id=eq.${gid}` },
-        async (payload) => {
-          if (payload.eventType === "INSERT") {
-            const row = payload.new as any;
-            // Skip our own optimistic messages (already in state by id)
-            setMessages(prev => {
-              if (prev.find(m => m.id === row.id)) return prev;
-              // Add immediately with placeholder name, then update with real profile
-              const newMsg = {
-                id: row.id, group_id: row.group_id, user_id: row.user_id,
-                text: row.text, media_url: row.media_url, media_type: row.media_type,
-                created_at: row.created_at, edited: row.edited ?? false, deleted: false, unsent: row.unsent ?? false,
-                author_name: profileCache.current[row.user_id]?.name || "…",
-                author_color: profileCache.current[row.user_id]?.color || "bg-primary",
-              };
-              return [...prev, newMsg];
-            });
-            // Resolve profile (cached after first fetch)
-            const profile = await getProfile(row.user_id);
-            setMessages(prev => prev.map(m =>
-              m.id === row.id ? { ...m, author_name: profile.name, author_color: profile.color } : m
-            ));
-          } else if (payload.eventType === "UPDATE") {
-            const row = payload.new as any;
-            setMessages(prev => prev.map(m =>
-              m.id === row.id ? { ...m, text: row.text, edited: row.edited ?? true, unsent: row.unsent ?? false } : m
-            ));
-          } else if (payload.eventType === "DELETE") {
-            setMessages(prev => prev.filter(m => m.id !== payload.old.id));
-          }
-        }
-      )
-      .subscribe((status, err) => {
-        if (status === "SUBSCRIBED") {
-          setWsStatus("connected");
-        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-          setWsStatus("error");
-          console.error("Realtime channel error:", err);
-        } else if (status === "CLOSED") {
-          setWsStatus("connecting");
-        }
-      });
-
-    return () => {
-      supabase.removeChannel(channel);
-      setWsStatus("connecting");
-    };
+    if (activeGroup?.id) setWsStatus("connecting");
   }, [activeGroup?.id]);
+
+  useRealtimeChannel(
+    activeGroup?.id ? `grp-${activeGroup.id}` : null,
+    ch => ch.on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "group_messages", filter: `group_id=eq.${activeGroup?.id}` },
+      async (payload) => {
+        const getProfile = async (uid: string) => {
+          if (profileCache.current[uid]) return profileCache.current[uid];
+          const { data } = await (supabase as any)
+            .from("profiles").select("name, color").eq("id", uid).single();
+          const p = { name: data?.name || "Unknown", color: data?.color || "bg-primary" };
+          profileCache.current[uid] = p;
+          return p;
+        };
+        if (payload.eventType === "INSERT") {
+          const row = payload.new as any;
+          setMessages(prev => {
+            if (prev.find(m => m.id === row.id)) return prev;
+            return [...prev, {
+              id: row.id, group_id: row.group_id, user_id: row.user_id,
+              text: row.text, media_url: row.media_url, media_type: row.media_type,
+              created_at: row.created_at, edited: row.edited ?? false, deleted: false, unsent: row.unsent ?? false,
+              author_name: profileCache.current[row.user_id]?.name || "…",
+              author_color: profileCache.current[row.user_id]?.color || "bg-primary",
+            }];
+          });
+          const profile = await getProfile(row.user_id);
+          setMessages(prev => prev.map(m =>
+            m.id === row.id ? { ...m, author_name: profile.name, author_color: profile.color } : m
+          ));
+        } else if (payload.eventType === "UPDATE") {
+          const row = payload.new as any;
+          setMessages(prev => prev.map(m =>
+            m.id === row.id ? { ...m, text: row.text, edited: row.edited ?? true, unsent: row.unsent ?? false } : m
+          ));
+        } else if (payload.eventType === "DELETE") {
+          setMessages(prev => prev.filter(m => m.id !== payload.old.id));
+        }
+      }
+    ),
+    (status, err) => {
+      if (status === "SUBSCRIBED") setWsStatus("connected");
+      else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        setWsStatus("error");
+        console.error("Realtime channel error:", err);
+      }
+    },
+  );
 
   // Scroll to bottom on new messages
   useEffect(() => {
