@@ -972,8 +972,8 @@ export default function Profile() {
             {/* Avatar */}
             <div className="relative shrink-0 group">
               <input ref={avatarRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} />
-              <div className={`h-20 w-20 rounded-2xl overflow-hidden ${user.color} flex items-center justify-center text-white text-2xl font-bold cursor-pointer`}
-                onClick={() => !avatarUploading && avatarRef.current?.click()}>
+              <div className={`h-20 w-20 rounded-2xl overflow-hidden ${user.color} flex items-center justify-center text-white text-2xl font-bold ${editing ? "cursor-pointer" : ""}`}
+                onClick={() => editing && !avatarUploading && avatarRef.current?.click()}>
                 {avatarUrl
                   ? <img src={avatarUrl} alt="avatar" className="w-full h-full object-cover" />
                   : initials}
@@ -982,12 +982,12 @@ export default function Profile() {
                 <div className="absolute inset-0 rounded-2xl bg-black/50 flex items-center justify-center">
                   <div className="h-5 w-5 rounded-full border-2 border-white border-t-transparent animate-spin" />
                 </div>
-              ) : (
+              ) : editing ? (
                 <button onClick={() => avatarRef.current?.click()}
                   className="absolute inset-0 rounded-2xl bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center">
                   <Camera className="h-5 w-5 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
                 </button>
-              )}
+              ) : null}
               {editing && avatarUrl && !avatarUploading && (
                 <button onClick={handleRemoveAvatar}
                   className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-destructive flex items-center justify-center shadow-sm hover:opacity-90 transition-opacity z-10">

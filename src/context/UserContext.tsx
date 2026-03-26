@@ -407,8 +407,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       open_to_collab: next.openToCollab,
       updated_at: now,
     };
-    // Only include avatar_url if the column has been added to the DB
-    if (next.avatarUrl) profileData.avatar_url = next.avatarUrl;
+    profileData.avatar_url = next.avatarUrl || null;
     await (supabase.from("profiles") as any).upsert(profileData);
   };
 
