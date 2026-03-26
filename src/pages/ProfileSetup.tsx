@@ -65,16 +65,17 @@ export default function ProfileSetup() {
     setCustomSkillInput("");
   };
 
+  const ALLOWED_AVATAR_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = "";
-    setUploadingAvatar(true);
-    // Remove any existing avatar files first
-    const { data: existing } = await (supabase as any).storage.from("avatars").list(user.id);
-    if (existing?.length > 0) {
-      await (supabase as any).storage.from("avatars").remove(existing.map((f: any) => `${user.id}/${f.name}`));
+    if (!ALLOWED_AVATAR_TYPES.includes(file.type)) {
+      toast({ title: "Unsupported format", description: "Please upload a JPG, PNG, WebP, or GIF image.", variant: "destructive" });
+      return;
     }
+    setUploadingAvatar(true);
     const path = `${user.id}/avatar`;
     const { error } = await (supabase as any).storage.from("avatars").upload(path, file, { upsert: true, contentType: file.type });
     if (error) {
