@@ -70,6 +70,11 @@ export default function ProfileSetup() {
     if (!file) return;
     e.target.value = "";
     setUploadingAvatar(true);
+    // Remove any existing avatar files first
+    const { data: existing } = await (supabase as any).storage.from("avatars").list(user.id);
+    if (existing?.length > 0) {
+      await (supabase as any).storage.from("avatars").remove(existing.map((f: any) => `${user.id}/${f.name}`));
+    }
     const path = `${user.id}/avatar`;
     const { error } = await (supabase as any).storage.from("avatars").upload(path, file, { upsert: true, contentType: file.type });
     if (error) {
@@ -163,16 +168,17 @@ export default function ProfileSetup() {
           >
             <Camera className="h-3.5 w-3.5 text-white" />
           </button>
+          {avatarUrl && !uploadingAvatar && (
+            <button type="button" onClick={handleRemoveAvatar}
+              className="absolute -top-1 -right-1 h-5 w-5 rounded-full bg-destructive flex items-center justify-center shadow-sm hover:opacity-90 transition-opacity z-10">
+              <X className="h-3 w-3 text-white" />
+            </button>
+          )}
           <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} />
         </div>
-        <div className="flex items-center gap-3">
-          <p className="text-xs text-muted-foreground">
-            {uploadingAvatar ? "Uploading…" : avatarUrl ? "Tap to change photo" : "Add profile photo (optional)"}
-          </p>
-          {avatarUrl && !uploadingAvatar && (
-            <button type="button" onClick={handleRemoveAvatar} className="text-xs text-destructive hover:opacity-75 transition-opacity">Remove</button>
-          )}
-        </div>
+        <p className="text-xs text-muted-foreground">
+          {uploadingAvatar ? "Uploading…" : avatarUrl ? "Tap to change photo" : "Add profile photo (optional)"}
+        </p>
       </div>
       <div>
         <label className="text-sm font-medium text-foreground mb-1.5 block">

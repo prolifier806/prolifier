@@ -344,7 +344,11 @@ export default function Profile() {
     if (!file) return;
     e.target.value = "";
     setAvatarUploading(true);
-    // Always write to the same path so the old file is atomically replaced
+    // Remove any existing avatar files first (cleans up old extension-based files too)
+    const { data: existing } = await (supabase as any).storage.from("avatars").list(user.id);
+    if (existing?.length > 0) {
+      await (supabase as any).storage.from("avatars").remove(existing.map((f: any) => `${user.id}/${f.name}`));
+    }
     const path = `${user.id}/avatar`;
     const { error } = await (supabase as any).storage.from("avatars").upload(path, file, { upsert: true, contentType: file.type });
     if (error) {
@@ -984,10 +988,13 @@ export default function Profile() {
                   <Camera className="h-5 w-5 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
                 </button>
               )}
+              {editing && avatarUrl && !avatarUploading && (
+                <button onClick={handleRemoveAvatar}
+                  className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-destructive flex items-center justify-center shadow-sm hover:opacity-90 transition-opacity z-10">
+                  <X className="h-3 w-3 text-white" />
+                </button>
+              )}
             </div>
-            {avatarUrl && !avatarUploading && (
-              <button onClick={handleRemoveAvatar} className="text-xs text-destructive hover:opacity-75 transition-opacity mt-1">Remove photo</button>
-            )}
 
             <div className="flex-1 min-w-0">
               {editing ? (
