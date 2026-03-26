@@ -1777,7 +1777,7 @@ export default function Feed() {
                     <label className="text-sm font-medium mb-1.5 block">Looking for</label>
                     <Input value={collabDialog.looking}
                       onChange={e => setCollabDialog(d => ({ ...d, looking: e.target.value }))}
-                      maxLength={30}
+                      maxLength={50}
                       placeholder="e.g. Designer, Sound Engineer" className="h-10"/>
                   </div>
                   <div>
