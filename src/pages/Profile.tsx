@@ -350,15 +350,21 @@ export default function Profile() {
       return;
     }
     setAvatarUploading(true);
-    const path = `${user.id}/avatar`;
-    const { error } = await (supabase as any).storage.from("avatars").upload(path, file, { upsert: true, contentType: file.type });
+    // Delete old avatar files first so the new URL is always fresh (CDN cache-bust)
+    const { data: existingFiles } = await (supabase as any).storage.from("avatars").list(user.id);
+    if (existingFiles?.length > 0) {
+      await (supabase as any).storage.from("avatars").remove(existingFiles.map((f: any) => `${user.id}/${f.name}`));
+    }
+    const ext = file.type.split("/")[1]?.replace("jpeg", "jpg") || "jpg";
+    const path = `${user.id}/avatar_${Date.now()}.${ext}`;
+    const { error } = await (supabase as any).storage.from("avatars").upload(path, file, { contentType: file.type });
     if (error) {
       toast({ title: "Upload failed", description: error.message, variant: "destructive" });
       setAvatarUploading(false);
       return;
     }
     const { data } = (supabase as any).storage.from("avatars").getPublicUrl(path);
-    const url = data.publicUrl + "?t=" + Date.now();
+    const url = data.publicUrl;
     setAvatarUrl(url);
     await updateUser({ avatarUrl: url });
     setAvatarUploading(false);
