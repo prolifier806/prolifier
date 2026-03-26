@@ -1044,10 +1044,10 @@ export default function Profile() {
               ? <>
                   <Textarea value={draftBio}
                     onChange={e => setDraftBio(e.target.value)}
-                    maxLength={500}
+                    maxLength={100}
                     rows={3} placeholder="Tell people about yourself..." />
                   <p className="text-xs text-muted-foreground text-right mt-1">
-                    {draftBio.length}/500
+                    {draftBio.length}/100
                   </p>
                 </>
               : <p className="text-sm text-foreground leading-relaxed">{user.bio || <span className="text-muted-foreground italic">No bio yet</span>}</p>}
