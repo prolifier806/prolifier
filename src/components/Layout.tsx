@@ -52,8 +52,8 @@ export default function Layout({ children }: { children: ReactNode }) {
     const onVisible = () => { if (document.visibilityState === "visible") fetchCounts(); };
     document.addEventListener("visibilitychange", onVisible);
 
-    // Poll every 30s as a fallback so badges stay fresh while tab is open
-    const timer = setInterval(fetchCounts, 30_000);
+    // Poll every 60s as a fallback so badges stay fresh while tab is open
+    const timer = setInterval(fetchCounts, 60_000);
 
     return () => {
       document.removeEventListener("visibilitychange", onVisible);
