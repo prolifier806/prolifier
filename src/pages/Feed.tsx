@@ -1633,11 +1633,14 @@ export default function Feed() {
                     <label className="text-sm font-medium mb-1.5 block">What's on your mind?</label>
                     <Textarea
                       value={postDialog.content}
-                      onChange={e => setPostDialog(d => ({ ...d, content: e.target.value }))}
-                      maxLength={1000}
+                      onChange={e => {
+                        const raw = e.target.value;
+                        const words = raw.trim() ? raw.trim().split(/\s+/) : [];
+                        setPostDialog(d => ({ ...d, content: words.length > 500 ? words.slice(0, 500).join(" ") : raw }));
+                      }}
                       placeholder="Share what you're working on, ask for advice, or celebrate a win..." rows={4}/>
                     <p className="text-xs text-muted-foreground text-right mt-1">
-                      {postDialog.content.length}/1000
+                      {(postDialog.content.match(/\S+/g) || []).length}/500 words
                     </p>
                   </div>
                   <div>
@@ -1744,25 +1747,34 @@ export default function Feed() {
                   <div>
                     <label className="text-sm font-medium mb-1.5 block">Project / idea name</label>
                     <Input value={collabDialog.title}
-                      onChange={e => setCollabDialog(d => ({ ...d, title: e.target.value }))}
-                      maxLength={100}
+                      onChange={e => {
+                        const raw = e.target.value;
+                        const words = raw.trim() ? raw.trim().split(/\s+/) : [];
+                        setCollabDialog(d => ({ ...d, title: words.length > 25 ? words.slice(0, 25).join(" ") : raw }));
+                      }}
                       placeholder="e.g. Community Book Club Network" className="h-10"/>
                   </div>
                   <div>
                     <label className="text-sm font-medium mb-1.5 block">Looking for</label>
                     <Input value={collabDialog.looking}
-                      onChange={e => setCollabDialog(d => ({ ...d, looking: e.target.value }))}
-                      maxLength={150}
+                      onChange={e => {
+                        const raw = e.target.value;
+                        const words = raw.trim() ? raw.trim().split(/\s+/) : [];
+                        setCollabDialog(d => ({ ...d, looking: words.length > 40 ? words.slice(0, 40).join(" ") : raw }));
+                      }}
                       placeholder="e.g. Photographer, Sound Engineer, Marketing help" className="h-10"/>
                   </div>
                   <div>
                     <label className="text-sm font-medium mb-1.5 block">Describe your project</label>
                     <Textarea value={collabDialog.desc}
-                      onChange={e => setCollabDialog(d => ({ ...d, desc: e.target.value }))}
-                      maxLength={500}
+                      onChange={e => {
+                        const raw = e.target.value;
+                        const words = raw.trim() ? raw.trim().split(/\s+/) : [];
+                        setCollabDialog(d => ({ ...d, desc: words.length > 120 ? words.slice(0, 120).join(" ") : raw }));
+                      }}
                       placeholder="What are you building? What kind of help do you need?" rows={3}/>
                     <p className="text-xs text-muted-foreground text-right mt-1">
-                      {collabDialog.desc.length}/500
+                      {(collabDialog.desc.match(/\S+/g) || []).length}/120 words
                     </p>
                   </div>
                   <div>

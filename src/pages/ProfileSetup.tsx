@@ -199,11 +199,14 @@ export default function ProfileSetup() {
           Bio <span className="text-destructive">*</span>
         </label>
         <Textarea value={bio}
-          onChange={e => setBio(e.target.value)}
-          maxLength={500}
+          onChange={e => {
+            const raw = e.target.value;
+            const words = raw.trim() ? raw.trim().split(/\s+/) : [];
+            setBio(words.length > 120 ? words.slice(0, 120).join(" ") : raw);
+          }}
           placeholder="Tell the community a bit about yourself..." rows={3} />
         <p className="text-xs text-muted-foreground text-right mt-1">
-          {bio.length}/500
+          {(bio.match(/\S+/g) || []).length}/120 words
         </p>
       </div>
       <div>
