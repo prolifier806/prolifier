@@ -1641,10 +1641,10 @@ export default function Feed() {
                     <Textarea
                       value={postDialog.content}
                       onChange={e => setPostDialog(d => ({ ...d, content: e.target.value }))}
-                      maxLength={1000}
+                      maxLength={150}
                       placeholder="Share what you're working on, ask for advice, or celebrate a win..." rows={4}/>
                     <p className="text-xs text-muted-foreground text-right mt-1">
-                      {postDialog.content.length}/1000
+                      {postDialog.content.length}/150
                     </p>
                   </div>
                   <div>
@@ -1766,10 +1766,10 @@ export default function Feed() {
                     <label className="text-sm font-medium mb-1.5 block">Describe your project</label>
                     <Textarea value={collabDialog.desc}
                       onChange={e => setCollabDialog(d => ({ ...d, desc: e.target.value }))}
-                      maxLength={500}
+                      maxLength={150}
                       placeholder="What are you building? What kind of help do you need?" rows={3}/>
                     <p className="text-xs text-muted-foreground text-right mt-1">
-                      {collabDialog.desc.length}/500
+                      {collabDialog.desc.length}/150
                     </p>
                   </div>
                   <div>
