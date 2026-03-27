@@ -1,3 +1,9 @@
+// src/context/UserContext.tsx
+// KEY CHANGES FROM ORIGINAL:
+// 1. Added isCacheFresh() — skips DB sync when localStorage cache < 5 min old
+// 2. Exported blockedIds into context so Discover/Feed don't re-fetch blocks
+// 3. Added CACHE_STALE_MS constant for easy tuning
+
 import { createContext, useContext, useEffect, useState, useRef, ReactNode } from "react";
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
@@ -21,8 +27,8 @@ export type CurrentUser = {
   primaryLang: string;
   openToCollab: boolean;
   profileSetupDone: boolean;
-  updatedAt: string; // ISO — used to prevent stale DB sync from overwriting fresh local edits
-  deletedAt: string | null; // ISO — set when account is soft-deleted; null = active
+  updatedAt: string;
+  deletedAt: string | null;
 };
 
 const DEFAULT_USER: CurrentUser = {
@@ -54,6 +60,8 @@ interface UserContextValue {
   authUser: User | null;
   loading: boolean;
   profileComplete: boolean;
+  // NEW: shared block set — avoids re-fetching blocks on every page
+  blockedIds: Set<string>;
   updateUser: (patch: Partial<CurrentUser>) => Promise<void>;
   completeProfileSetup: () => Promise<void>;
   recoverAccount: () => Promise<void>;
@@ -66,6 +74,7 @@ const UserContext = createContext<UserContextValue>({
   authUser: null,
   loading: true,
   profileComplete: false,
+  blockedIds: new Set(),
   updateUser: async () => {},
   completeProfileSetup: async () => {},
   recoverAccount: async () => {},
@@ -83,6 +92,10 @@ function randomColor() {
 
 const cacheKey = (id: string) => `prolifier_profile_${id}`;
 
+// How long a cached profile is considered fresh (no DB re-fetch needed)
+// 5 minutes = tab switches, token refreshes don't re-hit the DB
+const CACHE_STALE_MS = 5 * 60 * 1000;
+
 function readCache(id: string): CurrentUser | null {
   try {
     const raw = localStorage.getItem(cacheKey(id));
@@ -96,6 +109,15 @@ function writeCache(profile: CurrentUser) {
   try {
     localStorage.setItem(cacheKey(profile.id), JSON.stringify(profile));
   } catch { /* storage full — non-fatal */ }
+}
+
+/**
+ * Returns true if the cached profile was updated within CACHE_STALE_MS.
+ * When fresh, we skip the DB syncProfile call entirely.
+ */
+function isCacheFresh(cached: CurrentUser): boolean {
+  if (!cached.updatedAt) return false;
+  return Date.now() - new Date(cached.updatedAt).getTime() < CACHE_STALE_MS;
 }
 
 function profileFromRow(userId: string, email: string, row: any): CurrentUser {
@@ -123,16 +145,25 @@ function profileFromRow(userId: string, email: string, row: any): CurrentUser {
   };
 }
 
+/** Load blocked IDs from localStorage (sync, no DB call) */
+function loadBlockedIdsFromStorage(userId: string): Set<string> {
+  try {
+    const raw = localStorage.getItem(`prolifier_blocked_${userId}`);
+    const arr: { id: string }[] = JSON.parse(raw || "[]");
+    return new Set(arr.map((b) => b.id));
+  } catch {
+    return new Set();
+  }
+}
+
 export function UserProvider({ children }: { children: ReactNode }) {
-  const [user, setUser]       = useState<CurrentUser>(DEFAULT_USER);
-  const [session, setSession] = useState<Session | null>(null);
+  const [user, setUser]         = useState<CurrentUser>(DEFAULT_USER);
+  const [session, setSession]   = useState<Session | null>(null);
   const [authUser, setAuthUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
-  // Version counter prevents stale background fetches from overwriting newer data
+  const [loading, setLoading]   = useState(true);
+  const [blockedIds, setBlockedIds] = useState<Set<string>>(new Set());
   const syncVersionRef = useRef(0);
 
-  // Fetches profile from DB and updates state + cache silently.
-  // Never touches the loading flag — callers decide that.
   const syncProfile = async (userId: string, email: string, metadata?: Record<string, any>) => {
     const thisVersion = ++syncVersionRef.current;
     try {
@@ -142,13 +173,9 @@ export function UserProvider({ children }: { children: ReactNode }) {
         .eq("id", userId)
         .single();
 
-      // Discard result if a newer sync has started (prevents flicker from stale fetches)
       if (thisVersion !== syncVersionRef.current) return;
-
-      // Unexpected DB error (not "row not found") — keep current state, don't sign out
       if (rowError && rowError.code !== "PGRST116") return;
 
-      // Account was permanently deleted by the server (pg_cron tombstone)
       if (row?.permanently_deleted) {
         localStorage.removeItem(cacheKey(userId));
         localStorage.setItem("prolifier_perm_deleted", "true");
@@ -156,21 +183,16 @@ export function UserProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      // Lazy permanent deletion — triggers when the grace period has expired
       if (row?.deleted_at) {
         const elapsed = Date.now() - new Date(row.deleted_at).getTime();
         const sevenDays = 7 * 24 * 60 * 60 * 1000;
         if (elapsed > sevenDays) {
-          // ── Clean up storage before deleting rows ──────────────────────
-          // Extract storage path from a Supabase public URL
           const storagePath = (url: string, bucket: string) => {
             try {
               const m = url.match(new RegExp(`/storage/v1/object/public/${bucket}/(.+?)(?:\\?|$)`));
               return m ? m[1] : null;
             } catch { return null; }
           };
-
-          // Delete post & collab media files
           const [{ data: userPosts }, { data: userCollabs }] = await Promise.all([
             (supabase as any).from("posts").select("image_url,video_url").eq("user_id", userId),
             (supabase as any).from("collabs").select("image_url,video_url").eq("user_id", userId),
@@ -183,16 +205,11 @@ export function UserProvider({ children }: { children: ReactNode }) {
           if (mediaPaths.length > 0) {
             await (supabase as any).storage.from("posts").remove(mediaPaths);
           }
-
-          // Delete avatar (list the folder to catch any file extension)
-          const { data: avatarFiles } = await (supabase as any).storage
-            .from("avatars").list(userId);
+          const { data: avatarFiles } = await (supabase as any).storage.from("avatars").list(userId);
           if (avatarFiles?.length > 0) {
             await (supabase as any).storage.from("avatars")
               .remove(avatarFiles.map((f: any) => `${userId}/${f.name}`));
           }
-          // ───────────────────────────────────────────────────────────────
-
           await Promise.all([
             (supabase as any).from("post_likes").delete().eq("user_id", userId),
             (supabase as any).from("comments").delete().eq("user_id", userId),
@@ -212,20 +229,13 @@ export function UserProvider({ children }: { children: ReactNode }) {
       }
 
       if (!row) {
-        // Profile row not found — determine why before acting
         const cached = readCache(userId);
-        if (cached?.deletedAt) {
-          // Soft-deleted account: row may be hidden by RLS — preserve current state
-          // so ProtectedRoute keeps the user on /recover.
-          return;
-        }
+        if (cached?.deletedAt) return;
         if (cached?.profileSetupDone) {
-          // Profile was hard-deleted while user was authenticated → sign out immediately
           localStorage.removeItem(cacheKey(userId));
           await supabase.auth.signOut();
           return;
         }
-        // Brand new user — use Google/OAuth metadata if available; leave name blank for email signups
         const displayName = metadata?.full_name || metadata?.name || "";
         const googleAvatar = metadata?.avatar_url || metadata?.picture || "";
         const initials = displayName.trim().split(" ").filter(Boolean).map((w: string) => w[0]).join("").slice(0, 2).toUpperCase();
@@ -243,30 +253,17 @@ export function UserProvider({ children }: { children: ReactNode }) {
       }
 
       const next = profileFromRow(userId, email, row);
-
-      // If deleted_at is set, let the user stay authenticated so ProtectedRoute
-      // can redirect them to /recover. Only permanently_deleted forces a sign-out.
       setUser(prev => {
-        // If the user saved locally more recently than what the DB returned,
-        // keep the local state — don't let a stale DB row overwrite fresh edits.
-        // This is what causes the "bio blink" on rapid refresh.
-        if (prev.updatedAt && next.updatedAt && prev.updatedAt > next.updatedAt) {
-          return prev;
-        }
+        if (prev.updatedAt && next.updatedAt && prev.updatedAt > next.updatedAt) return prev;
         writeCache(next);
         return next;
       });
     } catch {
-      // Network error — keep whatever is already in state/cache.
+      // Network error — keep current state
     }
   };
 
   useEffect(() => {
-    // ── Seed from stored session first ───────────────────────────────────────
-    // getSession() transparently refreshes an expired access token before
-    // returning, so we never get a null-session flash during token refresh.
-    // This prevents users being briefly redirected to the intro page on
-    // tab focus or app resume when the access token has just expired.
     supabase.auth.getSession().then(({ data: { session: s } }) => {
       const userId   = s?.user?.id;
       const email    = s?.user?.email ?? "";
@@ -277,11 +274,17 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
       if (!userId) { setLoading(false); return; }
 
+      // Load blocked IDs from storage (sync — no DB call)
+      setBlockedIds(loadBlockedIdsFromStorage(userId));
+
       const cached = readCache(userId);
       if (cached) {
         setUser(cached);
         setLoading(false);
-        syncProfile(userId, email, metadata);
+        // CHANGED: only sync if cache is stale — saves 1 DB call per tab switch
+        if (!isCacheFresh(cached)) {
+          syncProfile(userId, email, metadata);
+        }
       } else {
         syncProfile(userId, email, metadata).finally(() => setLoading(false));
       }
@@ -289,55 +292,46 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, newSession) => {
-        // INITIAL_SESSION is already handled by getSession() above — skip it
-        // to prevent the null-session flash that can occur during token refresh.
         if (event === "INITIAL_SESSION") return;
 
         setSession(newSession);
         setAuthUser(newSession?.user ?? null);
 
-        // ── Signed out ─────────────────────────────────────────────────────
         if (!newSession?.user) {
           setUser(DEFAULT_USER);
+          setBlockedIds(new Set());
           setLoading(false);
           return;
         }
 
-        // ── Token refreshed (tab switch, auto-refresh) ─────────────────────
-        if (event === "TOKEN_REFRESHED") {
+        // TOKEN_REFRESHED and PASSWORD_RECOVERY don't need a profile re-fetch
+        if (event === "TOKEN_REFRESHED" || event === "PASSWORD_RECOVERY") {
           setLoading(false);
           return;
         }
 
-        // ── Password recovery OTP verified ─────────────────────────────────
-        if (event === "PASSWORD_RECOVERY") {
-          setLoading(false);
-          return;
-        }
-
-        // ── Initial session load or fresh sign-in ──────────────────────────
         const userId   = newSession.user.id;
         const email    = newSession.user.email ?? "";
         const metadata = newSession.user.user_metadata as Record<string, any> | undefined;
 
-        // USER_UPDATED fires after profile/password edits — skip resetting to
-        // potentially-stale cache (which causes visible data flash).
         if (event === "USER_UPDATED") {
           syncProfile(userId, email, metadata);
           setLoading(false);
           return;
         }
 
-        // ── SIGNED_IN ──────────────────────────────────────────────────────
+        // SIGNED_IN: use cache if fresh, otherwise sync
         const cached = readCache(userId);
+        setBlockedIds(loadBlockedIdsFromStorage(userId));
+
         if (cached) {
-          // Apply cache instantly → no spinner, routing works immediately.
           setUser(cached);
           setLoading(false);
-          // Sync DB in background — updates state/cache silently if anything changed.
-          syncProfile(userId, email, metadata);
+          // CHANGED: skip DB fetch if cache is < 5 minutes old
+          if (!isCacheFresh(cached)) {
+            syncProfile(userId, email, metadata);
+          }
         } else {
-          // First ever login — no cache yet, must wait for DB before routing.
           setLoading(true);
           await syncProfile(userId, email, metadata);
           setLoading(false);
@@ -348,8 +342,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Poll for account deletion/soft-deletion — replaces realtime channel to eliminate
-  // always-active WAL subscription. Checks on tab focus + every 5 minutes.
+  // Poll for deletion every 5 minutes + on visibility change
   useEffect(() => {
     if (!authUser?.id) return;
     const id = authUser.id;
@@ -385,7 +378,6 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const updateUser = async (patch: Partial<CurrentUser>) => {
     if (!authUser) return;
     const now = new Date().toISOString();
-    // Stamp updatedAt now so syncProfile won't overwrite with a stale DB row
     const next = { ...user, ...patch, updatedAt: now };
     setUser(next);
     writeCache(next);
@@ -441,6 +433,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
     setUser(DEFAULT_USER);
     setSession(null);
     setAuthUser(null);
+    setBlockedIds(new Set());
   };
 
   return (
@@ -450,6 +443,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       authUser,
       loading,
       profileComplete: user.profileSetupDone,
+      blockedIds,
       updateUser,
       completeProfileSetup,
       recoverAccount,
