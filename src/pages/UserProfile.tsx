@@ -125,27 +125,15 @@ export default function UserProfile() {
       setNotFound(false);
 
       try {
-        // ── Step 1: check block status BEFORE loading any content ──
-        // Fetch both directions in parallel so we can bail early.
-        const [profileRes, blockedByOwnerRes, iBlockedRes] = await Promise.all([
-          (supabase as any).from("profiles").select("*").eq("id", id).single(),
-          (supabase as any).from("blocks").select("id").eq("blocker_id", id).eq("blocked_id", user.id).maybeSingle(),
-          (supabase as any).from("blocks").select("id").eq("blocker_id", user.id).eq("blocked_id", id).maybeSingle(),
-        ]);
+        // ── Step 1: fetch profile (required) ──────────────────────────────
+        const profileRes = await (supabase as any)
+          .from("profiles").select("*").eq("id", id).single();
 
-        if (profileRes.error || !profileRes.data) {
-          setNotFound(true);
-          return;
-        }
+        if (profileRes.error || !profileRes.data) { setNotFound(true); return; }
 
         const p = profileRes.data;
+        if (p.deleted_at) { setIsDeleted(true); return; }
 
-        if (p.deleted_at) {
-          setIsDeleted(true);
-          return;
-        }
-
-        // Set minimal profile data needed for the isolation screens
         setProfile({
           id: p.id,
           name: p.name || "Unknown",
@@ -163,17 +151,25 @@ export default function UserProfile() {
           openToCollab: p.open_to_collab ?? true,
         });
 
-        const ownerHasBlockedMe = !!blockedByOwnerRes.data;
-        const iHaveBlockedOwner = !!iBlockedRes.data;
+        // ── Step 2: check block status (optional — never kills profile load)
+        let ownerHasBlockedMe = false;
+        let iHaveBlockedOwner = false;
+        try {
+          const [blockedByOwnerRes, iBlockedRes] = await Promise.all([
+            (supabase as any).from("blocks").select("id").eq("blocker_id", id).eq("blocked_id", user.id).maybeSingle(),
+            (supabase as any).from("blocks").select("id").eq("blocker_id", user.id).eq("blocked_id", id).maybeSingle(),
+          ]);
+          ownerHasBlockedMe = !!blockedByOwnerRes.data;
+          iHaveBlockedOwner = !!iBlockedRes.data;
+        } catch { /* blocks table may not exist — treat as no block */ }
 
         setIsBlockedByOwner(ownerHasBlockedMe);
         setIsBlocked(iHaveBlockedOwner);
 
-        // ── Blocked BY owner: don't expose their content ──
-        // Blocker (iHaveBlockedOwner) still gets to see the profile.
+        // ── Step 3: blocked user sees no content — stop here ─────────────
         if (ownerHasBlockedMe) return;
 
-        // ── Step 2: load content only when no block exists ─────────────
+        // ── Step 4: load posts / collabs / connection state ───────────────
         const [postsRes, collabsRes, [connSentRes, connRecvRes]] = await Promise.all([
           (supabase as any).from("posts").select("id, tag, content, created_at, likes").eq("user_id", id).order("created_at", { ascending: false }).limit(20),
           (supabase as any).from("collabs").select("id, title, looking, description, skills").eq("user_id", id).order("created_at", { ascending: false }).limit(10),
@@ -196,7 +192,7 @@ export default function UserProfile() {
         const connSent = connSentRes.data;
         const connRecv = connRecvRes.data;
         const isAccepted = (connSent?.status === "accepted") || (connRecv?.status === "accepted");
-        const isPending = (connSent?.status === "pending") || (connRecv?.status === "pending");
+        const isPending  = (connSent?.status === "pending")  || (connRecv?.status === "pending");
         setConnected(isAccepted);
         setPending(isPending && !isAccepted);
       } catch {

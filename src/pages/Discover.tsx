@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, MapPin, UserPlus, Check, X, UserCheck } from "lucide-react";
+import { Search, MapPin, UserPlus, Check, X, UserCheck, ShieldOff } from "lucide-react";
 import Layout from "@/components/Layout";
 import { toast } from "@/hooks/use-toast";
 import { useUser } from "@/context/UserContext";
@@ -89,6 +89,9 @@ export default function Discover() {
   const cursorRef = useRef<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
+  // Set of user IDs that the current user has blocked (for "Blocked" label in cards)
+  const [blockedByMe, setBlockedByMe] = useState<Set<string>>(new Set());
+
   // ── Requests tab state ───────────────────────────────────────────────────
   const [requests, setRequests] = useState<Request[]>([]);
   const [requestsLoading, setRequestsLoading] = useState(false);
@@ -140,14 +143,12 @@ export default function Discover() {
       ]);
       if (error) throw error;
 
-      // Build mutual block set
-      const myBlocked = new Set<string>((myBlocksRes.data || []).map((b: any) => b.blocked_id));
-      const blockedBy = new Set<string>((blockedByRes.data || []).map((b: any) => b.blocker_id));
-      try {
-        const lsKey = `prolifier_blocked_${user.id}`;
-        JSON.parse(localStorage.getItem(lsKey) || "[]").forEach((b: any) => myBlocked.add(b.id));
-      } catch { /* ignore */ }
-      const allBlocked = new Set<string>([...myBlocked, ...blockedBy]);
+      // Asymmetric block logic:
+      // - myBlocked: users I have blocked → I still see them (as "Blocked")
+      // - blockedBy: users who blocked me → I do NOT see them at all
+      const myBlockedSet = new Set<string>((myBlocksRes.data || []).map((b: any) => b.blocked_id));
+      const blockedBySet = new Set<string>((blockedByRes.data || []).map((b: any) => b.blocker_id));
+      if (!cursor) setBlockedByMe(new Set(myBlockedSet));
 
       let mapped: Profile[] = (data || []).map((p: any) => ({
         id: p.id,
@@ -162,8 +163,8 @@ export default function Discover() {
         openToCollab: p.open_to_collab ?? true,
       }));
 
-      // Filter out blocked users (both directions — mutual isolation)
-      mapped = mapped.filter(p => !allBlocked.has(p.id));
+      // Only hide users who have blocked ME — I should still see people I blocked
+      mapped = mapped.filter(p => !blockedBySet.has(p.id));
 
       cursor ? setProfiles(prev => [...prev, ...mapped]) : setProfiles(mapped);
       setHasMore((data || []).length === PAGE_SIZE);
@@ -228,6 +229,12 @@ export default function Discover() {
       .eq("status", "pending")
       .then(({ count }: any) => setRequestCount(count ?? 0));
   }, [user.id]);
+
+  const handleUnblock = async (id: string, name: string) => {
+    await (supabase as any).from("blocks").delete().eq("blocker_id", user.id).eq("blocked_id", id);
+    setBlockedByMe(prev => { const next = new Set(prev); next.delete(id); return next; });
+    toast({ title: `${name} unblocked` });
+  };
 
   const handleConnect = async (id: string, name: string) => {
     const isConnected = connected.has(id);
@@ -361,6 +368,7 @@ export default function Discover() {
               <div className="grid gap-4 sm:grid-cols-2">
                 {filtered.map((p, i) => {
                   const isConnected = connected.has(p.id);
+                  const isBlockedByMe = blockedByMe.has(p.id);
                   return (
                     <div
                       key={p.id}
@@ -423,23 +431,42 @@ export default function Discover() {
 
                       {/* Actions — always at bottom */}
                       <div className="flex items-center gap-2 mt-3 pt-3 border-t border-border/50">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="flex-1 gap-1.5 text-xs h-9"
-                          onClick={() => navigate(`/profile/${p.id}`)}
-                        >
-                          View Profile
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant={isConnected ? "outline" : "default"}
-                          className={`flex-1 gap-1.5 text-xs h-9 ${isConnected ? "border-primary text-primary" : ""}`}
-                          onClick={() => handleConnect(p.id, p.name)}
-                        >
-                          {isConnected ? <Check className="h-3.5 w-3.5" /> : <UserPlus className="h-3.5 w-3.5" />}
-                          {isConnected ? "Connected" : "Connect"}
-                        </Button>
+                        {isBlockedByMe ? (
+                          // Blocked user card: show blocked badge + unblock only
+                          <>
+                            <span className="flex-1 text-xs text-muted-foreground font-medium flex items-center gap-1.5">
+                              <ShieldOff className="h-3.5 w-3.5" /> Blocked
+                            </span>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="flex-1 gap-1.5 text-xs h-9"
+                              onClick={() => handleUnblock(p.id, p.name)}
+                            >
+                              Unblock
+                            </Button>
+                          </>
+                        ) : (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="flex-1 gap-1.5 text-xs h-9"
+                              onClick={() => navigate(`/profile/${p.id}`)}
+                            >
+                              View Profile
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant={isConnected ? "outline" : "default"}
+                              className={`flex-1 gap-1.5 text-xs h-9 ${isConnected ? "border-primary text-primary" : ""}`}
+                              onClick={() => handleConnect(p.id, p.name)}
+                            >
+                              {isConnected ? <Check className="h-3.5 w-3.5" /> : <UserPlus className="h-3.5 w-3.5" />}
+                              {isConnected ? "Connected" : "Connect"}
+                            </Button>
+                          </>
+                        )}
                       </div>
                     </div>
                   );
