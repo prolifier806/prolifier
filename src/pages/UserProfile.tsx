@@ -125,16 +125,12 @@ export default function UserProfile() {
       setNotFound(false);
 
       try {
-        // Fetch profile, posts, collabs, connection status in parallel
-        const [profileRes, postsRes, collabsRes, [connSentRes, connRecvRes]] = await Promise.all([
+        // ── Step 1: check block status BEFORE loading any content ──
+        // Fetch both directions in parallel so we can bail early.
+        const [profileRes, blockedByOwnerRes, iBlockedRes] = await Promise.all([
           (supabase as any).from("profiles").select("*").eq("id", id).single(),
-          (supabase as any).from("posts").select("id, tag, content, created_at, likes").eq("user_id", id).order("created_at", { ascending: false }).limit(20),
-          (supabase as any).from("collabs").select("id, title, looking, description, skills").eq("user_id", id).order("created_at", { ascending: false }).limit(10),
-          // Check connection status from both directions
-          Promise.all([
-            (supabase as any).from("connections").select("id, status").eq("requester_id", user.id).eq("receiver_id", id).maybeSingle(),
-            (supabase as any).from("connections").select("id, status").eq("requester_id", id).eq("receiver_id", user.id).maybeSingle(),
-          ]),
+          (supabase as any).from("blocks").select("id").eq("blocker_id", id).eq("blocked_id", user.id).maybeSingle(),
+          (supabase as any).from("blocks").select("id").eq("blocker_id", user.id).eq("blocked_id", id).maybeSingle(),
         ]);
 
         if (profileRes.error || !profileRes.data) {
@@ -148,6 +144,8 @@ export default function UserProfile() {
           setIsDeleted(true);
           return;
         }
+
+        // Set minimal profile data needed for the isolation screens
         setProfile({
           id: p.id,
           name: p.name || "Unknown",
@@ -165,9 +163,28 @@ export default function UserProfile() {
           openToCollab: p.open_to_collab ?? true,
         });
 
-        setPosts((postsRes.data || []).map((p: any) => ({
-          id: p.id, tag: p.tag, content: p.content,
-          time: timeAgo(p.created_at), likes: p.likes || 0,
+        const ownerHasBlockedMe = !!blockedByOwnerRes.data;
+        const iHaveBlockedOwner = !!iBlockedRes.data;
+
+        setIsBlockedByOwner(ownerHasBlockedMe);
+        setIsBlocked(iHaveBlockedOwner);
+
+        // ── Total isolation: don't load posts/collabs if either blocked ──
+        if (ownerHasBlockedMe || iHaveBlockedOwner) return;
+
+        // ── Step 2: load content only when no block exists ─────────────
+        const [postsRes, collabsRes, [connSentRes, connRecvRes]] = await Promise.all([
+          (supabase as any).from("posts").select("id, tag, content, created_at, likes").eq("user_id", id).order("created_at", { ascending: false }).limit(20),
+          (supabase as any).from("collabs").select("id, title, looking, description, skills").eq("user_id", id).order("created_at", { ascending: false }).limit(10),
+          Promise.all([
+            (supabase as any).from("connections").select("id, status").eq("requester_id", user.id).eq("receiver_id", id).maybeSingle(),
+            (supabase as any).from("connections").select("id, status").eq("requester_id", id).eq("receiver_id", user.id).maybeSingle(),
+          ]),
+        ]);
+
+        setPosts((postsRes.data || []).map((post: any) => ({
+          id: post.id, tag: post.tag, content: post.content,
+          time: timeAgo(post.created_at), likes: post.likes || 0,
         })));
 
         setCollabs((collabsRes.data || []).map((c: any) => ({
@@ -181,24 +198,6 @@ export default function UserProfile() {
         const isPending = (connSent?.status === "pending") || (connRecv?.status === "pending");
         setConnected(isAccepted);
         setPending(isPending && !isAccepted);
-
-        // Check if this profile owner has blocked the current viewer
-        try {
-          const { data: blockedByOwner } = await (supabase as any)
-            .from("blocks")
-            .select("id")
-            .eq("blocker_id", id)
-            .eq("blocked_id", user.id)
-            .maybeSingle();
-          setIsBlockedByOwner(!!blockedByOwner);
-        } catch { /* ignore */ }
-
-        // Load blocked status
-        const blockedKey = `prolifier_blocked_${user.id}`;
-        try {
-          const blocked: { id: string }[] = JSON.parse(localStorage.getItem(blockedKey) || "[]");
-          setIsBlocked(blocked.some(b => b.id === id));
-        } catch { /* ignore */ }
       } catch {
         setNotFound(true);
       } finally {
@@ -211,24 +210,17 @@ export default function UserProfile() {
 
   const handleBlock = async () => {
     if (!profile) return;
-    const blockedKey = `prolifier_blocked_${user.id}`;
     try {
-      const current: { id: string; name: string; avatar: string; color: string; avatarUrl?: string }[] =
-        JSON.parse(localStorage.getItem(blockedKey) || "[]");
       if (isBlocked) {
-        localStorage.setItem(blockedKey, JSON.stringify(current.filter(b => b.id !== profile.id)));
-        setIsBlocked(false);
-        // Also remove from DB
         await (supabase as any).from("blocks").delete().eq("blocker_id", user.id).eq("blocked_id", profile.id);
+        setIsBlocked(false);
         toast({ title: "User unblocked" });
       } else {
-        localStorage.setItem(blockedKey, JSON.stringify([
-          ...current,
-          { id: profile.id, name: profile.name, avatar: profile.avatar, color: profile.color, avatarUrl: profile.avatarUrl },
-        ]));
-        setIsBlocked(true);
-        // Also save to DB
         await (supabase as any).from("blocks").upsert({ blocker_id: user.id, blocked_id: profile.id });
+        setIsBlocked(true);
+        // Clear connection so they no longer appear in connections list
+        setConnected(false);
+        setPending(false);
         toast({ title: "User blocked" });
       }
     } catch { /* ignore */ }
@@ -300,7 +292,7 @@ export default function UserProfile() {
     );
   }
 
-  if (isBlockedByOwner) {
+  if (isBlockedByOwner || isBlocked) {
     return (
       <Layout>
         <div className="max-w-2xl mx-auto px-4 py-6">
@@ -314,6 +306,14 @@ export default function UserProfile() {
             </div>
             <h1 className="text-lg font-bold text-foreground mt-3">{profile?.name || "User"}</h1>
             <p className="text-sm text-muted-foreground">This content is not available.</p>
+            {isBlocked && (
+              <button
+                className="text-xs text-muted-foreground underline underline-offset-2 mt-2"
+                onClick={handleBlock}
+              >
+                Unblock
+              </button>
+            )}
           </div>
         </div>
       </Layout>

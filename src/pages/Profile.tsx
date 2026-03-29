@@ -188,12 +188,21 @@ export default function Profile() {
   const [deleteLoading, setDeleteLoading]     = useState(false);
 
   const initials = user.name.split(" ").filter(Boolean).map(w => w[0]).join("").slice(0, 2).toUpperCase() || "?";
-  const blockedKey = user.id ? `prolifier_blocked_${user.id}` : null;
-
-  const loadBlockedFromStorage = (): BlockedUser[] => {
-    if (!blockedKey) return [];
-    try { return JSON.parse(localStorage.getItem(blockedKey) || "[]"); }
-    catch { return []; }
+  const loadBlockedFromDB = async (): Promise<BlockedUser[]> => {
+    if (!user.id) return [];
+    try {
+      const { data } = await (supabase as any)
+        .from("blocks")
+        .select("blocked_id, profiles!blocks_blocked_id_fkey(id, name, avatar, color, avatar_url)")
+        .eq("blocker_id", user.id);
+      return (data || []).map((row: any) => ({
+        id: row.profiles.id,
+        name: row.profiles.name,
+        avatar: row.profiles.avatar,
+        color: row.profiles.color,
+        avatarUrl: row.profiles.avatar_url || undefined,
+      }));
+    } catch { return []; }
   };
 
   // Load analytics (Connections count both sides, Posts, Saved)
@@ -244,7 +253,9 @@ export default function Profile() {
   const openView = async (v: ViewType) => {
     setView(v);
     if (v === "blocked") {
-      setBlockedList(loadBlockedFromStorage());
+      setViewLoading(true);
+      setBlockedList(await loadBlockedFromDB());
+      setViewLoading(false);
       return;
     }
     if (v === "terms") return;
@@ -413,10 +424,7 @@ export default function Profile() {
   };
 
   const handleUnblock = async (userId: string) => {
-    if (!blockedKey) return;
-    const updated = blockedList.filter(u => u.id !== userId);
-    localStorage.setItem(blockedKey, JSON.stringify(updated));
-    setBlockedList(updated);
+    setBlockedList(prev => prev.filter(u => u.id !== userId));
     await (supabase as any).from("blocks").delete().eq("blocker_id", user.id).eq("blocked_id", userId);
     toast({ title: "User unblocked" });
   };
