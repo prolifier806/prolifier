@@ -116,7 +116,17 @@ export default function Notifications() {
         .order("created_at", { ascending: false })
         .limit(50);
       if (error) throw error;
-      setNotifs(data || []);
+      const items: Notif[] = data || [];
+      // Auto-mark all as read when the notifications page is opened
+      setNotifs(items.map(n => ({ ...n, read: true })));
+      if (items.some(n => !n.read)) {
+        (supabase as any)
+          .from("notifications")
+          .update({ read: true })
+          .eq("user_id", user.id)
+          .eq("read", false)
+          .not("type", "in", "(message,match)");
+      }
     } catch (err) {
       console.error("fetchNotifs:", err);
     } finally {

@@ -511,9 +511,9 @@ function CommentSheet({ post, currentUserId, onClose, onAddComment, onDeleteComm
   };
 
   const renderMentions = (txt: string) => {
-    // @[^\s]+ stops at the first regular space — multi-word names use non-breaking
-    // spaces (inserted by selectMention) so they stay as one token.
-    const parts = txt.split(/(@[^\s]+)/g);
+    // Avoid \s — in modern JS \s matches \u00A0 (NBSP), which is used to join
+    // multi-word names. Use explicit ASCII whitespace so NBSP stays in the token.
+    const parts = txt.split(/(@[^ \t\n\r\f\v]+)/g);
     return parts.map((part, i) =>
       part.startsWith("@")
         ? <span key={i} className="text-primary font-medium mr-0.5">{part.replace(/\u00A0/g, ' ')}</span>
