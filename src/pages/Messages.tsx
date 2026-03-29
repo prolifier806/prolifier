@@ -1,11 +1,12 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useRealtimeChannel } from "@/hooks/useRealtimeChannel";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
   Search, Send, ArrowLeft, Image, Video, Paperclip,
   X, Play, Pause, PenSquare, Mic, StopCircle, RefreshCw, Check, CheckCheck,
+  BellOff, Bell, Flag,
 } from "lucide-react";
 import Layout from "@/components/Layout";
 import { toast } from "@/hooks/use-toast";
@@ -116,6 +117,7 @@ import { createNotification } from "@/lib/notifications";
 export default function Messages() {
   const { user } = useUser();
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -148,22 +150,30 @@ export default function Messages() {
   const [blockedByMe, setBlockedByMe] = useState<Set<string>>(new Set());
   // Track who has blocked the current user
   const [blockedByThem, setBlockedByThem] = useState<Set<string>>(new Set());
+  // Track muted users (no badge/notification for their messages)
+  const [mutedByMe, setMutedByMe] = useState<Set<string>>(new Set());
+  // Report modal state
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportReason, setReportReason] = useState("spam");
 
-  // Load both block directions on mount
+  // Load both block directions + mutes on mount
   useEffect(() => {
     if (!user.id) return;
     Promise.all([
       (supabase as any).from("blocks").select("blocked_id").eq("blocker_id", user.id),
       (supabase as any).from("blocks").select("blocker_id").eq("blocked_id", user.id),
-    ]).then(([myRes, themRes]) => {
+      (supabase as any).from("mutes").select("muted_id").eq("muter_id", user.id),
+    ]).then(([myRes, themRes, mutesRes]) => {
       setBlockedByMe(new Set((myRes.data || []).map((b: any) => b.blocked_id)));
       setBlockedByThem(new Set((themRes.data || []).map((b: any) => b.blocker_id)));
+      setMutedByMe(new Set((mutesRes.data || []).map((m: any) => m.muted_id)));
     }).catch(() => {});
   }, [user.id]);
 
   const iBlockedThem = useMemo(() => selectedId ? blockedByMe.has(selectedId) : false, [selectedId, blockedByMe]);
   const theyBlockedMe = useMemo(() => selectedId ? blockedByThem.has(selectedId) : false, [selectedId, blockedByThem]);
   const isBlocked = iBlockedThem || theyBlockedMe;
+  const isMuted = useMemo(() => selectedId ? mutedByMe.has(selectedId) : false, [selectedId, mutedByMe]);
 
   const handleUnblockHere = async () => {
     if (!selectedId) return;
@@ -172,6 +182,32 @@ export default function Messages() {
       setBlockedByMe(prev => { const n = new Set(prev); n.delete(selectedId); return n; });
       toast({ title: "User unblocked" });
     } catch { /* ignore */ }
+  };
+
+  const handleToggleMute = async () => {
+    if (!selectedId) return;
+    try {
+      if (isMuted) {
+        await (supabase as any).from("mutes").delete().eq("muter_id", user.id).eq("muted_id", selectedId);
+        setMutedByMe(prev => { const n = new Set(prev); n.delete(selectedId); return n; });
+        toast({ title: "Unmuted" });
+      } else {
+        await (supabase as any).from("mutes").insert({ muter_id: user.id, muted_id: selectedId });
+        setMutedByMe(prev => new Set([...prev, selectedId]));
+        toast({ title: "Muted — you won't get message notifications from this user" });
+      }
+    } catch { /* ignore */ }
+  };
+
+  const handleReport = async () => {
+    if (!selectedId) return;
+    try {
+      await (supabase as any).from("reports").insert({ reporter_id: user.id, reported_id: selectedId, reason: reportReason });
+      setShowReportModal(false);
+      toast({ title: "Report submitted", description: "Thank you — our team will review it." });
+    } catch {
+      toast({ title: "Failed to submit report", variant: "destructive" });
+    }
   };
 
   // ── Fetch conversations ──────────────────────────────────────────────
@@ -396,6 +432,7 @@ export default function Messages() {
         const row = payload.new as any;
         // Drop realtime messages if I have blocked the sender
         if (blockedByMe.has(row.sender_id)) return;
+        const senderMuted = mutedByMe.has(row.sender_id);
         if (row.sender_id === selectedIdRef.current) {
           setMessages(prev => [...prev, {
             id: row.id, sender_id: row.sender_id, text: row.text,
@@ -406,7 +443,13 @@ export default function Messages() {
         } else {
           setConversations(prev => prev.map(c =>
             c.id === row.sender_id
-              ? { ...c, unread: c.unread + 1, lastMsg: row.text || "", lastTime: fmtTime(row.created_at) }
+              ? {
+                  ...c,
+                  // Don't increment unread badge if sender is muted
+                  unread: senderMuted ? c.unread : c.unread + 1,
+                  lastMsg: row.text || "",
+                  lastTime: fmtTime(row.created_at),
+                }
               : c
           ));
           if (!conversations.find(c => c.id === row.sender_id)) fetchConversations();
@@ -494,8 +537,14 @@ export default function Messages() {
       setConversations(prev => prev.map(c => c.id === selectedId
         ? { ...c, lastMsg: trimmed || `[${mediaType}]`, lastTime: "now" } : c
       ));
-      // Notify recipient
-      createNotification({
+      // Notify recipient — skip if they have muted me
+      const { data: muteCheck } = await (supabase as any)
+        .from("mutes")
+        .select("id")
+        .eq("muter_id", selectedId)
+        .eq("muted_id", user.id)
+        .maybeSingle();
+      if (!muteCheck) createNotification({
         userId: selectedId,
         type: "message",
         text: `${user.name} sent you a message`,
@@ -705,20 +754,46 @@ export default function Messages() {
                 <button className="md:hidden text-muted-foreground hover:text-foreground" onClick={() => setShowMobileChat(false)}>
                   <ArrowLeft className="h-5 w-5" />
                 </button>
-                {/* Anonymize avatar only when THEY blocked ME (blocked user's view) */}
-                <div className={`h-9 w-9 rounded-full ${theyBlockedMe ? "bg-muted" : (selectedConvo.avatarUrl ? "" : selectedConvo.color)} flex items-center justify-center text-xs font-semibold shrink-0 overflow-hidden`}>
-                  {theyBlockedMe
-                    ? <span className="text-muted-foreground text-lg">?</span>
-                    : selectedConvo.avatarUrl
-                      ? <img src={selectedConvo.avatarUrl} alt={selectedConvo.avatar} className="w-full h-full object-cover" />
-                      : <span className="text-white">{selectedConvo.avatar}</span>}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-sm text-foreground truncate">
-                    {theyBlockedMe ? "Prolifier User" : selectedConvo.name}
-                  </p>
-                  {!theyBlockedMe && <p className="text-xs text-muted-foreground">Active recently</p>}
-                </div>
+                {/* Clickable profile area — disabled when anonymized */}
+                <button
+                  className="flex items-center gap-3 flex-1 min-w-0 text-left hover:opacity-80 transition-opacity disabled:opacity-100 disabled:cursor-default"
+                  onClick={() => !theyBlockedMe && navigate(`/profile/${selectedId}`)}
+                  disabled={theyBlockedMe}
+                >
+                  {/* Anonymize avatar only when THEY blocked ME (blocked user's view) */}
+                  <div className={`h-9 w-9 rounded-full ${theyBlockedMe ? "bg-muted" : (selectedConvo.avatarUrl ? "" : selectedConvo.color)} flex items-center justify-center text-xs font-semibold shrink-0 overflow-hidden`}>
+                    {theyBlockedMe
+                      ? <span className="text-muted-foreground text-lg">?</span>
+                      : selectedConvo.avatarUrl
+                        ? <img src={selectedConvo.avatarUrl} alt={selectedConvo.avatar} className="w-full h-full object-cover" />
+                        : <span className="text-white">{selectedConvo.avatar}</span>}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-semibold text-sm text-foreground truncate">
+                      {theyBlockedMe ? "Prolifier User" : selectedConvo.name}
+                    </p>
+                    {!theyBlockedMe && <p className="text-xs text-muted-foreground">Tap to view profile</p>}
+                  </div>
+                </button>
+                {/* Mute and Report buttons — hidden when anonymized */}
+                {!theyBlockedMe && (
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={handleToggleMute}
+                      title={isMuted ? "Unmute notifications" : "Mute notifications"}
+                      className={`h-8 w-8 rounded-full flex items-center justify-center transition-colors ${isMuted ? "text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/30" : "text-muted-foreground hover:bg-muted"}`}
+                    >
+                      {isMuted ? <BellOff className="h-4 w-4" /> : <Bell className="h-4 w-4" />}
+                    </button>
+                    <button
+                      onClick={() => setShowReportModal(true)}
+                      title="Report user"
+                      className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-rose-500 transition-colors"
+                    >
+                      <Flag className="h-4 w-4" />
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Messages */}
@@ -825,6 +900,39 @@ export default function Messages() {
           )}
         </div>
       </div>
+
+      {/* Report modal */}
+      {showReportModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => setShowReportModal(false)}>
+          <div className="bg-card rounded-2xl shadow-xl w-full max-w-sm p-6" onClick={e => e.stopPropagation()}>
+            <h2 className="text-base font-bold mb-1">Report user</h2>
+            <p className="text-sm text-muted-foreground mb-4">Select a reason and we'll review this account.</p>
+            <div className="space-y-2 mb-5">
+              {["spam", "harassment", "inappropriate content", "fake account", "other"].map(r => (
+                <label key={r} className="flex items-center gap-3 cursor-pointer group">
+                  <input
+                    type="radio"
+                    name="report-reason"
+                    value={r}
+                    checked={reportReason === r}
+                    onChange={() => setReportReason(r)}
+                    className="accent-primary"
+                  />
+                  <span className="text-sm capitalize text-foreground">{r}</span>
+                </label>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setShowReportModal(false)} className="flex-1 h-9 rounded-lg border border-border text-sm font-medium text-muted-foreground hover:bg-muted transition-colors">
+                Cancel
+              </button>
+              <button onClick={handleReport} className="flex-1 h-9 rounded-lg bg-rose-500 text-white text-sm font-semibold hover:bg-rose-600 transition-colors">
+                Submit report
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Lightbox */}
       {mediaPreview && (

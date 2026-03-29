@@ -137,10 +137,10 @@ export default function Layout({ children }: { children: ReactNode }) {
     };
   }, [user.id]);
 
-  // Clear badges and mark-as-read when user navigates to the relevant page
-  useEffect(() => {
+  // Clear badge + mark-as-read — called both on navigation AND on nav-link click
+  const clearBadge = (to: string) => {
     if (!user.id) return;
-    if (pathname.startsWith("/notifications")) {
+    if (to === "/notifications") {
       setNotifCount(0);
       (supabase as any)
         .from("notifications")
@@ -148,7 +148,7 @@ export default function Layout({ children }: { children: ReactNode }) {
         .eq("user_id", user.id)
         .eq("read", false)
         .not("type", "in", "(message,match)");
-    } else if (pathname.startsWith("/messages")) {
+    } else if (to === "/messages") {
       setMsgCount(0);
       (supabase as any)
         .from("notifications")
@@ -156,9 +156,18 @@ export default function Layout({ children }: { children: ReactNode }) {
         .eq("user_id", user.id)
         .eq("type", "message")
         .eq("read", false);
-    } else if (pathname.startsWith("/discover")) {
+    } else if (to === "/discover") {
       setDiscoverCount(0);
     }
+  };
+
+  // Also clear on pathname change (handles direct URL navigation / back-button)
+  useEffect(() => {
+    if (!user.id) return;
+    if (pathname.startsWith("/notifications")) clearBadge("/notifications");
+    else if (pathname.startsWith("/messages"))    clearBadge("/messages");
+    else if (pathname.startsWith("/discover"))    clearBadge("/discover");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname, user.id]);
 
   // Also clear discover badge when the Requests tab is opened from within the page
@@ -195,6 +204,7 @@ export default function Layout({ children }: { children: ReactNode }) {
               <Link
                 key={to}
                 to={to}
+                onClick={() => clearBadge(to)}
                 className={`flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 ${
                   active
                     ? "bg-primary text-primary-foreground shadow-sm"
@@ -315,6 +325,7 @@ export default function Layout({ children }: { children: ReactNode }) {
             <Link
               key={to}
               to={to}
+              onClick={() => clearBadge(to)}
               className={`flex flex-col items-center gap-0.5 px-3 py-1 text-xs transition-colors min-w-0 ${
                 active ? "text-primary" : "text-muted-foreground"
               }`}
