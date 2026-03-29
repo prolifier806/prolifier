@@ -412,6 +412,7 @@ export default function Groups() {
             type: "group",
             text: `${user.name} joined your group "${g.name}"`,
             action: `group:${groupId}`,
+            actorId: user.id,
           });
         }
       }

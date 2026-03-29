@@ -250,6 +250,7 @@ export default function Discover() {
         text: `${user.name} sent you a connection request`,
         subtext: user.bio?.slice(0, 60) || undefined,
         action: `profile:${user.id}`,
+        actorId: user.id,
       });
     }
   };
@@ -268,6 +269,7 @@ export default function Discover() {
         type: "match",
         text: `${user.name} accepted your connection request`,
         action: `profile:${user.id}`,
+        actorId: user.id,
       });
     } catch (err: any) {
       toast({ title: "Failed to accept", description: err.message, variant: "destructive" });

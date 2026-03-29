@@ -6,12 +6,14 @@ export async function createNotification({
   text,
   subtext,
   action,
+  actorId,
 }: {
   userId: string;
   type: string;
   text: string;
   subtext?: string;
   action?: string;
+  actorId?: string;
 }) {
   if (!userId) return;
 
@@ -23,6 +25,7 @@ export async function createNotification({
     text,
     subtext: subtext || null,
     action: action || null,
+    actor_id: actorId || null,
     read: false,
   });
 

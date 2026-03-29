@@ -862,8 +862,8 @@ const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, highligh
 
 // ── Collab Card ────────────────────────────────────────────────────────────
 // OPT: same memo treatment as PostCard
-const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollabs, onInterest, onMessage, onSave, onDelete, onEdit, onHide, onReport, onShare }: {
-  collab: Collab; interestedSet: Set<string>; savedCollabs: Set<string>;
+const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollabs, highlighted, onInterest, onMessage, onSave, onDelete, onEdit, onHide, onReport, onShare }: {
+  collab: Collab; interestedSet: Set<string>; savedCollabs: Set<string>; highlighted?: boolean;
   onInterest:(id:string,name:string)=>void; onMessage:(name:string)=>void; onSave:(id:string)=>void;
   onDelete:(id:string)=>void; onEdit:(c:Collab)=>void; onHide:(id:string)=>void;
   onReport:(id:string)=>void; onShare:(id:string)=>void;
@@ -885,7 +885,7 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
 
   return (
     <>
-      <div className="rounded-xl border border-border bg-card hover:shadow-sm transition-shadow overflow-hidden">
+      <div data-collab-id={collab.id} className={`rounded-xl border bg-card hover:shadow-sm transition-shadow overflow-hidden ${highlighted ? "border-primary ring-2 ring-primary/30" : "border-border"}`}>
         <div className="flex items-center gap-3 px-5 pt-5 pb-3">
           <div className={`shrink-0 ${!collab.authorDeleted ? "cursor-pointer hover:opacity-80 transition-opacity" : ""}`} onClick={goToProfile}>
             <Avatar initials={collab.authorDeleted ? "?" : collab.avatar} color={collab.authorDeleted ? "bg-muted" : collab.avatarColor} url={collab.authorDeleted ? undefined : collab.avatarUrl}/>
@@ -1014,6 +1014,7 @@ export default function Feed() {
   const [activePostTag, setActivePostTag] = useState("All");
 
   const [highlightedPostId, setHighlightedPostId] = useState<string|null>(null);
+  const [highlightedCollabId, setHighlightedCollabId] = useState<string|null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
   const [collabs, setCollabs] = useState<Collab[]>([]);
   const [likedPosts, setLikedPosts] = useState<Set<string>>(new Set());
@@ -1073,13 +1074,38 @@ export default function Feed() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [posts]);
 
-  // ── Clear highlight ring after 2 seconds ──
+  // ── Deep-link: scroll + highlight collab when ?collab=<id> is in the URL ──
+  useEffect(() => {
+    const collabId = searchParams.get("collab");
+    if (!collabId || collabs.length === 0) return;
+    if (deepLinkHandledRef.current === collabId) return;
+    const target = collabs.find(c => c.id === collabId);
+    if (target) {
+      deepLinkHandledRef.current = collabId;
+      setActiveTab("collabs");
+      setHighlightedCollabId(collabId);
+      setTimeout(() => {
+        document.querySelector(`[data-collab-id="${collabId}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 300);
+      navigate("/feed", { replace: true });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collabs]);
+
+  // ── Clear highlight rings after 2 seconds ──
   useEffect(() => {
     if (highlightedPostId) {
       const t = setTimeout(() => setHighlightedPostId(null), 2000);
       return () => clearTimeout(t);
     }
   }, [highlightedPostId]);
+
+  useEffect(() => {
+    if (highlightedCollabId) {
+      const t = setTimeout(() => setHighlightedCollabId(null), 2000);
+      return () => clearTimeout(t);
+    }
+  }, [highlightedCollabId]);
 
   // ── Fetch (OPT: parallelized — posts + collabs + likes fire simultaneously) ──
   const fetchFeed = useCallback(async () => {
@@ -1298,6 +1324,7 @@ export default function Feed() {
           text: `${user.name} liked your post`,
           subtext: post.content?.slice(0, 60) || undefined,
           action: "feed",
+          actorId: user.id,
         });
       }
     }
@@ -1383,8 +1410,24 @@ export default function Feed() {
         type: "comment",
         text: `${user.name} commented on your post`,
         subtext: text.slice(0, 60),
-        action: "feed",
+        action: `post:${postId}`,
+        actorId: user.id,
       });
+    }
+    // When this is a reply, notify the parent comment's author
+    if (parentId) {
+      const allComments = commentingPost?.comments ?? post?.comments ?? [];
+      const parentComment = allComments.find(c => c.id === parentId);
+      if (parentComment && parentComment.user_id !== user.id && parentComment.user_id !== post?.user_id) {
+        createNotification({
+          userId: parentComment.user_id,
+          type: "comment",
+          text: `${user.name} replied to your comment`,
+          subtext: text.slice(0, 60),
+          action: `post:${postId}`,
+          actorId: user.id,
+        });
+      }
     }
     // Notify @mentioned users
     const mentionMatches = [...new Set((text.match(/@([\w][\w ]*)/g) || []).map(m => m.slice(1).trim()))];
@@ -1392,11 +1435,11 @@ export default function Feed() {
       const { data: mentioned } = await (supabase as any).from("profiles").select("id, name").in("name", mentionMatches);
       (mentioned || []).forEach((p: any) => {
         if (p.id !== user.id) {
-          createNotification({ userId: p.id, type: "comment", text: `${user.name} mentioned you in a comment`, subtext: text.slice(0, 60), action: "feed" });
+          createNotification({ userId: p.id, type: "comment", text: `${user.name} mentioned you in a comment`, subtext: text.slice(0, 60), action: "feed", actorId: user.id });
         }
       });
     }
-  }, [posts, user.id, user.name, user.avatar, user.color, user.avatarUrl]);
+  }, [posts, commentingPost, user.id, user.name, user.avatar, user.color, user.avatarUrl]);
 
   const handleDeleteComment = useCallback(async (commentId: string, postId: string) => {
     await (supabase as any).from("comments").delete().eq("id", commentId);
@@ -1476,7 +1519,10 @@ export default function Feed() {
       setPosts(p => [{
         id: data.id, user_id: user.id, author: user.name, avatar: user.avatar,
         avatarUrl: user.avatarUrl || undefined,
-        avatarColor: user.color, location: user.location, tag: postDialog.tag, time: "Just now",
+        avatarColor: user.color, location: user.location,
+        authorSkills: user.skills?.slice(0, 3) || [],
+        authorDeleted: false,
+        tag: postDialog.tag, time: "Just now",
         content: postDialog.content, image: postDialog.image, video: postDialog.video,
         likes: 0, commentCount: 0, isOwn: true, comments: [],
       }, ...p]);
@@ -1514,6 +1560,7 @@ export default function Feed() {
           text: `${user.name} is interested in your collab`,
           subtext: collab.title,
           action: "feed",
+          actorId: user.id,
         });
       }
     }
@@ -1579,7 +1626,10 @@ export default function Feed() {
       setCollabs(p => [{
         id: data.id, user_id: user.id, author: user.name, avatar: user.avatar,
         avatarUrl: user.avatarUrl || undefined,
-        avatarColor: user.color, location: user.location, title: collabDialog.title,
+        avatarColor: user.color, location: user.location,
+        authorSkills: user.skills?.slice(0, 3) || [],
+        authorDeleted: false,
+        title: collabDialog.title,
         looking: collabDialog.looking, description: collabDialog.desc, skills: collabDialog.skills,
         image: collabDialog.image, video: collabDialog.video, isOwn: true,
       }, ...p]);
@@ -1881,6 +1931,7 @@ export default function Feed() {
               <>
                 {filteredCollabs.map(c => (
                   <CollabCard key={c.id} collab={c} interestedSet={interestedCollabs} savedCollabs={savedCollabs}
+                    highlighted={highlightedCollabId === c.id}
                     onInterest={handleInterest} onMessage={() => navigate("/messages")}
                     onSave={handleSaveCollab} onDelete={handleDeleteCollab} onEdit={setEditingCollab}
                     onHide={handleHideCollab}

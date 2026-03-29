@@ -474,6 +474,7 @@ export default function Messages() {
         text: `${user.name} sent you a message`,
         subtext: trimmed?.slice(0, 60),
         action: `message:${user.id}`,
+        actorId: user.id,
       });
     }
     setSending(false);

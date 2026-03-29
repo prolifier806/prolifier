@@ -58,13 +58,14 @@ const PREFS_DEFAULT = {
 
 // ── Exported helper — call this from anywhere to create a notification ────
 export async function createNotification({
-  userId, type, text, subtext, action,
+  userId, type, text, subtext, action, actorId,
 }: {
   userId: string;
   type: string;
   text: string;
   subtext?: string;
   action?: string;
+  actorId?: string;
 }) {
   try {
     await (supabase as any).from("notifications").insert({
@@ -73,6 +74,7 @@ export async function createNotification({
       text,
       subtext: subtext || null,
       action: action || null,
+      actor_id: actorId || null,
       read: false,
     });
   } catch (err) {
@@ -184,6 +186,9 @@ export default function Notifications() {
       navigate(`/profile/${id}`);
     } else if (n.action.startsWith("group:")) {
       navigate("/groups");
+    } else if (n.action.startsWith("post:")) {
+      const postId = n.action.split(":")[1];
+      navigate(`/feed?post=${postId}`);
     } else if (n.action === "feed") {
       navigate("/feed");
     } else if (n.action === "messages") {
@@ -198,7 +203,7 @@ export default function Notifications() {
     if (action.startsWith("message:") || action === "messages") return "Reply";
     if (action.startsWith("profile:")) return "View";
     if (action.startsWith("group:") || action === "groups") return "Open";
-    if (action === "feed") return "View";
+    if (action.startsWith("post:") || action === "feed") return "View";
     return "Open";
   };
 

@@ -254,6 +254,7 @@ export default function UserProfile() {
         text: `${user.name} sent you a connection request`,
         subtext: user.bio?.slice(0, 60) || undefined,
         action: `profile:${user.id}`,
+        actorId: user.id,
       });
     }
 
@@ -469,7 +470,10 @@ export default function UserProfile() {
                   {collabs.map(collab => (
                     <div key={collab.id} className="px-5 py-4">
                       <div className="flex items-start justify-between gap-2 mb-2 flex-wrap">
-                        <p className="text-sm font-semibold text-foreground">{collab.title}</p>
+                        <button
+                          className="text-sm font-semibold text-foreground hover:underline text-left"
+                          onClick={() => navigate(`/feed?tab=collabs&collab=${collab.id}`)}
+                        >{collab.title}</button>
                         <Badge variant="outline" className="text-xs shrink-0">Looking for: {collab.looking}</Badge>
                       </div>
                       <p className="text-sm text-muted-foreground leading-relaxed mb-3">{collab.description}</p>
@@ -485,6 +489,7 @@ export default function UserProfile() {
                             text: `${user.name} is interested in your collab "${collab.title}"`,
                             subtext: `Looking for: ${collab.looking}`,
                             action: "messages",
+                            actorId: user.id,
                           });
                         }}>
                         <Handshake className="h-3.5 w-3.5" /> Express Interest

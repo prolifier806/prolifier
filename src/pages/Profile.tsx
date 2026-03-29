@@ -632,7 +632,7 @@ export default function Profile() {
                 ) : (
                   <div className="rounded-xl border border-border bg-card overflow-hidden divide-y divide-border">
                     {userCollabs.map(collab => (
-                      <button key={collab.id} onClick={() => navigate("/feed?tab=collabs")}
+                      <button key={collab.id} onClick={() => navigate(`/feed?tab=collabs&collab=${collab.id}`)}
                         className="w-full px-5 py-4 text-left hover:bg-muted transition-colors">
                         <p className="text-sm font-semibold text-foreground mb-1">{collab.title}</p>
                         <p className="text-xs text-muted-foreground mb-2 line-clamp-2">{collab.description}</p>
