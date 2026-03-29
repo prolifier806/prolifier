@@ -92,7 +92,10 @@ export default function Layout({ children }: { children: ReactNode }) {
         },
         (payload) => {
           if ((payload.new as any).status === "pending") {
-            setDiscoverCount((c) => c + 1);
+            // Don't increment if user is already on the discover page
+            if (!window.location.pathname.startsWith("/discover")) {
+              setDiscoverCount((c) => c + 1);
+            }
           }
         }
       )
@@ -157,6 +160,13 @@ export default function Layout({ children }: { children: ReactNode }) {
       setDiscoverCount(0);
     }
   }, [pathname, user.id]);
+
+  // Also clear discover badge when the Requests tab is opened from within the page
+  useEffect(() => {
+    const handler = () => setDiscoverCount(0);
+    window.addEventListener("prolifier:requests-opened", handler);
+    return () => window.removeEventListener("prolifier:requests-opened", handler);
+  }, []);
 
   const getBadge = (to: string) => {
     if (to === "/notifications") return notifCount;

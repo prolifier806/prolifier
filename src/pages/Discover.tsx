@@ -89,6 +89,8 @@ export default function Discover() {
   const cursorRef = useRef<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
+  // Pending sent requests (so we show "Pending" instead of "Connected" before acceptance)
+  const [pending, setPending] = useState<Set<string>>(new Set());
   // Set of user IDs that the current user has blocked (for "Blocked" label in cards)
   const [blockedByMe, setBlockedByMe] = useState<Set<string>>(new Set());
 
@@ -132,7 +134,7 @@ export default function Discover() {
       const [{ data, error }, connsRes, myBlocksRes, blockedByRes] = await traceParallel([
         ["discover.profiles", () => query],
         ["discover.connections", () => !cursor
-          ? (supabase as any).from("connections").select("receiver_id").eq("requester_id", user.id)
+          ? (supabase as any).from("connections").select("receiver_id, status").eq("requester_id", user.id)
           : Promise.resolve({ data: null, error: null })],
         ["discover.blocks.mine", () => !cursor
           ? (supabase as any).from("blocks").select("blocked_id").eq("blocker_id", user.id)
@@ -169,7 +171,10 @@ export default function Discover() {
       cursor ? setProfiles(prev => [...prev, ...mapped]) : setProfiles(mapped);
       setHasMore((data || []).length === PAGE_SIZE);
       if ((data || []).length > 0) cursorRef.current = data[data.length - 1].created_at;
-      if (connsRes.data) setConnected(new Set(connsRes.data.map((c: any) => c.receiver_id)));
+      if (connsRes.data) {
+        setConnected(new Set(connsRes.data.filter((c: any) => c.status === "accepted").map((c: any) => c.receiver_id)));
+        setPending(new Set(connsRes.data.filter((c: any) => c.status === "pending").map((c: any) => c.receiver_id)));
+      }
     } catch (err: any) {
       toast({ title: "Failed to load profiles", description: err.message, variant: "destructive" });
     } finally {
@@ -238,19 +243,30 @@ export default function Discover() {
 
   const handleConnect = async (id: string, name: string) => {
     const isConnected = connected.has(id);
-    setConnected(prev => {
-      const next = new Set(prev);
-      isConnected ? next.delete(id) : next.add(id);
-      return next;
-    });
+    const isPending = pending.has(id);
 
     if (isConnected) {
+      setConnected(prev => { const n = new Set(prev); n.delete(id); return n; });
       await (supabase as any).from("connections").delete()
         .eq("requester_id", user.id).eq("receiver_id", id);
       toast({ title: "Connection removed", description: `You disconnected from ${name}.` });
-    } else {
-      await (supabase as any).from("connections").insert({ requester_id: user.id, receiver_id: id, status: "pending" });
-      toast({ title: "Connection request sent! 🤝", description: `${name} will be notified.` });
+      return;
+    }
+
+    if (isPending) {
+      // Cancel pending request
+      setPending(prev => { const n = new Set(prev); n.delete(id); return n; });
+      await (supabase as any).from("connections").delete()
+        .eq("requester_id", user.id).eq("receiver_id", id);
+      toast({ title: "Request cancelled" });
+      return;
+    }
+
+    // Send new request
+    setPending(prev => new Set(prev).add(id));
+    await (supabase as any).from("connections").insert({ requester_id: user.id, receiver_id: id, status: "pending" });
+    toast({ title: "Connection request sent! 🤝", description: `${name} will be notified.` });
+    {
       createNotification({
         userId: id,
         type: "match",
@@ -308,7 +324,13 @@ export default function Discover() {
       <div className="max-w-3xl mx-auto px-4 py-6">
         <h1 className="font-display text-2xl font-bold mb-6">Discover</h1>
 
-        <Tabs value={activeTab} onValueChange={(tab) => { setActiveTab(tab); if (tab === "requests") setRequestCount(0); }}>
+        <Tabs value={activeTab} onValueChange={(tab) => {
+          setActiveTab(tab);
+          if (tab === "requests") {
+            setRequestCount(0);
+            window.dispatchEvent(new Event("prolifier:requests-opened"));
+          }
+        }}>
           <TabsList className="w-full mb-6">
             <TabsTrigger value="discover" className="flex-1">People</TabsTrigger>
             <TabsTrigger value="requests" className="flex-1">
@@ -368,6 +390,7 @@ export default function Discover() {
               <div className="grid gap-4 sm:grid-cols-2">
                 {filtered.map((p, i) => {
                   const isConnected = connected.has(p.id);
+                  const isPending = pending.has(p.id);
                   const isBlockedByMe = blockedByMe.has(p.id);
                   return (
                     <div
@@ -458,12 +481,15 @@ export default function Discover() {
                             </Button>
                             <Button
                               size="sm"
-                              variant={isConnected ? "outline" : "default"}
-                              className={`flex-1 gap-1.5 text-xs h-9 ${isConnected ? "border-primary text-primary" : ""}`}
+                              variant={isConnected || isPending ? "outline" : "default"}
+                              className={`flex-1 gap-1.5 text-xs h-9 ${isConnected ? "border-primary text-primary" : isPending ? "border-muted-foreground text-muted-foreground" : ""}`}
                               onClick={() => handleConnect(p.id, p.name)}
                             >
-                              {isConnected ? <Check className="h-3.5 w-3.5" /> : <UserPlus className="h-3.5 w-3.5" />}
-                              {isConnected ? "Connected" : "Connect"}
+                              {isConnected
+                                ? <><Check className="h-3.5 w-3.5" /> Connected</>
+                                : isPending
+                                  ? "Pending…"
+                                  : <><UserPlus className="h-3.5 w-3.5" /> Connect</>}
                             </Button>
                           </>
                         )}
