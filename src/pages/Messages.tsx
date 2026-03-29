@@ -144,21 +144,32 @@ export default function Messages() {
 
   const selectedConvo = conversations.find(c => c.id === selectedId) ?? null;
 
-  // Track who the current user has blocked (reactive — updates on unblock)
-  const [blockedSet, setBlockedSet] = useState<Set<string>>(() => {
-    try { return new Set(JSON.parse(localStorage.getItem(`prolifier_blocked_${user.id}`) || "[]").map((b: any) => b.id)); }
-    catch { return new Set(); }
-  });
-  const iBlockedThem = useMemo(() => selectedId ? blockedSet.has(selectedId) : false, [selectedId, blockedSet]);
+  // Track who the current user has blocked (DB-sourced)
+  const [blockedByMe, setBlockedByMe] = useState<Set<string>>(new Set());
+  // Track who has blocked the current user
+  const [blockedByThem, setBlockedByThem] = useState<Set<string>>(new Set());
+
+  // Load both block directions on mount
+  useEffect(() => {
+    if (!user.id) return;
+    Promise.all([
+      (supabase as any).from("blocks").select("blocked_id").eq("blocker_id", user.id),
+      (supabase as any).from("blocks").select("blocker_id").eq("blocked_id", user.id),
+    ]).then(([myRes, themRes]) => {
+      setBlockedByMe(new Set((myRes.data || []).map((b: any) => b.blocked_id)));
+      setBlockedByThem(new Set((themRes.data || []).map((b: any) => b.blocker_id)));
+    }).catch(() => {});
+  }, [user.id]);
+
+  const iBlockedThem = useMemo(() => selectedId ? blockedByMe.has(selectedId) : false, [selectedId, blockedByMe]);
+  const theyBlockedMe = useMemo(() => selectedId ? blockedByThem.has(selectedId) : false, [selectedId, blockedByThem]);
+  const isBlocked = iBlockedThem || theyBlockedMe;
 
   const handleUnblockHere = async () => {
     if (!selectedId) return;
-    const key = `prolifier_blocked_${user.id}`;
     try {
-      const current: { id: string }[] = JSON.parse(localStorage.getItem(key) || "[]");
-      localStorage.setItem(key, JSON.stringify(current.filter(b => b.id !== selectedId)));
-      setBlockedSet(prev => { const n = new Set(prev); n.delete(selectedId); return n; });
       await (supabase as any).from("blocks").delete().eq("blocker_id", user.id).eq("blocked_id", selectedId);
+      setBlockedByMe(prev => { const n = new Set(prev); n.delete(selectedId); return n; });
       toast({ title: "User unblocked" });
     } catch { /* ignore */ }
   };
@@ -229,12 +240,31 @@ export default function Messages() {
         if (p) { c.name = p.name; c.avatar = initials(p.name); c.avatarUrl = p.avatar_url || undefined; c.color = p.color || "bg-primary"; }
       });
 
-      // Filter out conversations from users who I've blocked
-      const blockedKey = `prolifier_blocked_${user.id}`;
-      let blockedIds: string[] = [];
-      try { blockedIds = JSON.parse(localStorage.getItem(blockedKey) || "[]").map((b: any) => b.id); } catch { /* ignore */ }
-      const filteredConvList = convList.filter(c => !blockedIds.includes(c.id));
-      setConversations(filteredConvList);
+      // Fetch block state to anonymize blocked conversations
+      let myBlockedIds = new Set<string>();
+      let blockedByIds = new Set<string>();
+      try {
+        const [myB, theirB] = await Promise.all([
+          (supabase as any).from("blocks").select("blocked_id").eq("blocker_id", user.id),
+          (supabase as any).from("blocks").select("blocker_id").eq("blocked_id", user.id),
+        ]);
+        myBlockedIds = new Set((myB.data || []).map((b: any) => b.blocked_id));
+        blockedByIds = new Set((theirB.data || []).map((b: any) => b.blocker_id));
+        setBlockedByMe(myBlockedIds);
+        setBlockedByThem(blockedByIds);
+      } catch { /* ignore — show all convos */ }
+
+      // Anonymize blocked/blocking conversations instead of hiding them
+      const allBlockedIds = new Set([...myBlockedIds, ...blockedByIds]);
+      convList.forEach(c => {
+        if (allBlockedIds.has(c.id)) {
+          c.name = "Prolifier User";
+          c.avatar = "?";
+          c.avatarUrl = undefined;
+          c.color = "bg-muted";
+        }
+      });
+      setConversations(convList);
 
       if (withId) {
         // If not in list yet, add a placeholder so it can be selected
@@ -364,11 +394,8 @@ export default function Messages() {
         filter: `receiver_id=eq.${user.id}`,
       }, async (payload) => {
         const row = payload.new as any;
-        // Drop messages from blocked users silently
-        const blockedKey = `prolifier_blocked_${user.id}`;
-        let blockedIds: string[] = [];
-        try { blockedIds = JSON.parse(localStorage.getItem(blockedKey) || "[]").map((b: any) => b.id); } catch {}
-        if (blockedIds.includes(row.sender_id)) return;
+        // Drop realtime messages if I have blocked the sender
+        if (blockedByMe.has(row.sender_id)) return;
         if (row.sender_id === selectedIdRef.current) {
           setMessages(prev => [...prev, {
             id: row.id, sender_id: row.sender_id, text: row.text,
@@ -411,8 +438,8 @@ export default function Messages() {
   const sendMessage = async (text?: string, mediaUrl?: string, mediaType?: string) => {
     const trimmed = text?.trim();
     if ((!trimmed && !mediaUrl) || !selectedId || sending) return;
-    // Don't allow sending to a user you've blocked
-    if (blockedSet.has(selectedId)) return;
+    // Don't allow sending when any block is active (either direction)
+    if (blockedByMe.has(selectedId) || blockedByThem.has(selectedId)) return;
     setSending(true);
 
     // Block check: if receiver has blocked sender, silently drop (like WhatsApp)
@@ -678,14 +705,17 @@ export default function Messages() {
                 <button className="md:hidden text-muted-foreground hover:text-foreground" onClick={() => setShowMobileChat(false)}>
                   <ArrowLeft className="h-5 w-5" />
                 </button>
-                <div className={`h-9 w-9 rounded-full ${selectedConvo.avatarUrl ? "" : selectedConvo.color} flex items-center justify-center text-white text-xs font-semibold shrink-0 overflow-hidden`}>
-                  {selectedConvo.avatarUrl
+                {/* Anonymize avatar when blocked */}
+                <div className={`h-9 w-9 rounded-full ${isBlocked ? "bg-muted" : (selectedConvo.avatarUrl ? "" : selectedConvo.color)} flex items-center justify-center text-xs font-semibold shrink-0 overflow-hidden`}>
+                  {!isBlocked && selectedConvo.avatarUrl
                     ? <img src={selectedConvo.avatarUrl} alt={selectedConvo.avatar} className="w-full h-full object-cover" />
-                    : selectedConvo.avatar}
+                    : isBlocked ? <span className="text-muted-foreground text-lg">?</span> : <span className="text-white">{selectedConvo.avatar}</span>}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-sm text-foreground truncate">{selectedConvo.name}</p>
-                  <p className="text-xs text-muted-foreground">Active recently</p>
+                  <p className="font-semibold text-sm text-foreground truncate">
+                    {isBlocked ? "Prolifier User" : selectedConvo.name}
+                  </p>
+                  {!isBlocked && <p className="text-xs text-muted-foreground">Active recently</p>}
                 </div>
               </div>
 
@@ -722,7 +752,7 @@ export default function Messages() {
               </div>
 
               {/* Voice recording bar */}
-              {recording && (
+              {recording && !isBlocked && (
                 <div className="px-4 py-3 border-t border-border bg-rose-50/60 dark:bg-rose-950/20 flex items-center gap-3">
                   <div className="flex items-center gap-[3px] shrink-0">
                     {[1,2,3,4,5].map(i => (
@@ -742,16 +772,21 @@ export default function Messages() {
                 </div>
               )}
 
-              {/* Blocked banner */}
+              {/* Blocked banners — no input shown when any block is active */}
               {iBlockedThem && (
                 <div className="p-4 border-t border-border shrink-0 flex items-center justify-center gap-3 bg-muted/40">
-                  <p className="text-sm text-muted-foreground">You've blocked this user.</p>
+                  <p className="text-sm text-muted-foreground">You have blocked this user.</p>
                   <button onClick={handleUnblockHere} className="text-sm text-primary font-semibold hover:opacity-75 transition-opacity">Unblock</button>
+                </div>
+              )}
+              {theyBlockedMe && (
+                <div className="p-4 border-t border-border shrink-0 flex items-center justify-center bg-muted/40">
+                  <p className="text-sm text-muted-foreground">You can't reply to this conversation.</p>
                 </div>
               )}
 
               {/* Input bar */}
-              {!recording && !iBlockedThem && (
+              {!recording && !isBlocked && (
                 <div className="p-3 border-t border-border shrink-0">
                   <div className="flex items-center gap-2 bg-muted rounded-2xl px-3 py-1.5">
                     <div className="flex items-center gap-0.5 shrink-0">
