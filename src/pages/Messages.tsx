@@ -254,10 +254,10 @@ export default function Messages() {
         setBlockedByThem(blockedByIds);
       } catch { /* ignore — show all convos */ }
 
-      // Anonymize blocked/blocking conversations instead of hiding them
-      const allBlockedIds = new Set([...myBlockedIds, ...blockedByIds]);
+      // Only anonymize convos where THEY blocked ME (blocked user's view)
+      // Blocker (A) still sees real name/avatar of the person they blocked
       convList.forEach(c => {
-        if (allBlockedIds.has(c.id)) {
+        if (blockedByIds.has(c.id)) {
           c.name = "Prolifier User";
           c.avatar = "?";
           c.avatarUrl = undefined;
@@ -705,17 +705,19 @@ export default function Messages() {
                 <button className="md:hidden text-muted-foreground hover:text-foreground" onClick={() => setShowMobileChat(false)}>
                   <ArrowLeft className="h-5 w-5" />
                 </button>
-                {/* Anonymize avatar when blocked */}
-                <div className={`h-9 w-9 rounded-full ${isBlocked ? "bg-muted" : (selectedConvo.avatarUrl ? "" : selectedConvo.color)} flex items-center justify-center text-xs font-semibold shrink-0 overflow-hidden`}>
-                  {!isBlocked && selectedConvo.avatarUrl
-                    ? <img src={selectedConvo.avatarUrl} alt={selectedConvo.avatar} className="w-full h-full object-cover" />
-                    : isBlocked ? <span className="text-muted-foreground text-lg">?</span> : <span className="text-white">{selectedConvo.avatar}</span>}
+                {/* Anonymize avatar only when THEY blocked ME (blocked user's view) */}
+                <div className={`h-9 w-9 rounded-full ${theyBlockedMe ? "bg-muted" : (selectedConvo.avatarUrl ? "" : selectedConvo.color)} flex items-center justify-center text-xs font-semibold shrink-0 overflow-hidden`}>
+                  {theyBlockedMe
+                    ? <span className="text-muted-foreground text-lg">?</span>
+                    : selectedConvo.avatarUrl
+                      ? <img src={selectedConvo.avatarUrl} alt={selectedConvo.avatar} className="w-full h-full object-cover" />
+                      : <span className="text-white">{selectedConvo.avatar}</span>}
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-sm text-foreground truncate">
-                    {isBlocked ? "Prolifier User" : selectedConvo.name}
+                    {theyBlockedMe ? "Prolifier User" : selectedConvo.name}
                   </p>
-                  {!isBlocked && <p className="text-xs text-muted-foreground">Active recently</p>}
+                  {!theyBlockedMe && <p className="text-xs text-muted-foreground">Active recently</p>}
                 </div>
               </div>
 
