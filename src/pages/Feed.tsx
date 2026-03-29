@@ -15,7 +15,7 @@ import {
   Heart, MessageCircle, MapPin, Search, Plus, Send, MoreHorizontal,
   Trash2, Edit3, Bookmark, Share2, Flag, EyeOff, Handshake,
   X, Check, BookmarkCheck, ImageIcon, Link2, Video as VideoIcon, ZoomIn,
-  SlidersHorizontal,
+  SlidersHorizontal, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import Layout from "@/components/Layout";
 import { toast } from "@/hooks/use-toast";
@@ -31,7 +31,7 @@ type Comment = { id: string; user_id: string; author: string; avatar: string; av
 type Post = {
   id: string; user_id: string; author: string; avatar: string; avatarUrl?: string; avatarColor: string; location: string;
   authorSkills?: string[]; authorDeleted?: boolean;
-  tag: string; time: string; content: string; image?: string; video?: string; likes: number; commentCount: number; isOwn: boolean;
+  tag: string; time: string; content: string; images: string[]; video?: string; likes: number; commentCount: number; isOwn: boolean;
   comments: Comment[];
 };
 type Collab = {
@@ -191,22 +191,47 @@ function PreviewImage({ src, alt, onRemove }: { src: string; alt: string; onRemo
 }
 
 // ── Image Lightbox ─────────────────────────────────────────────────────────
-function ImageLightbox({ src, onClose }: { src: string; onClose: () => void }) {
+function ImageLightbox({ images, startIndex, onClose }: { images: string[]; startIndex?: number; onClose: () => void }) {
+  const [current, setCurrent] = useState(startIndex ?? 0);
+  const prev = () => setCurrent(i => (i - 1 + images.length) % images.length);
+  const next = () => setCurrent(i => (i + 1) % images.length);
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      if (e.key === "ArrowLeft" && images.length > 1) prev();
+      if (e.key === "ArrowRight" && images.length > 1) next();
+    };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
+  }, [onClose, images.length]);
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 animate-in fade-in duration-150"
       onClick={onClose}>
       <button onClick={onClose}
-        className="absolute top-4 right-4 h-9 w-9 rounded-full bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition-colors">
+        className="absolute top-4 right-4 h-9 w-9 rounded-full bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition-colors z-10">
         <X className="h-5 w-5" />
       </button>
+      {images.length > 1 && (
+        <>
+          <button onClick={e => { e.stopPropagation(); prev(); }}
+            className="absolute left-4 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition-colors z-10">
+            <ChevronLeft className="h-6 w-6" />
+          </button>
+          <button onClick={e => { e.stopPropagation(); next(); }}
+            className="absolute right-16 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition-colors z-10">
+            <ChevronRight className="h-6 w-6" />
+          </button>
+          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex gap-1.5 z-10">
+            {images.map((_, i) => (
+              <button key={i} onClick={e => { e.stopPropagation(); setCurrent(i); }}
+                className={`h-1.5 rounded-full transition-all ${i === current ? "w-5 bg-white" : "w-1.5 bg-white/40"}`} />
+            ))}
+          </div>
+        </>
+      )}
       <img
-        src={src} alt="Full size"
+        src={images[current]} alt="Full size"
         className="max-w-full max-h-[90vh] rounded-xl object-contain"
         onClick={e => e.stopPropagation()}
       />
@@ -214,16 +239,65 @@ function ImageLightbox({ src, onClose }: { src: string; onClose: () => void }) {
   );
 }
 
+// ── Image Carousel ─────────────────────────────────────────────────────────
+function ImageCarousel({ images, onClickIndex }: { images: string[]; onClickIndex: (i: number) => void }) {
+  const [current, setCurrent] = useState(0);
+  const prev = (e: React.MouseEvent) => { e.stopPropagation(); setCurrent(i => (i - 1 + images.length) % images.length); };
+  const next = (e: React.MouseEvent) => { e.stopPropagation(); setCurrent(i => (i + 1) % images.length); };
+
+  if (images.length === 0) return null;
+  if (images.length === 1) {
+    return <SmartImage src={images[0]} alt="post" onClick={() => onClickIndex(0)} />;
+  }
+
+  return (
+    <div className="relative rounded-xl overflow-hidden select-none">
+      <img
+        src={images[current]}
+        alt={`photo ${current + 1}`}
+        className="w-full max-h-72 object-cover rounded-xl cursor-pointer"
+        onClick={() => onClickIndex(current)}
+        loading="lazy"
+      />
+      {/* Arrows */}
+      <button onClick={prev}
+        className="absolute left-2 top-1/2 -translate-y-1/2 h-8 w-8 rounded-full bg-black/40 flex items-center justify-center text-white hover:bg-black/60 transition-colors">
+        <ChevronLeft className="h-4 w-4" />
+      </button>
+      <button onClick={next}
+        className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8 rounded-full bg-black/40 flex items-center justify-center text-white hover:bg-black/60 transition-colors">
+        <ChevronRight className="h-4 w-4" />
+      </button>
+      {/* Dots */}
+      <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1 z-10">
+        {images.map((_, i) => (
+          <button key={i} onClick={e => { e.stopPropagation(); setCurrent(i); }}
+            className={`rounded-full transition-all ${i === current ? "w-4 h-1.5 bg-white" : "w-1.5 h-1.5 bg-white/50"}`} />
+        ))}
+      </div>
+      {/* Counter badge */}
+      <span className="absolute top-2 right-2 bg-black/50 text-white text-xs font-medium px-2 py-0.5 rounded-full">
+        {current + 1}/{images.length}
+      </span>
+    </div>
+  );
+}
+
 // ── Media Upload Bar ───────────────────────────────────────────────────────
-function MediaUploadBar({ onImage, onVideo, onUploadingChange }: {
-  onImage: (url: string) => void;
+function MediaUploadBar({ images, onAddImage, onRemoveImage, onVideo, onUploadingChange, hasVideo }: {
+  images: string[];
+  onAddImage: (url: string) => void;
+  onRemoveImage: (i: number) => void;
   onVideo: (url: string) => void;
   onUploadingChange?: (uploading: boolean) => void;
+  hasVideo?: boolean;
 }) {
   const imgRef = useRef<HTMLInputElement>(null);
   const vidRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadLabel, setUploadLabel] = useState("");
+
+  const canAddMore = images.length < 4;
 
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>, cb: (url: string) => void, type: "image" | "video") => {
     const file = e.target.files?.[0];
@@ -259,18 +333,53 @@ function MediaUploadBar({ onImage, onVideo, onUploadingChange }: {
 
   return (
     <div className="space-y-2">
-      <div className="flex gap-2">
-        <input ref={imgRef} type="file" accept="image/*" className="hidden" onChange={e => handleFile(e, onImage, "image")} />
-        <input ref={vidRef} type="file" accept="video/*" className="hidden" onChange={e => handleFile(e, onVideo, "video")} />
-        <button type="button" onClick={() => imgRef.current?.click()} disabled={uploading}
-          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground border border-dashed border-border hover:border-primary rounded-lg px-3 py-2 transition-colors flex-1 justify-center disabled:opacity-50">
-          <ImageIcon className="h-4 w-4" /> Photo
-        </button>
-        <button type="button" onClick={() => vidRef.current?.click()} disabled={uploading}
-          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground border border-dashed border-border hover:border-primary rounded-lg px-3 py-2 transition-colors flex-1 justify-center disabled:opacity-50">
-          <VideoIcon className="h-4 w-4" /> Video
-        </button>
-      </div>
+      {/* Image previews grid */}
+      {images.length > 0 && (
+        <div className={`grid gap-2 ${images.length === 1 ? "grid-cols-1" : "grid-cols-2"}`}>
+          {images.map((url, i) => (
+            <div key={i} className="relative rounded-xl overflow-hidden aspect-square bg-muted">
+              <img src={url} alt={`photo ${i + 1}`} className="w-full h-full object-cover" />
+              <button
+                onClick={() => onRemoveImage(i)}
+                className="absolute top-1.5 right-1.5 h-6 w-6 rounded-full bg-black/60 text-white flex items-center justify-center hover:bg-black/80 z-10"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+          {/* Add more slot */}
+          {canAddMore && !hasVideo && (
+            <button
+              type="button"
+              onClick={() => imgRef.current?.click()}
+              disabled={uploading}
+              className="aspect-square rounded-xl border-2 border-dashed border-border hover:border-primary flex flex-col items-center justify-center gap-1 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+            >
+              <ImageIcon className="h-5 w-5" />
+              <span className="text-xs">Add photo</span>
+            </button>
+          )}
+        </div>
+      )}
+      {/* Buttons row — shown when no images yet or always for video */}
+      {images.length === 0 && (
+        <div className="flex gap-2">
+          <input ref={imgRef} type="file" accept="image/*" className="hidden" onChange={e => handleFile(e, onAddImage, "image")} />
+          <input ref={vidRef} type="file" accept="video/*" className="hidden" onChange={e => handleFile(e, onVideo, "video")} />
+          <button type="button" onClick={() => imgRef.current?.click()} disabled={uploading || hasVideo}
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground border border-dashed border-border hover:border-primary rounded-lg px-3 py-2 transition-colors flex-1 justify-center disabled:opacity-50">
+            <ImageIcon className="h-4 w-4" /> Photo
+          </button>
+          <button type="button" onClick={() => vidRef.current?.click()} disabled={uploading || images.length > 0}
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground border border-dashed border-border hover:border-primary rounded-lg px-3 py-2 transition-colors flex-1 justify-center disabled:opacity-50">
+            <VideoIcon className="h-4 w-4" /> Video
+          </button>
+        </div>
+      )}
+      {/* Hidden inputs when images exist */}
+      {images.length > 0 && (
+        <input ref={imgRef} type="file" accept="image/*" className="hidden" onChange={e => handleFile(e, onAddImage, "image")} />
+      )}
       {uploading && (
         <div className="flex items-center gap-2 text-xs text-muted-foreground px-1">
           <div className="h-3 w-3 rounded-full border-2 border-primary border-t-transparent animate-spin shrink-0" />
@@ -582,13 +691,13 @@ function CommentSheet({ post, currentUserId, onClose, onAddComment, onDeleteComm
             <X className="h-4 w-4 text-muted-foreground" />
           </button>
         </div>
-        {post.image && (
+        {post.images.length > 0 && (
           <div className="px-5 pt-3">
             <img
-              src={post.image}
+              src={post.images[0]}
               alt="post"
               className="w-full max-h-40 object-cover rounded-xl cursor-pointer"
-              onClick={() => setLightboxSrc(post.image!)}
+              onClick={() => setLightboxSrc(post.images[0])}
             />
           </div>
         )}
@@ -640,7 +749,7 @@ function CommentSheet({ post, currentUserId, onClose, onAddComment, onDeleteComm
           </div>
         </div>
       </div>
-      {lightboxSrc && <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />}
+      {lightboxSrc && <ImageLightbox images={[lightboxSrc]} onClose={() => setLightboxSrc(null)} />}
     </div>
   );
 }
@@ -648,15 +757,19 @@ function CommentSheet({ post, currentUserId, onClose, onAddComment, onDeleteComm
 // ── Edit Post Dialog ───────────────────────────────────────────────────────
 function EditPostDialog({ post, open, onClose, onSave }: {
   post: Post; open: boolean; onClose: () => void;
-  onSave: (id: string, content: string, tag: string, image?: string, video?: string) => void;
+  onSave: (id: string, content: string, tag: string, images: string[], video?: string) => void;
 }) {
   const [content, setContent] = useState(post.content);
   const [tag, setTag] = useState(post.tag);
-  const [image, setImage] = useState<string|undefined>(post.image);
+  const [images, setImages] = useState<string[]>(post.images);
   const [video, setVideo] = useState<string|undefined>(post.video);
   const [editUploading, setEditUploading] = useState(false);
 
-  const removeImage = async () => { if (image) await deleteFromStorage(image); setImage(undefined); };
+  const removeImageAt = async (i: number) => {
+    const url = images[i];
+    if (url) await deleteFromStorage(url);
+    setImages(p => p.filter((_, idx) => idx !== i));
+  };
   const removeVideo = async () => { if (video) await deleteFromStorage(video); setVideo(undefined); };
 
   return (
@@ -668,18 +781,26 @@ function EditPostDialog({ post, open, onClose, onSave }: {
             {POST_TAGS.map((t) => <Badge key={t} variant={tag===t?"default":"outline"} className="cursor-pointer" onClick={() => setTag(t)}>{t}</Badge>)}
           </div>
           <Textarea value={content} onChange={(e) => setContent(e.target.value)} rows={4} />
-          {image && <PreviewImage src={image} alt="preview" onRemove={removeImage} />}
           {video && (
             <div className="relative rounded-xl overflow-hidden">
               <video src={video} controls className="w-full max-h-48 rounded-xl" />
               <button onClick={removeVideo} className="absolute top-2 right-2 h-7 w-7 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-black/70"><X className="h-3.5 w-3.5"/></button>
             </div>
           )}
-          {!image && !video && <MediaUploadBar onImage={setImage} onVideo={setVideo} onUploadingChange={setEditUploading} />}
+          {!video && (
+            <MediaUploadBar
+              images={images}
+              onAddImage={url => setImages(p => [...p, url])}
+              onRemoveImage={removeImageAt}
+              onVideo={setVideo}
+              onUploadingChange={setEditUploading}
+              hasVideo={!!video}
+            />
+          )}
         </div>
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={() => { onSave(post.id, content, tag, image, video); onClose(); }} disabled={!content.trim() || editUploading} className="gap-1.5">
+          <Button onClick={() => { onSave(post.id, content, tag, images, video); onClose(); }} disabled={!content.trim() || editUploading} className="gap-1.5">
             <Check className="h-4 w-4"/> Save
           </Button>
         </DialogFooter>
@@ -754,7 +875,7 @@ const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, highligh
   const isLiked = likedPosts.has(post.id);
   const isSaved = savedPosts.has(post.id);
   const navigate = useNavigate();
-  const [lightboxSrc, setLightboxSrc] = useState<string|null>(null);
+  const [lightbox, setLightbox] = useState<{ images: string[]; index: number } | null>(null);
   const [expanded, setExpanded] = useState(false);
   const POST_PREVIEW_WORDS = 150;
   const postWords = post.content.split(/\s+/);
@@ -827,9 +948,9 @@ const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, highligh
             </button>
           )}
         </div>
-        {post.image && (
+        {post.images.length > 0 && (
           <div className="px-5 pb-3">
-            <SmartImage src={post.image} alt="post" onClick={() => setLightboxSrc(post.image!)} />
+            <ImageCarousel images={post.images} onClickIndex={i => setLightbox({ images: post.images, index: i })} />
           </div>
         )}
         {post.video && <div className="px-5 pb-3"><SmartVideo src={post.video} /></div>}
@@ -848,7 +969,7 @@ const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, highligh
           </button>
         </div>
       </div>
-      {lightboxSrc && <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />}
+      {lightbox && <ImageLightbox images={lightbox.images} startIndex={lightbox.index} onClose={() => setLightbox(null)} />}
     </>
   );
 }, (prev, next) => {
@@ -962,7 +1083,7 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
           </div>
         )}
       </div>
-      {lightboxSrc && <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />}
+      {lightboxSrc && <ImageLightbox images={[lightboxSrc]} onClose={() => setLightboxSrc(null)} />}
     </>
   );
 }, (prev, next) => {
@@ -1041,7 +1162,7 @@ export default function Feed() {
   // one compose field changes (only the compose area re-renders, not the whole feed)
   const [postDialog, setPostDialog] = useState({
     open: false, content: "", tag: "General",
-    image: undefined as string|undefined,
+    images: [] as string[],
     video: undefined as string|undefined,
     uploading: false,
     publishing: false,
@@ -1118,7 +1239,7 @@ export default function Feed() {
       const [postsRes, collabsRes, myBlocksRes, blockedByRes] = await traceParallel([
         ["feed.posts", () => (supabase as any)
           .from("posts")
-          .select(`id, user_id, tag, content, image_url, video_url, created_at, likes, comment_count, profiles:user_id (name, avatar, avatar_url, color, location, skills, deleted_at)`)
+          .select(`id, user_id, tag, content, image_url, image_urls, video_url, created_at, likes, comment_count, profiles:user_id (name, avatar, avatar_url, color, location, skills, deleted_at)`)
           .order("created_at", { ascending: false })
           .limit(30)],
         ["feed.collabs", () => (supabase as any)
@@ -1172,7 +1293,7 @@ export default function Feed() {
         authorSkills: p.profiles?.deleted_at ? [] : (p.profiles?.skills?.slice(0, 3) || []),
         authorDeleted: !!p.profiles?.deleted_at,
         tag: p.tag, time: timeAgo(p.created_at), content: p.content,
-        image: p.image_url || undefined, video: p.video_url || undefined,
+        images: p.image_urls?.length > 0 ? p.image_urls : (p.image_url ? [p.image_url] : []), video: p.video_url || undefined,
         likes: p.likes || 0, commentCount: p.comment_count || 0, isOwn: p.user_id === user.id,
         comments: [],
       }));
@@ -1242,7 +1363,7 @@ export default function Feed() {
     try {
       const { data, error } = await traceQuery("feed.posts.more", () => (supabase as any)
         .from("posts")
-        .select(`id, user_id, tag, content, image_url, video_url, created_at, likes, comment_count, profiles:user_id (name, avatar, avatar_url, color, location, skills, deleted_at)`)
+        .select(`id, user_id, tag, content, image_url, image_urls, video_url, created_at, likes, comment_count, profiles:user_id (name, avatar, avatar_url, color, location, skills, deleted_at)`)
         .order("created_at", { ascending: false })
         .lt("created_at", postsCursorRef.current)
         .limit(30));
@@ -1257,7 +1378,7 @@ export default function Feed() {
         authorSkills: p.profiles?.deleted_at ? [] : (p.profiles?.skills?.slice(0, 3) || []),
         authorDeleted: !!p.profiles?.deleted_at,
         tag: p.tag, time: timeAgo(p.created_at), content: p.content,
-        image: p.image_url || undefined, video: p.video_url || undefined,
+        images: p.image_urls?.length > 0 ? p.image_urls : (p.image_url ? [p.image_url] : []), video: p.video_url || undefined,
         likes: p.likes || 0, commentCount: p.comment_count || 0, isOwn: p.user_id === user.id, comments: [],
       }));
       setPosts(prev => [...prev, ...more]);
@@ -1475,24 +1596,27 @@ export default function Feed() {
 
   const handleDeletePost = useCallback(async (id: string) => {
     const post = posts.find(p => p.id === id);
-    if (post?.image) await deleteFromStorage(post.image);
+    for (const url of post?.images ?? []) await deleteFromStorage(url);
     if (post?.video) await deleteFromStorage(post.video);
     await (supabase as any).from("posts").delete().eq("id", id).eq("user_id", user.id);
     setPosts(p => p.filter(x => x.id !== id));
     toast({ title: "Post deleted" });
   }, [posts, user.id]);
 
-  const handleEditPost = useCallback(async (id: string, content: string, tag: string, image?: string, video?: string) => {
+  const handleEditPost = useCallback(async (id: string, content: string, tag: string, images: string[], video?: string) => {
     const pre = checkContent(content);
     if (!pre.allowed) { toast({ title: pre.message!, variant: "destructive" }); return; }
     const old = posts.find(p => p.id === id);
-    if (old?.image && old.image !== image) await deleteFromStorage(old.image);
+    // Delete old images that were removed
+    for (const url of old?.images ?? []) {
+      if (!images.includes(url)) await deleteFromStorage(url);
+    }
     if (old?.video && old.video !== video) await deleteFromStorage(old.video);
     const { error } = await (supabase as any).from("posts")
-      .update({ content, tag, image_url: image || null, video_url: video || null })
+      .update({ content, tag, image_url: null, image_urls: images.length > 0 ? images : null, video_url: video || null })
       .eq("id", id).eq("user_id", user.id);
     if (error) { const modMsg = parseModerationError(error); toast({ title: modMsg ?? "Failed to update post", variant: "destructive" }); return; }
-    setPosts(p => p.map(x => x.id === id ? { ...x, content, tag, image, video } : x));
+    setPosts(p => p.map(x => x.id === id ? { ...x, content, tag, images, video: video || undefined } : x));
     toast({ title: "Post updated ✓" });
   }, [posts, user.id]);
 
@@ -1511,7 +1635,7 @@ export default function Feed() {
         .from("posts")
         .insert({
           user_id: user.id, content: postDialog.content, tag: postDialog.tag,
-          image_url: postDialog.image || null, video_url: postDialog.video || null,
+          image_url: null, image_urls: postDialog.images.length > 0 ? postDialog.images : null, video_url: postDialog.video || null,
         })
         .select().single();
       if (error) { const modMsg = parseModerationError(error); toast({ title: modMsg ?? "Failed to create post", variant: "destructive" }); return; }
@@ -1523,19 +1647,20 @@ export default function Feed() {
         authorSkills: user.skills?.slice(0, 3) || [],
         authorDeleted: false,
         tag: postDialog.tag, time: "Just now",
-        content: postDialog.content, image: postDialog.image, video: postDialog.video,
+        content: postDialog.content, images: postDialog.images, video: postDialog.video,
         likes: 0, commentCount: 0, isOwn: true, comments: [],
       }, ...p]);
-      setPostDialog({ open: false, content: "", tag: "General", image: undefined, video: undefined, uploading: false, publishing: false });
+      setPostDialog({ open: false, content: "", tag: "General", images: [], video: undefined, uploading: false, publishing: false });
       toast({ title: "Post published! 🎉" });
     } finally {
       setPostDialog(d => ({ ...d, publishing: false }));
     }
   }, [postDialog, user]);
 
-  const handleRemovePostImage = async () => {
-    if (postDialog.image) await deleteFromStorage(postDialog.image);
-    setPostDialog(d => ({ ...d, image: undefined }));
+  const handleRemovePostImageAt = async (i: number) => {
+    const url = postDialog.images[i];
+    if (url) await deleteFromStorage(url);
+    setPostDialog(d => ({ ...d, images: d.images.filter((_, idx) => idx !== i) }));
   };
   const handleRemovePostVideo = async () => {
     if (postDialog.video) await deleteFromStorage(postDialog.video);
@@ -1683,8 +1808,12 @@ export default function Feed() {
 
           {/* ── FEED ── */}
           <TabsContent value="feed" className="space-y-4">
-            <Dialog open={postDialog.open} onOpenChange={(v) => {
-              if (!v) { handleRemovePostImage(); handleRemovePostVideo(); }
+            <Dialog open={postDialog.open} onOpenChange={async (v) => {
+              if (!v) {
+                for (const url of postDialog.images) await deleteFromStorage(url);
+                await handleRemovePostVideo();
+                setPostDialog(d => ({ ...d, images: [] }));
+              }
               setPostDialog(d => ({ ...d, open: v }));
             }}>
               <Button className="w-full h-12 gap-2 font-semibold" onClick={() => setPostDialog(d => ({ ...d, open: true }))}>
@@ -1713,18 +1842,20 @@ export default function Feed() {
                       {POST_TAGS.map(t => <Badge key={t} variant={postDialog.tag===t?"default":"outline"} className="cursor-pointer" onClick={() => setPostDialog(d => ({ ...d, tag: t }))}>{t}</Badge>)}
                     </div>
                   </div>
-                  {postDialog.image && <PreviewImage src={postDialog.image} alt="preview" onRemove={handleRemovePostImage} />}
                   {postDialog.video && (
                     <div className="relative rounded-xl overflow-hidden">
                       <video src={postDialog.video} controls className="w-full max-h-48 rounded-xl" style={{backgroundColor:"#000"}}/>
                       <button onClick={handleRemovePostVideo} className="absolute top-2 right-2 h-7 w-7 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-black/70"><X className="h-3.5 w-3.5"/></button>
                     </div>
                   )}
-                  {!postDialog.image && !postDialog.video && (
+                  {!postDialog.video && (
                     <MediaUploadBar
-                      onImage={url => setPostDialog(d => ({ ...d, image: url }))}
+                      images={postDialog.images}
+                      onAddImage={url => setPostDialog(d => ({ ...d, images: [...d.images, url] }))}
+                      onRemoveImage={handleRemovePostImageAt}
                       onVideo={url => setPostDialog(d => ({ ...d, video: url }))}
                       onUploadingChange={v => setPostDialog(d => ({ ...d, uploading: v }))}
+                      hasVideo={!!postDialog.video}
                     />
                   )}
                 </div>
