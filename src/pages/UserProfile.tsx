@@ -296,17 +296,31 @@ export default function UserProfile() {
   if (isBlockedByOwner) {
     return (
       <Layout>
-        <div className="max-w-2xl mx-auto px-4 py-6">
+        <div className="max-w-2xl mx-auto px-4 py-6 space-y-4">
           <button onClick={() => navigate(-1)}
-            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-5">
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
             <ArrowLeft className="h-4 w-4" /> Back
           </button>
-          <div className="rounded-xl border border-border bg-card p-6 text-center space-y-2">
-            <div className="h-20 w-20 rounded-2xl bg-muted mx-auto flex items-center justify-center">
-              <UserX className="h-8 w-8 text-muted-foreground opacity-40" />
+
+          {/* Anonymized profile card — looks like a real profile but no real data */}
+          <div className="rounded-xl border border-border bg-card p-6">
+            <div className="flex items-start gap-4 mb-5">
+              {/* Blank avatar — no initials, no color, no real photo */}
+              <div className="h-20 w-20 rounded-2xl bg-muted flex items-center justify-center shrink-0">
+                <UserX className="h-8 w-8 text-muted-foreground opacity-30" />
+              </div>
+              <div className="flex-1 min-w-0 pt-1">
+                <h1 className="text-xl font-bold text-foreground">Prolifier User</h1>
+                <p className="text-xs text-muted-foreground mt-1">@prolifier_user</p>
+              </div>
             </div>
-            <h1 className="text-lg font-bold text-foreground mt-3">Prolifier User</h1>
-            <p className="text-sm text-muted-foreground">This content is unavailable.</p>
+
+            {/* Content unavailable notice */}
+            <div className="border border-dashed border-border rounded-xl py-10 text-center">
+              <UserX className="h-8 w-8 mx-auto mb-3 text-muted-foreground opacity-30" />
+              <p className="text-sm font-medium text-foreground mb-1">This content is unavailable.</p>
+              <p className="text-xs text-muted-foreground">You can't view this profile right now.</p>
+            </div>
           </div>
         </div>
       </Layout>
