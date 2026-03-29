@@ -84,3 +84,33 @@ CREATE INDEX IF NOT EXISTS idx_saved_posts_user
 
 CREATE INDEX IF NOT EXISTS idx_saved_collabs_user
   ON saved_collabs(user_id);
+
+-- ── collab_interests ──────────────────────────────────────────────
+-- Missing from original — queried on every Feed load
+CREATE INDEX IF NOT EXISTS idx_collab_interests_user
+  ON collab_interests(user_id);
+
+CREATE INDEX IF NOT EXISTS idx_collab_interests_collab
+  ON collab_interests(collab_id);
+
+-- ── comments — composite for ordered per-post loads ───────────────
+-- The simple idx_comments_post_id exists but the feed also orders by
+-- created_at, so a composite avoids a sort step.
+CREATE INDEX IF NOT EXISTS idx_comments_post_created
+  ON comments(post_id, created_at ASC);
+
+-- ── messages — composite for conversation-pair queries ────────────
+-- fetchMessages uses OR(sender+receiver / receiver+sender). These
+-- covering indexes let Postgres avoid a bitmap OR scan.
+CREATE INDEX IF NOT EXISTS idx_messages_conversation
+  ON messages(sender_id, receiver_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_messages_conversation_rev
+  ON messages(receiver_id, sender_id, created_at DESC);
+
+-- ── profiles — cover index for deletion-check query ───────────────
+-- SELECT deleted_at, permanently_deleted WHERE id = $1
+-- Only indexes rows that are actually soft-deleted or flagged.
+CREATE INDEX IF NOT EXISTS idx_profiles_deletion_check
+  ON profiles(id, deleted_at, permanently_deleted)
+  WHERE deleted_at IS NOT NULL OR permanently_deleted = true;

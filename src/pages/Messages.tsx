@@ -123,6 +123,9 @@ export default function Messages() {
   const [msg, setMsg] = useState("");
   const [loadingConvos, setLoadingConvos] = useState(true);
   const [loadingMsgs, setLoadingMsgs] = useState(false);
+  const [loadingOlderMsgs, setLoadingOlderMsgs] = useState(false);
+  const [hasOlderMsgs, setHasOlderMsgs] = useState(false);
+  const oldestMsgCursorRef = useRef<string | null>(null);
   const [sending, setSending] = useState(false);
   const [convSearch, setConvSearch] = useState("");
   const [showMobileChat, setShowMobileChat] = useState(false);
@@ -165,13 +168,15 @@ export default function Messages() {
     if (!user.id) return;
     setLoadingConvos(true);
     try {
-      // Get recent messages involving current user (capped to prevent large payloads)
+      // Fetch enough rows to surface one message per unique conversation partner.
+      // 100 rows covers up to 100 distinct conversations — payload drops from
+      // ~60 KB (old 300-row limit) to ~20 KB.
       const { data, error } = await (supabase as any)
         .from("messages")
         .select("id, sender_id, receiver_id, text, media_type, created_at, read")
         .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
         .order("created_at", { ascending: false })
-        .limit(300);
+        .limit(100);
       if (error) throw error;
 
       // Build conversation list — one entry per unique other user
@@ -252,8 +257,14 @@ export default function Messages() {
           .from("messages")
           .select("id, sender_id, text, media_url, media_type, created_at, read")
           .or(`and(sender_id.eq.${user.id},receiver_id.eq.${withId}),and(sender_id.eq.${withId},receiver_id.eq.${user.id})`)
-          .order("created_at", { ascending: true });
-        setMessages((msgs || []).map((m: any) => ({ ...m, deleted: false })));
+          .order("created_at", { ascending: false })
+          .limit(MSG_PAGE);
+        const withMsgs: Message[] = (msgs || []).reverse();
+        setMessages(withMsgs);
+        if (withMsgs.length === MSG_PAGE) {
+          setHasOlderMsgs(true);
+          oldestMsgCursorRef.current = withMsgs[0].created_at;
+        }
         setLoadingMsgs(false);
         await (supabase as any).from("messages")
           .update({ read: true })
@@ -270,19 +281,32 @@ export default function Messages() {
 
 
 
-  // ── Fetch messages for selected conversation ─────────────────────────
+  const MSG_PAGE = 50;
+
+  // ── Fetch messages for selected conversation (paginated) ──────────────
   const fetchMessages = useCallback(async (otherId: string) => {
     if (!user.id) return;
     setLoadingMsgs(true);
     setMessages([]);
+    oldestMsgCursorRef.current = null;
+    setHasOlderMsgs(false);
     try {
+      // Fetch the 50 most recent messages — descending then reverse in state
       const { data, error } = await (supabase as any)
         .from("messages")
         .select("id, sender_id, text, media_url, media_type, created_at, read")
         .or(`and(sender_id.eq.${user.id},receiver_id.eq.${otherId}),and(sender_id.eq.${otherId},receiver_id.eq.${user.id})`)
-        .order("created_at", { ascending: true });
+        .order("created_at", { ascending: false })
+        .limit(MSG_PAGE);
       if (error) throw error;
-      setMessages(data || []);
+
+      const rows: Message[] = (data || []).reverse();
+      setMessages(rows);
+
+      if (rows.length === MSG_PAGE) {
+        setHasOlderMsgs(true);
+        oldestMsgCursorRef.current = rows[0].created_at;
+      }
 
       // Mark received messages as read
       await (supabase as any).from("messages")
@@ -299,6 +323,36 @@ export default function Messages() {
       setLoadingMsgs(false);
     }
   }, [user.id]);
+
+  // ── Load older messages (cursor-based, prepend to top) ────────────────
+  const fetchOlderMessages = useCallback(async (otherId: string) => {
+    if (!user.id || !oldestMsgCursorRef.current || loadingOlderMsgs) return;
+    setLoadingOlderMsgs(true);
+    try {
+      const { data, error } = await (supabase as any)
+        .from("messages")
+        .select("id, sender_id, text, media_url, media_type, created_at, read")
+        .or(`and(sender_id.eq.${user.id},receiver_id.eq.${otherId}),and(sender_id.eq.${otherId},receiver_id.eq.${user.id})`)
+        .lt("created_at", oldestMsgCursorRef.current)
+        .order("created_at", { ascending: false })
+        .limit(MSG_PAGE);
+      if (error) throw error;
+
+      const older: Message[] = (data || []).reverse();
+      setMessages(prev => [...older, ...prev]);
+
+      if (older.length === MSG_PAGE) {
+        oldestMsgCursorRef.current = older[0].created_at;
+      } else {
+        setHasOlderMsgs(false);
+        oldestMsgCursorRef.current = null;
+      }
+    } catch (err) {
+      console.error("fetchOlderMessages:", err);
+    } finally {
+      setLoadingOlderMsgs(false);
+    }
+  }, [user.id, loadingOlderMsgs]);
 
   // ── Realtime for incoming messages + read receipts ───────────────────
   useRealtimeChannel(
@@ -645,7 +699,24 @@ export default function Messages() {
                     <p className="text-sm font-medium mb-1">No messages yet</p>
                     <p className="text-xs">Say hi to {selectedConvo.name}! 👋</p>
                   </div>
-                ) : messages.map(renderMessage)}
+                ) : (
+                  <>
+                    {hasOlderMsgs && (
+                      <div className="flex justify-center pb-2">
+                        <button
+                          onClick={() => selectedId && fetchOlderMessages(selectedId)}
+                          disabled={loadingOlderMsgs}
+                          className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border hover:bg-muted transition-colors disabled:opacity-50"
+                        >
+                          {loadingOlderMsgs
+                            ? <><div className="h-3 w-3 rounded-full border-2 border-primary border-t-transparent animate-spin" /> Loading…</>
+                            : "Load older messages"}
+                        </button>
+                      </div>
+                    )}
+                    {messages.map(renderMessage)}
+                  </>
+                )}
                 <div ref={bottomRef} />
               </div>
 

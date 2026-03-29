@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, useRef, ReactNode } from "react";
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
+import { traceQuery, logger } from "@/lib/logger";
 
 export type CurrentUser = {
   id: string;
@@ -136,11 +137,13 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const syncProfile = async (userId: string, email: string, metadata?: Record<string, any>) => {
     const thisVersion = ++syncVersionRef.current;
     try {
-      const { data: row, error: rowError } = await (supabase as any)
-        .from("profiles")
-        .select("*")
-        .eq("id", userId)
-        .single();
+      const { data: _row, error: _rowError } = await traceQuery(
+        "profile.sync",
+        () => (supabase as any).from("profiles").select("*").eq("id", userId).single(),
+        { userId },
+      );
+      const row = _row as any;
+      const rowError = _rowError as any;
 
       // Discard result if a newer sync has started (prevents flicker from stale fetches)
       if (thisVersion !== syncVersionRef.current) return;
@@ -348,37 +351,53 @@ export function UserProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Poll for account deletion/soft-deletion — replaces realtime channel to eliminate
-  // always-active WAL subscription. Checks on tab focus + every 5 minutes.
+  // Watch own profile row for deletion/soft-deletion via Realtime.
+  // One persistent websocket event replaces a periodic HTTP poll — zero
+  // extra PostgREST connections at any user count.
   useEffect(() => {
     if (!authUser?.id) return;
     const id = authUser.id;
 
-    const checkDeletion = async () => {
-      const { data } = await (supabase as any)
-        .from("profiles")
-        .select("deleted_at, permanently_deleted")
-        .eq("id", id)
-        .maybeSingle();
-      if (!data || data.permanently_deleted) {
+    const handleProfileUpdate = (payload: any) => {
+      const row = payload.new as any;
+      if (!row) return;
+      if (row.permanently_deleted) {
         localStorage.removeItem(cacheKey(id));
-        await supabase.auth.signOut();
-      } else if (data.deleted_at) {
+        localStorage.setItem("prolifier_perm_deleted", "true");
+        supabase.auth.signOut();
+      } else if (row.deleted_at) {
         setUser(prev => {
-          const next = { ...prev, deletedAt: data.deleted_at };
+          const next = { ...prev, deletedAt: row.deleted_at };
           localStorage.removeItem(cacheKey(id));
+          return next;
+        });
+      } else {
+        // Account recovered — clear deleted state
+        setUser(prev => {
+          if (!prev.deletedAt) return prev;
+          const next = { ...prev, deletedAt: null };
+          writeCache(next);
           return next;
         });
       }
     };
 
-    const onVisible = () => { if (document.visibilityState === "visible") checkDeletion(); };
-    document.addEventListener("visibilitychange", onVisible);
-    const timer = setInterval(checkDeletion, 5 * 60_000);
+    const channel = supabase
+      .channel(`profile-deletion-${id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "profiles",
+          filter: `id=eq.${id}`,
+        },
+        handleProfileUpdate,
+      )
+      .subscribe();
 
     return () => {
-      document.removeEventListener("visibilitychange", onVisible);
-      clearInterval(timer);
+      supabase.removeChannel(channel);
     };
   }, [authUser?.id]);
 
@@ -437,6 +456,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
   const signOut = async () => {
     if (authUser) localStorage.removeItem(cacheKey(authUser.id));
+    logger.info("auth.sign_out", { userId: authUser?.id });
     await supabase.auth.signOut();
     setUser(DEFAULT_USER);
     setSession(null);

@@ -11,6 +11,7 @@ import { toast } from "@/hooks/use-toast";
 import { useUser } from "@/context/UserContext";
 import { supabase } from "@/lib/supabase";
 import { createNotification } from "@/lib/notifications";
+import { traceParallel, traceQuery } from "@/lib/logger";
 
 
 type Profile = {
@@ -125,17 +126,17 @@ export default function Discover() {
       if (cursor) query = query.lt("created_at", cursor);
 
       // Run profiles + connections + blocks in parallel on initial load
-      const [{ data, error }, connsRes, myBlocksRes, blockedByRes] = await Promise.all([
-        query,
-        !cursor
+      const [{ data, error }, connsRes, myBlocksRes, blockedByRes] = await traceParallel([
+        ["discover.profiles", () => query],
+        ["discover.connections", () => !cursor
           ? (supabase as any).from("connections").select("receiver_id").eq("requester_id", user.id)
-          : Promise.resolve({ data: null }),
-        !cursor
+          : Promise.resolve({ data: null, error: null })],
+        ["discover.blocks.mine", () => !cursor
           ? (supabase as any).from("blocks").select("blocked_id").eq("blocker_id", user.id)
-          : Promise.resolve({ data: null }),
-        !cursor
+          : Promise.resolve({ data: null, error: null })],
+        ["discover.blocks.them", () => !cursor
           ? (supabase as any).from("blocks").select("blocker_id").eq("blocked_id", user.id)
-          : Promise.resolve({ data: null }),
+          : Promise.resolve({ data: null, error: null })],
       ]);
       if (error) throw error;
 
@@ -185,12 +186,14 @@ export default function Discover() {
     if (!user.id) return;
     setRequestsLoading(true);
     try {
-      const { data, error } = await (supabase as any)
-        .from("connections")
-        .select("requester_id, created_at, profiles:requester_id (id, name, avatar, avatar_url, color, bio, project, location)")
-        .eq("receiver_id", user.id)
-        .eq("status", "pending")
-        .order("created_at", { ascending: false });
+      const { data, error } = await traceQuery("discover.requests", () =>
+        (supabase as any)
+          .from("connections")
+          .select("requester_id, created_at, profiles:requester_id (id, name, avatar, avatar_url, color, bio, project, location)")
+          .eq("receiver_id", user.id)
+          .eq("status", "pending")
+          .order("created_at", { ascending: false })
+      );
       if (error) throw error;
       const mapped: Request[] = (data || []).map((r: any) => ({
         requesterId: r.requester_id,

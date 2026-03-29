@@ -24,6 +24,7 @@ import { supabase } from "@/lib/supabase";
 import { checkContent, parseModerationError } from "@/lib/moderation";
 // OPT: import from the single consolidated helper instead of defining inline
 import { createNotification } from "@/lib/notifications";
+import { traceQuery, traceParallel, logger } from "@/lib/logger";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 type Comment = { id: string; user_id: string; author: string; avatar: string; avatarUrl?: string; color: string; text: string; time: string; parentId?: string | null; };
@@ -1084,21 +1085,23 @@ export default function Feed() {
   const fetchFeed = useCallback(async () => {
     if (!user.id) return;
     setLoading(true);
+    logger.info("feed.load.start", { userId: user.id });
     try {
-      // Step 1: posts, collabs, blocks in parallel
-      const [postsRes, collabsRes, myBlocksRes, blockedByRes] = await Promise.all([
-        (supabase as any)
+      // Step 1: posts, collabs, blocks in parallel — traced individually
+      // comment_count is now a DB column (migration 006), so no extra query needed
+      const [postsRes, collabsRes, myBlocksRes, blockedByRes] = await traceParallel([
+        ["feed.posts", () => (supabase as any)
           .from("posts")
-          .select(`id, user_id, tag, content, image_url, video_url, created_at, likes, profiles:user_id (name, avatar, avatar_url, color, location, skills, deleted_at)`)
+          .select(`id, user_id, tag, content, image_url, video_url, created_at, likes, comment_count, profiles:user_id (name, avatar, avatar_url, color, location, skills, deleted_at)`)
           .order("created_at", { ascending: false })
-          .limit(30),
-        (supabase as any)
+          .limit(30)],
+        ["feed.collabs", () => (supabase as any)
           .from("collabs")
           .select(`id, user_id, title, looking, description, skills, image_url, video_url, created_at, profiles:user_id (name, avatar, avatar_url, color, location, skills, deleted_at)`)
           .order("created_at", { ascending: false })
-          .limit(30),
-        (supabase as any).from("blocks").select("blocked_id").eq("blocker_id", user.id),
-        (supabase as any).from("blocks").select("blocker_id").eq("blocked_id", user.id),
+          .limit(30)],
+        ["feed.blocks.mine", () => (supabase as any).from("blocks").select("blocked_id").eq("blocker_id", user.id)],
+        ["feed.blocks.them", () => (supabase as any).from("blocks").select("blocker_id").eq("blocked_id", user.id)],
       ]);
 
       if (postsRes.error) throw postsRes.error;
@@ -1108,19 +1111,19 @@ export default function Feed() {
       const postIds  = (postsRes.data  || []).map((p: any) => p.id);
       const collabIds = (collabsRes.data || []).map((c: any) => c.id);
 
-      const [likesRes, savedPostsRes, savedCollabsRes, interestedRes] = await Promise.all([
-        postIds.length > 0
+      const [likesRes, savedPostsRes, savedCollabsRes, interestedRes] = await traceParallel([
+        ["feed.likes", () => postIds.length > 0
           ? (supabase as any).from("post_likes").select("post_id").eq("user_id", user.id).in("post_id", postIds)
-          : Promise.resolve({ data: [] }),
-        postIds.length > 0
+          : Promise.resolve({ data: [], error: null })],
+        ["feed.saved_posts", () => postIds.length > 0
           ? (supabase as any).from("saved_posts").select("post_id").eq("user_id", user.id).in("post_id", postIds)
-          : Promise.resolve({ data: [] }),
-        collabIds.length > 0
+          : Promise.resolve({ data: [], error: null })],
+        ["feed.saved_collabs", () => collabIds.length > 0
           ? (supabase as any).from("saved_collabs").select("collab_id").eq("user_id", user.id).in("collab_id", collabIds)
-          : Promise.resolve({ data: [] }),
-        collabIds.length > 0
+          : Promise.resolve({ data: [], error: null })],
+        ["feed.interests", () => collabIds.length > 0
           ? (supabase as any).from("collab_interests").select("collab_id").eq("user_id", user.id).in("collab_id", collabIds)
-          : Promise.resolve({ data: [] }),
+          : Promise.resolve({ data: [], error: null })],
       ]);
 
       setPostsHasMore((postsRes.data || []).length === 30);
@@ -1144,7 +1147,7 @@ export default function Feed() {
         authorDeleted: !!p.profiles?.deleted_at,
         tag: p.tag, time: timeAgo(p.created_at), content: p.content,
         image: p.image_url || undefined, video: p.video_url || undefined,
-        likes: p.likes || 0, commentCount: 0, isOwn: p.user_id === user.id,
+        likes: p.likes || 0, commentCount: p.comment_count || 0, isOwn: p.user_id === user.id,
         comments: [],
       }));
 
@@ -1180,20 +1183,11 @@ export default function Feed() {
       // Filter out posts/collabs from blocked users (both directions)
       setPosts(mappedPosts.filter(p => !allBlocked.has(p.user_id)));
       setCollabs(mappedCollabs.filter(c => !allBlocked.has(c.user_id)));
-      setLoading(false); // show UI immediately — counts load in background
-
-      // Background: fetch comment counts without blocking the feed render
-      if (mappedPosts.length > 0) {
-        const postIds = mappedPosts.map(p => p.id);
-        (supabase as any).from("comments").select("post_id").in("post_id", postIds)
-          .then(({ data: commentRows }: any) => {
-            if (!commentRows) return;
-            const countMap: Record<string, number> = {};
-            commentRows.forEach((c: any) => { countMap[c.post_id] = (countMap[c.post_id] || 0) + 1; });
-            setPosts(prev => prev.map(p => countMap[p.id] ? { ...p, commentCount: countMap[p.id] } : p));
-          });
-      }
+      // comment_count comes from the DB column — no extra query needed
+      setLoading(false);
+      logger.info("feed.load.done", { postCount: mappedPosts.length, collabCount: mappedCollabs.length });
     } catch (err: any) {
+      logger.error("feed.load.error", { error: err.message });
       toast({ title: "Failed to load feed", description: err.message, variant: "destructive" });
       setLoading(false);
     }
@@ -1220,12 +1214,12 @@ export default function Feed() {
     if (!postsCursorRef.current || loadingMorePosts) return;
     setLoadingMorePosts(true);
     try {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await traceQuery("feed.posts.more", () => (supabase as any)
         .from("posts")
-        .select(`*, profiles:user_id (name, avatar, avatar_url, color, location, skills, deleted_at)`)
+        .select(`id, user_id, tag, content, image_url, video_url, created_at, likes, comment_count, profiles:user_id (name, avatar, avatar_url, color, location, skills, deleted_at)`)
         .order("created_at", { ascending: false })
         .lt("created_at", postsCursorRef.current)
-        .limit(30);
+        .limit(30));
       if (error) throw error;
       const more: Post[] = (data || []).map((p: any) => ({
         id: p.id, user_id: p.user_id,
@@ -1238,17 +1232,8 @@ export default function Feed() {
         authorDeleted: !!p.profiles?.deleted_at,
         tag: p.tag, time: timeAgo(p.created_at), content: p.content,
         image: p.image_url || undefined, video: p.video_url || undefined,
-        likes: p.likes || 0, commentCount: 0, isOwn: p.user_id === user.id, comments: [],
+        likes: p.likes || 0, commentCount: p.comment_count || 0, isOwn: p.user_id === user.id, comments: [],
       }));
-      if (more.length > 0) {
-        const { data: cRows } = await (supabase as any)
-          .from("comments").select("post_id").in("post_id", more.map(p => p.id));
-        const cm: Record<string, number> = {};
-        (cRows || []).forEach((c: any) => { cm[c.post_id] = (cm[c.post_id] || 0) + 1; });
-        for (let i = 0; i < more.length; i++) {
-          if (cm[more[i].id]) more[i] = { ...more[i], commentCount: cm[more[i].id] };
-        }
-      }
       setPosts(prev => [...prev, ...more]);
       setPostsHasMore((data || []).length === 30);
       if ((data || []).length > 0) postsCursorRef.current = data[data.length - 1].created_at;
