@@ -74,7 +74,10 @@ export default function Layout({ children }: { children: ReactNode }) {
           if (t === "message") {
             setMsgCount((c) => c + 1);
           } else if (t !== "match") {
-            setNotifCount((c) => c + 1);
+            // Don't increment badge if user is already viewing notifications
+            if (!window.location.pathname.startsWith("/notifications")) {
+              setNotifCount((c) => c + 1);
+            }
           }
         }
       )

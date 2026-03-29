@@ -169,8 +169,9 @@ export default function UserProfile() {
         setIsBlockedByOwner(ownerHasBlockedMe);
         setIsBlocked(iHaveBlockedOwner);
 
-        // ── Total isolation: don't load posts/collabs if either blocked ──
-        if (ownerHasBlockedMe || iHaveBlockedOwner) return;
+        // ── Blocked BY owner: don't expose their content ──
+        // Blocker (iHaveBlockedOwner) still gets to see the profile.
+        if (ownerHasBlockedMe) return;
 
         // ── Step 2: load content only when no block exists ─────────────
         const [postsRes, collabsRes, [connSentRes, connRecvRes]] = await Promise.all([
@@ -292,7 +293,7 @@ export default function UserProfile() {
     );
   }
 
-  if (isBlockedByOwner || isBlocked) {
+  if (isBlockedByOwner) {
     return (
       <Layout>
         <div className="max-w-2xl mx-auto px-4 py-6">
@@ -306,14 +307,6 @@ export default function UserProfile() {
             </div>
             <h1 className="text-lg font-bold text-foreground mt-3">{profile?.name || "User"}</h1>
             <p className="text-sm text-muted-foreground">This content is not available.</p>
-            {isBlocked && (
-              <button
-                className="text-xs text-muted-foreground underline underline-offset-2 mt-2"
-                onClick={handleBlock}
-              >
-                Unblock
-              </button>
-            )}
           </div>
         </div>
       </Layout>
@@ -353,21 +346,29 @@ export default function UserProfile() {
                 </span>
               )}
               <div className="flex gap-2 mt-3 flex-wrap">
-                <Button size="sm" variant={connected ? "outline" : pending ? "secondary" : "default"}
-                  className="gap-1.5 h-8 text-xs" onClick={connected ? handleConnect : pending ? undefined : handleConnect}
-                  disabled={connectionLoading || pending}>
-                  {connected ? <><Check className="h-3.5 w-3.5" /> Connected</> : pending ? "Request Sent" : <><UserPlus className="h-3.5 w-3.5" /> Connect</>}
-                </Button>
-                <Button size="sm" variant="outline" className="gap-1.5 h-8 text-xs"
-                  onClick={() => { navigate(`/messages?with=${profile.id}`); }}>
-                  <MessageCircle className="h-3.5 w-3.5" /> Message
-                </Button>
-                <Button size="sm" variant="outline" className="gap-1.5 h-8 text-xs text-muted-foreground"
-                  onClick={handleBlock}>
-                  {isBlocked
-                    ? <><ShieldOff className="h-3.5 w-3.5" /> Unblock</>
-                    : <><UserX className="h-3.5 w-3.5" /> Block</>}
-                </Button>
+                {isBlocked ? (
+                  // Blocker view: only show Unblock — no messaging or connecting
+                  <Button size="sm" variant="outline" className="gap-1.5 h-8 text-xs"
+                    onClick={handleBlock}>
+                    <ShieldOff className="h-3.5 w-3.5" /> Unblock
+                  </Button>
+                ) : (
+                  <>
+                    <Button size="sm" variant={connected ? "outline" : pending ? "secondary" : "default"}
+                      className="gap-1.5 h-8 text-xs" onClick={connected ? handleConnect : pending ? undefined : handleConnect}
+                      disabled={connectionLoading || pending}>
+                      {connected ? <><Check className="h-3.5 w-3.5" /> Connected</> : pending ? "Request Sent" : <><UserPlus className="h-3.5 w-3.5" /> Connect</>}
+                    </Button>
+                    <Button size="sm" variant="outline" className="gap-1.5 h-8 text-xs"
+                      onClick={() => { navigate(`/messages?with=${profile.id}`); }}>
+                      <MessageCircle className="h-3.5 w-3.5" /> Message
+                    </Button>
+                    <Button size="sm" variant="outline" className="gap-1.5 h-8 text-xs text-muted-foreground"
+                      onClick={handleBlock}>
+                      <UserX className="h-3.5 w-3.5" /> Block
+                    </Button>
+                  </>
+                )}
               </div>
             </div>
           </div>

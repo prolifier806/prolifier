@@ -147,7 +147,10 @@ export default function Notifications() {
         filter: `user_id=eq.${user.id}`,
       }, (payload) => {
         if (payload.new.type === "message" || payload.new.type === "match") return;
-        setNotifs(prev => [payload.new as Notif, ...prev]);
+        // Page is open — mark as read immediately so no unread dot appears
+        const incoming = { ...(payload.new as Notif), read: true };
+        setNotifs(prev => [incoming, ...prev]);
+        (supabase as any).from("notifications").update({ read: true }).eq("id", incoming.id);
       })
       .on("postgres_changes", {
         event: "DELETE", schema: "public", table: "notifications",
