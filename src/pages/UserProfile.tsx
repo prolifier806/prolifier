@@ -303,10 +303,10 @@ export default function UserProfile() {
           </button>
           <div className="rounded-xl border border-border bg-card p-6 text-center space-y-2">
             <div className="h-20 w-20 rounded-2xl bg-muted mx-auto flex items-center justify-center">
-              <UserX className="h-8 w-8 text-muted-foreground" />
+              <UserX className="h-8 w-8 text-muted-foreground opacity-40" />
             </div>
-            <h1 className="text-lg font-bold text-foreground mt-3">{profile?.name || "User"}</h1>
-            <p className="text-sm text-muted-foreground">This content is not available.</p>
+            <h1 className="text-lg font-bold text-foreground mt-3">Prolifier User</h1>
+            <p className="text-sm text-muted-foreground">This content is unavailable.</p>
           </div>
         </div>
       </Layout>
@@ -321,6 +321,17 @@ export default function UserProfile() {
           className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
           <ArrowLeft className="h-4 w-4" /> Back
         </button>
+
+        {/* Blocked-by-me notice */}
+        {isBlocked && (
+          <div className="rounded-xl border border-border bg-muted/50 px-4 py-3 flex items-center justify-between gap-3">
+            <p className="text-sm text-muted-foreground">You have blocked this user.</p>
+            <button onClick={handleBlock}
+              className="text-xs font-medium text-primary hover:underline shrink-0">
+              Unblock
+            </button>
+          </div>
+        )}
 
         {/* Profile card */}
         <div className="rounded-xl border border-border bg-card p-6">
@@ -346,13 +357,7 @@ export default function UserProfile() {
                 </span>
               )}
               <div className="flex gap-2 mt-3 flex-wrap">
-                {isBlocked ? (
-                  // Blocker view: only show Unblock — no messaging or connecting
-                  <Button size="sm" variant="outline" className="gap-1.5 h-8 text-xs"
-                    onClick={handleBlock}>
-                    <ShieldOff className="h-3.5 w-3.5" /> Unblock
-                  </Button>
-                ) : (
+                {!isBlocked && (
                   <>
                     <Button size="sm" variant={connected ? "outline" : pending ? "secondary" : "default"}
                       className="gap-1.5 h-8 text-xs" onClick={connected ? handleConnect : pending ? undefined : handleConnect}
@@ -363,12 +368,14 @@ export default function UserProfile() {
                       onClick={() => { navigate(`/messages?with=${profile.id}`); }}>
                       <MessageCircle className="h-3.5 w-3.5" /> Message
                     </Button>
-                    <Button size="sm" variant="outline" className="gap-1.5 h-8 text-xs text-muted-foreground"
-                      onClick={handleBlock}>
-                      <UserX className="h-3.5 w-3.5" /> Block
-                    </Button>
                   </>
                 )}
+                <Button size="sm" variant="outline" className="gap-1.5 h-8 text-xs text-muted-foreground"
+                  onClick={handleBlock}>
+                  {isBlocked
+                    ? <><ShieldOff className="h-3.5 w-3.5" /> Unblock</>
+                    : <><UserX className="h-3.5 w-3.5" /> Block</>}
+                </Button>
               </div>
             </div>
           </div>
