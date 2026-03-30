@@ -117,16 +117,8 @@ export default function Notifications() {
         .limit(50);
       if (error) throw error;
       const items: Notif[] = data || [];
-      // Auto-mark all as read when the notifications page is opened
-      setNotifs(items.map(n => ({ ...n, read: true })));
-      if (items.some(n => !n.read)) {
-        (supabase as any)
-          .from("notifications")
-          .update({ read: true })
-          .eq("user_id", user.id)
-          .eq("read", false)
-          .not("type", "in", "(message,match)");
-      }
+      // Show actual read state — user marks individual items by clicking them
+      setNotifs(items);
     } catch (err) {
       console.error("fetchNotifs:", err);
     } finally {
@@ -151,10 +143,8 @@ export default function Notifications() {
         filter: `user_id=eq.${user.id}`,
       }, (payload) => {
         if (payload.new.type === "message" || payload.new.type === "match") return;
-        // Page is open — mark as read immediately so no unread dot appears
-        const incoming = { ...(payload.new as Notif), read: true };
-        setNotifs(prev => [incoming, ...prev]);
-        (supabase as any).from("notifications").update({ read: true }).eq("id", incoming.id);
+        // Arrive as unread — user clicks to mark read
+        setNotifs(prev => [payload.new as Notif, ...prev]);
       })
       .on("postgres_changes", {
         event: "DELETE", schema: "public", table: "notifications",
@@ -335,13 +325,18 @@ export default function Notifications() {
               const Icon = meta.icon;
               const actionLabel = getActionLabel(n.action);
               return (
-                <div key={n.id} onClick={() => { markRead(n.id); handleAction(n); }}
-                  className={`group flex items-start gap-3 px-4 py-3.5 rounded-xl transition-colors cursor-pointer ${!n.read ? "bg-secondary" : "hover:bg-muted"}`}>
+                <div
+                  key={n.id}
+                  onClick={() => markRead(n.id)}
+                  className={`group flex items-start gap-3 px-4 py-3.5 rounded-xl transition-all duration-200 cursor-pointer select-none ${
+                    !n.read ? "bg-secondary hover:bg-secondary/80" : "hover:bg-muted"
+                  }`}
+                >
                   <div className={`h-9 w-9 rounded-full flex items-center justify-center shrink-0 ${meta.color}`}>
                     <Icon className="h-4 w-4" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className={`text-sm leading-snug ${!n.read ? "font-medium text-foreground" : "text-foreground"}`}>
+                    <p className={`text-sm leading-snug ${!n.read ? "font-semibold text-foreground" : "text-foreground"}`}>
                       {n.text}
                     </p>
                     {n.subtext && (
@@ -350,17 +345,22 @@ export default function Notifications() {
                     <div className="flex items-center gap-2 mt-1.5">
                       <p className="text-xs text-muted-foreground">{fmtTime(n.created_at)}</p>
                       {actionLabel && (
-                        <button onClick={e => { e.stopPropagation(); handleAction(n); }}
-                          className="text-xs text-primary font-medium hover:underline">
-                          {actionLabel}
+                        <button
+                          onClick={e => { e.stopPropagation(); handleAction(n); }}
+                          className="text-xs text-primary font-semibold hover:underline"
+                        >
+                          {actionLabel} →
                         </button>
                       )}
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
-                    {!n.read && <div className="h-2 w-2 rounded-full bg-accent shrink-0" />}
-                    <button onClick={e => { e.stopPropagation(); dismiss(n.id); }}
-                      className="h-6 w-6 rounded-full flex items-center justify-center text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-muted transition-all">
+                    {/* Unread dot — disappears with smooth transition when clicked */}
+                    <div className={`h-2 w-2 rounded-full bg-accent shrink-0 transition-all duration-300 ${!n.read ? "opacity-100 scale-100" : "opacity-0 scale-0"}`} />
+                    <button
+                      onClick={e => { e.stopPropagation(); dismiss(n.id); }}
+                      className="h-6 w-6 rounded-full flex items-center justify-center text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-muted transition-all"
+                    >
                       <X className="h-3 w-3" />
                     </button>
                   </div>
