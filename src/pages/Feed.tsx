@@ -239,68 +239,65 @@ function ImageLightbox({ images, startIndex, onClose }: { images: string[]; star
   );
 }
 
-// ── FeedImage — smart aspect-ratio detection, no layout shift ─────────────
-// Classifies the image into square (1:1), portrait (4:5), or landscape (16:9)
-// Reserves space with the target ratio BEFORE load → zero layout shift.
-// Shows blurred background fill for extreme ratios; tap to open full-res.
+// ── Image ratio system ─────────────────────────────────────────────────────
 type ImgRatio = "square" | "portrait" | "landscape";
 
 function classifyRatio(w: number, h: number): ImgRatio {
   const r = w / h;
-  if (r >= 1.4) return "landscape";   // wider than ~4:3
-  if (r <= 0.85) return "portrait";   // taller than ~5:6
+  if (r >= 1.3) return "landscape";  // wider than ~4:3
+  if (r <= 0.9) return "portrait";   // taller than ~9:10
   return "square";
 }
 
-// Aspect ratio strings per category
 const RATIO_STYLE: Record<ImgRatio, string> = {
   portrait:  "4/5",
   square:    "1/1",
   landscape: "16/9",
 };
 
-function FeedImage({ src, alt, onClick }: { src: string; alt: string; onClick?: () => void }) {
-  const [ratio, setRatio] = useState<ImgRatio>("portrait");   // default reserves 4:5 before load
-  const [loaded, setLoaded] = useState(false);
-  const [isLandscape, setIsLandscape] = useState(false);
+// Detect image dimensions off-DOM via new Image() — works regardless of lazy/visibility
+function useImageRatio(src: string): ImgRatio | null {
+  const [ratio, setRatio] = useState<ImgRatio | null>(null);
+  useEffect(() => {
+    if (!src) return;
+    const img = new Image();
+    img.onload = () => setRatio(classifyRatio(img.naturalWidth, img.naturalHeight));
+    img.src = src;
+  }, [src]);
+  return ratio;
+}
 
-  const handleLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
-    const img = e.currentTarget;
-    const r = classifyRatio(img.naturalWidth, img.naturalHeight);
-    setRatio(r);
-    setIsLandscape(r === "landscape");
-    setLoaded(true);
-  };
+// FeedImage — single image, detects own ratio, blurred bg for landscape
+function FeedImage({ src, alt, onClick }: { src: string; alt: string; onClick?: () => void }) {
+  const ratio = useImageRatio(src);
+  const [loaded, setLoaded] = useState(false);
+  // Default to portrait skeleton until ratio is known
+  const displayRatio = ratio ?? "portrait";
 
   return (
     <div
       className="relative w-full rounded-xl overflow-hidden bg-muted cursor-pointer select-none"
-      style={{ aspectRatio: RATIO_STYLE[ratio] }}
+      style={{ aspectRatio: RATIO_STYLE[displayRatio] }}
       onClick={onClick}
     >
-      {/* Blurred background fill — visible for landscape where bars would appear */}
-      {isLandscape && loaded && (
-        <img
-          src={src}
-          aria-hidden
-          className="absolute inset-0 w-full h-full object-cover scale-110 blur-lg opacity-40 pointer-events-none"
-        />
+      {/* Blurred background for landscape — fills letterbox bars */}
+      {ratio === "landscape" && loaded && (
+        <img src={src} aria-hidden
+          className="absolute inset-0 w-full h-full object-cover scale-110 blur-xl opacity-50 pointer-events-none" />
       )}
-      {/* Loading skeleton */}
-      {!loaded && (
-        <div className="absolute inset-0 bg-muted animate-pulse rounded-xl" />
-      )}
+      {/* Skeleton */}
+      {!loaded && <div className="absolute inset-0 bg-muted animate-pulse" />}
       {/* Main image */}
       <img
         src={src}
         alt={alt}
-        loading="lazy"
-        onLoad={handleLoad}
-        className={`relative w-full h-full object-cover rounded-xl transition-opacity duration-300 ${loaded ? "opacity-100" : "opacity-0"}`}
+        loading="eager"
+        onLoad={() => setLoaded(true)}
+        className={`relative w-full h-full object-cover transition-opacity duration-300 ${loaded ? "opacity-100" : "opacity-0"}`}
       />
-      {/* Hover zoom hint */}
-      {onClick && (
-        <div className="absolute inset-0 bg-black/0 hover:bg-black/15 transition-colors flex items-center justify-center group">
+      {/* Zoom hint */}
+      {onClick && loaded && (
+        <div className="absolute inset-0 bg-black/0 hover:bg-black/15 transition-colors flex items-center justify-center group pointer-events-none">
           <ZoomIn className="h-7 w-7 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-lg" />
         </div>
       )}
@@ -309,55 +306,53 @@ function FeedImage({ src, alt, onClick }: { src: string; alt: string; onClick?: 
 }
 
 // ── Image Carousel ─────────────────────────────────────────────────────────
-// Uses FeedImage for each slide — consistent, ratio-aware, no layout shift.
-// Multi-image: all slides share the FIRST image's detected ratio for uniformity.
+// Each slide uses its OWN detected ratio — landscape images show as landscape,
+// portrait as portrait. Container smoothly adjusts height between slides.
 function ImageCarousel({ images, onClickIndex }: { images: string[]; onClickIndex: (i: number) => void }) {
   const [current, setCurrent] = useState(0);
-  // Shared ratio determined by first image load
-  const [sharedRatio, setSharedRatio] = useState<ImgRatio>("portrait");
-  const [firstLoaded, setFirstLoaded] = useState(false);
+  // Detect ratios for all images in parallel using new Image() off-DOM
+  const [ratios, setRatios] = useState<Record<number, ImgRatio>>({});
+  const [slidesLoaded, setSlidesLoaded] = useState<Record<number, boolean>>({});
+
+  useEffect(() => {
+    images.forEach((src, i) => {
+      const img = new Image();
+      img.onload = () => {
+        setRatios(prev => ({ ...prev, [i]: classifyRatio(img.naturalWidth, img.naturalHeight) }));
+      };
+      img.src = src;
+    });
+  }, [images]);
+
   const prev = (e: React.MouseEvent) => { e.stopPropagation(); setCurrent(i => (i - 1 + images.length) % images.length); };
   const next = (e: React.MouseEvent) => { e.stopPropagation(); setCurrent(i => (i + 1) % images.length); };
 
   if (images.length === 0) return null;
+  if (images.length === 1) return <FeedImage src={images[0]} alt="post image" onClick={() => onClickIndex(0)} />;
 
-  // Single image: just use FeedImage directly
-  if (images.length === 1) {
-    return <FeedImage src={images[0]} alt="post image" onClick={() => onClickIndex(0)} />;
-  }
+  const currentRatio: ImgRatio = ratios[current] ?? "portrait";
+  const isLandscape = currentRatio === "landscape";
 
-  // Multi-image: fixed shared container ratio, slide through images
   return (
     <div
       className="relative rounded-xl overflow-hidden select-none bg-muted"
-      style={{ aspectRatio: RATIO_STYLE[sharedRatio] }}
+      style={{ aspectRatio: RATIO_STYLE[currentRatio], transition: "aspect-ratio 0.2s ease" }}
     >
-      {/* Hidden first image to detect ratio — sets container size for all slides */}
-      {!firstLoaded && (
-        <img
-          src={images[0]}
-          className="absolute opacity-0 pointer-events-none w-0 h-0"
-          onLoad={e => {
-            const img = e.currentTarget;
-            setSharedRatio(classifyRatio(img.naturalWidth, img.naturalHeight));
-            setFirstLoaded(true);
-          }}
-        />
-      )}
-      {/* Loading skeleton until ratio is known */}
-      {!firstLoaded && <div className="absolute inset-0 bg-muted animate-pulse" />}
       {/* Blurred background for landscape */}
-      {sharedRatio === "landscape" && (
+      {isLandscape && slidesLoaded[current] && (
         <img src={images[current]} aria-hidden
-          className="absolute inset-0 w-full h-full object-cover scale-110 blur-lg opacity-40 pointer-events-none" />
+          className="absolute inset-0 w-full h-full object-cover scale-110 blur-xl opacity-50 pointer-events-none" />
       )}
+      {/* Skeleton until this slide's image loads */}
+      {!slidesLoaded[current] && <div className="absolute inset-0 bg-muted animate-pulse" />}
       {/* Active slide */}
       <img
         src={images[current]}
         alt={`photo ${current + 1} of ${images.length}`}
-        className="relative w-full h-full object-cover cursor-pointer"
+        className={`relative w-full h-full object-cover cursor-pointer transition-opacity duration-200 ${slidesLoaded[current] ? "opacity-100" : "opacity-0"}`}
         onClick={() => onClickIndex(current)}
-        loading="lazy"
+        loading="eager"
+        onLoad={() => setSlidesLoaded(prev => ({ ...prev, [current]: true }))}
       />
       {/* Navigation arrows */}
       <button onClick={prev}
