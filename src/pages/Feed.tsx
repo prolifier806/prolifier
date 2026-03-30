@@ -239,146 +239,54 @@ function ImageLightbox({ images, startIndex, onClose }: { images: string[]; star
   );
 }
 
-// ── FeedImage — smart aspect-ratio detection, no layout shift ─────────────
-// Classifies the image into square (1:1), portrait (4:5), or landscape (16:9)
-// Reserves space with the target ratio BEFORE load → zero layout shift.
-// Shows blurred background fill for extreme ratios; tap to open full-res.
-type ImgRatio = "square" | "portrait" | "landscape";
-
-function classifyRatio(w: number, h: number): ImgRatio {
-  const r = w / h;
-  if (r >= 1.4) return "landscape";   // wider than ~4:3
-  if (r <= 0.85) return "portrait";   // taller than ~5:6
-  return "square";
-}
-
-// Aspect ratio strings per category
-const RATIO_STYLE: Record<ImgRatio, string> = {
-  portrait:  "4/5",
-  square:    "1/1",
-  landscape: "16/9",
-};
-
-function FeedImage({ src, alt, onClick }: { src: string; alt: string; onClick?: () => void }) {
-  const [ratio, setRatio] = useState<ImgRatio>("portrait");   // default reserves 4:5 before load
-  const [loaded, setLoaded] = useState(false);
-  const [isLandscape, setIsLandscape] = useState(false);
-
-  const handleLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
-    const img = e.currentTarget;
-    const r = classifyRatio(img.naturalWidth, img.naturalHeight);
-    setRatio(r);
-    setIsLandscape(r === "landscape");
-    setLoaded(true);
-  };
-
-  return (
-    <div
-      className="relative w-full rounded-xl overflow-hidden bg-muted cursor-pointer select-none"
-      style={{ aspectRatio: RATIO_STYLE[ratio] }}
-      onClick={onClick}
-    >
-      {/* Blurred background fill — visible for landscape where bars would appear */}
-      {isLandscape && loaded && (
-        <img
-          src={src}
-          aria-hidden
-          className="absolute inset-0 w-full h-full object-cover scale-110 blur-lg opacity-40 pointer-events-none"
-        />
-      )}
-      {/* Loading skeleton */}
-      {!loaded && (
-        <div className="absolute inset-0 bg-muted animate-pulse rounded-xl" />
-      )}
-      {/* Main image */}
-      <img
-        src={src}
-        alt={alt}
-        loading="lazy"
-        onLoad={handleLoad}
-        className={`relative w-full h-full object-cover rounded-xl transition-opacity duration-300 ${loaded ? "opacity-100" : "opacity-0"}`}
-      />
-      {/* Hover zoom hint */}
-      {onClick && (
-        <div className="absolute inset-0 bg-black/0 hover:bg-black/15 transition-colors flex items-center justify-center group">
-          <ZoomIn className="h-7 w-7 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-lg" />
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ── Image Carousel ─────────────────────────────────────────────────────────
-// Uses FeedImage for each slide — consistent, ratio-aware, no layout shift.
-// Multi-image: all slides share the FIRST image's detected ratio for uniformity.
+// Fixed 4:5 aspect ratio container — same dimensions for every image regardless of natural size
 function ImageCarousel({ images, onClickIndex }: { images: string[]; onClickIndex: (i: number) => void }) {
   const [current, setCurrent] = useState(0);
-  // Shared ratio determined by first image load
-  const [sharedRatio, setSharedRatio] = useState<ImgRatio>("portrait");
-  const [firstLoaded, setFirstLoaded] = useState(false);
   const prev = (e: React.MouseEvent) => { e.stopPropagation(); setCurrent(i => (i - 1 + images.length) % images.length); };
   const next = (e: React.MouseEvent) => { e.stopPropagation(); setCurrent(i => (i + 1) % images.length); };
 
   if (images.length === 0) return null;
 
-  // Single image: just use FeedImage directly
-  if (images.length === 1) {
-    return <FeedImage src={images[0]} alt="post image" onClick={() => onClickIndex(0)} />;
-  }
-
-  // Multi-image: fixed shared container ratio, slide through images
   return (
-    <div
-      className="relative rounded-xl overflow-hidden select-none bg-muted"
-      style={{ aspectRatio: RATIO_STYLE[sharedRatio] }}
-    >
-      {/* Hidden first image to detect ratio — sets container size for all slides */}
-      {!firstLoaded && (
-        <img
-          src={images[0]}
-          className="absolute opacity-0 pointer-events-none w-0 h-0"
-          onLoad={e => {
-            const img = e.currentTarget;
-            setSharedRatio(classifyRatio(img.naturalWidth, img.naturalHeight));
-            setFirstLoaded(true);
-          }}
-        />
-      )}
-      {/* Loading skeleton until ratio is known */}
-      {!firstLoaded && <div className="absolute inset-0 bg-muted animate-pulse" />}
-      {/* Blurred background for landscape */}
-      {sharedRatio === "landscape" && (
-        <img src={images[current]} aria-hidden
-          className="absolute inset-0 w-full h-full object-cover scale-110 blur-lg opacity-40 pointer-events-none" />
-      )}
-      {/* Active slide */}
+    <div className="relative rounded-xl overflow-hidden select-none bg-muted" style={{ aspectRatio: "4/5" }}>
       <img
         src={images[current]}
-        alt={`photo ${current + 1} of ${images.length}`}
-        className="relative w-full h-full object-cover cursor-pointer"
+        alt={`photo ${current + 1}`}
+        className="w-full h-full object-cover cursor-pointer"
         onClick={() => onClickIndex(current)}
         loading="lazy"
       />
-      {/* Navigation arrows */}
-      <button onClick={prev}
-        className="absolute left-2 top-1/2 -translate-y-1/2 h-8 w-8 rounded-full bg-black/40 flex items-center justify-center text-white hover:bg-black/60 transition-colors z-10">
-        <ChevronLeft className="h-4 w-4" />
-      </button>
-      <button onClick={next}
-        className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8 rounded-full bg-black/40 flex items-center justify-center text-white hover:bg-black/60 transition-colors z-10">
-        <ChevronRight className="h-4 w-4" />
-      </button>
-      {/* Dot indicators */}
-      <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1 z-10">
-        {images.map((_, i) => (
-          <button key={i} onClick={e => { e.stopPropagation(); setCurrent(i); }}
-            className={`rounded-full transition-all ${i === current ? "w-4 h-1.5 bg-white" : "w-1.5 h-1.5 bg-white/50"}`} />
-        ))}
-      </div>
-      {/* Counter */}
-      <span className="absolute top-2 right-2 bg-black/50 text-white text-xs font-medium px-2 py-0.5 rounded-full z-10">
-        {current + 1}/{images.length}
-      </span>
+      {/* Arrows — only for multi-image */}
+      {images.length > 1 && (
+        <>
+          <button onClick={prev}
+            className="absolute left-2 top-1/2 -translate-y-1/2 h-8 w-8 rounded-full bg-black/40 flex items-center justify-center text-white hover:bg-black/60 transition-colors">
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <button onClick={next}
+            className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8 rounded-full bg-black/40 flex items-center justify-center text-white hover:bg-black/60 transition-colors">
+            <ChevronRight className="h-4 w-4" />
+          </button>
+          {/* Dots */}
+          <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1 z-10">
+            {images.map((_, i) => (
+              <button key={i} onClick={e => { e.stopPropagation(); setCurrent(i); }}
+                className={`rounded-full transition-all ${i === current ? "w-4 h-1.5 bg-white" : "w-1.5 h-1.5 bg-white/50"}`} />
+            ))}
+          </div>
+          {/* Counter badge */}
+          <span className="absolute top-2 right-2 bg-black/50 text-white text-xs font-medium px-2 py-0.5 rounded-full">
+            {current + 1}/{images.length}
+          </span>
+        </>
+      )}
+      {/* Zoom hint on single image */}
+      {images.length === 1 && (
+        <div className="absolute inset-0 bg-black/0 hover:bg-black/15 transition-colors flex items-center justify-center group cursor-pointer" onClick={() => onClickIndex(0)}>
+          <ZoomIn className="h-7 w-7 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-lg" />
+        </div>
+      )}
     </div>
   );
 }

@@ -134,11 +134,7 @@ export default function Notifications() {
     }
   }, [user.id]);
 
-  useEffect(() => {
-    fetchNotifs();
-    // Signal Layout to clear notification badge immediately (handles direct URL navigation)
-    window.dispatchEvent(new Event("prolifier:notifications-opened"));
-  }, [fetchNotifs]);
+  useEffect(() => { fetchNotifs(); }, [fetchNotifs]);
 
   // ── Realtime subscription ─────────────────────────────────────────────
   // INSERT: live new notifications. DELETE: admin removal.
