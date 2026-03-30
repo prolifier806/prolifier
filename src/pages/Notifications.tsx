@@ -1,16 +1,15 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRealtimeChannel } from "@/hooks/useRealtimeChannel";
 import { useNavigate } from "react-router-dom";
-import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { Badge } from "@/components/ui/badge";
 import {
-  Heart, MessageCircle, UserPlus, Users, CheckCheck,
+  Heart, MessageCircle, UserPlus, Users,
   Settings, X, Bell, Handshake, Star, TrendingUp, ArrowLeft, RefreshCw,
 } from "lucide-react";
 import Layout from "@/components/Layout";
 import { toast } from "@/hooks/use-toast";
 import { useUser } from "@/context/UserContext";
+
 import { supabase } from "@/lib/supabase";
 
 // ── Types ─────────────────────────────────────────────────────────────────
@@ -89,7 +88,6 @@ export default function Notifications() {
 
   const [notifs, setNotifs] = useState<Notif[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<"all" | "unread">("all");
   const [showPrefs, setShowPrefs] = useState(false);
   const [prefs, setPrefs] = useState(() => {
     try {
@@ -117,8 +115,17 @@ export default function Notifications() {
         .limit(50);
       if (error) throw error;
       const items: Notif[] = data || [];
-      // Show actual read state — user marks individual items by clicking them
-      setNotifs(items);
+      // Show all as read immediately — badge clears, no unread dots
+      setNotifs(items.map(n => ({ ...n, read: true })));
+      // Persist read state to DB so badge stays 0 after hard refresh
+      if (items.some(n => !n.read)) {
+        await (supabase as any)
+          .from("notifications")
+          .update({ read: true })
+          .eq("user_id", user.id)
+          .eq("read", false)
+          .not("type", "in", "(message,match)");
+      }
     } catch (err) {
       console.error("fetchNotifs:", err);
     } finally {
@@ -143,8 +150,10 @@ export default function Notifications() {
         filter: `user_id=eq.${user.id}`,
       }, (payload) => {
         if (payload.new.type === "message" || payload.new.type === "match") return;
-        // Arrive as unread — user clicks to mark read
-        setNotifs(prev => [payload.new as Notif, ...prev]);
+        // Mark read immediately since user is already on the page
+        const notif = { ...(payload.new as Notif), read: true };
+        setNotifs(prev => [notif, ...prev]);
+        (supabase as any).from("notifications").update({ read: true }).eq("id", notif.id).then(() => {});
       })
       .on("postgres_changes", {
         event: "DELETE", schema: "public", table: "notifications",
@@ -155,21 +164,6 @@ export default function Notifications() {
   );
 
   // ── Actions ────────────────────────────────────────────────────────────
-  const markRead = async (id: string) => {
-    setNotifs(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
-    await (supabase as any).from("notifications").update({ read: true }).eq("id", id);
-  };
-
-  const markAllRead = async () => {
-    setNotifs(prev => prev.map(n => ({ ...n, read: true })));
-    await (supabase as any).from("notifications")
-      .update({ read: true })
-      .eq("user_id", user.id)
-      .eq("read", false)
-      .not("type", "in", "(message,match)");
-    toast({ title: "All caught up ✓" });
-  };
-
   const dismiss = async (id: string) => {
     setNotifs(prev => prev.filter(n => n.id !== id));
     await (supabase as any).from("notifications").delete().eq("id", id);
@@ -181,8 +175,7 @@ export default function Notifications() {
     toast({ title: "Notifications cleared" });
   };
 
-  const handleAction = async (n: Notif) => {
-    await markRead(n.id);
+  const handleAction = (n: Notif) => {
     if (!n.action) return;
 
     if (n.action.startsWith("message:")) {
@@ -252,28 +245,13 @@ export default function Notifications() {
   }
 
   // ── Main view ──────────────────────────────────────────────────────────
-  const unreadCount = notifs.filter(n => !n.read).length;
-  const visible = filter === "unread" ? notifs.filter(n => !n.read) : notifs;
-
   return (
     <Layout>
       <div className="max-w-2xl mx-auto px-4 py-6">
         {/* Header */}
         <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <h1 className="font-display text-2xl font-bold">Notifications</h1>
-            {unreadCount > 0 && (
-              <span className="h-5 min-w-5 px-1.5 rounded-full bg-accent text-accent-foreground text-xs font-semibold flex items-center justify-center">
-                {unreadCount}
-              </span>
-            )}
-          </div>
+          <h1 className="font-display text-2xl font-bold">Notifications</h1>
           <div className="flex items-center gap-1">
-            {unreadCount > 0 && (
-              <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" onClick={markAllRead}>
-                <CheckCheck className="h-4 w-4 mr-1" /> Mark all read
-              </Button>
-            )}
             <button onClick={fetchNotifs}
               className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors">
               <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
@@ -285,60 +263,43 @@ export default function Notifications() {
           </div>
         </div>
 
-        {/* Filters */}
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex gap-2">
-            {(["all", "unread"] as const).map(f => (
-              <Badge key={f} variant={filter === f ? "default" : "outline"}
-                className="cursor-pointer capitalize" onClick={() => setFilter(f)}>
-                {f}{f === "unread" && unreadCount > 0 ? ` (${unreadCount})` : ""}
-              </Badge>
-            ))}
-          </div>
-          {notifs.length > 0 && (
+        {/* Clear all */}
+        {notifs.length > 0 && (
+          <div className="flex justify-end mb-3">
             <button onClick={clearAll}
               className="text-xs text-muted-foreground hover:text-destructive transition-colors">
               Clear all
             </button>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* List */}
         {loading ? (
           <div className="flex items-center justify-center py-16">
             <div className="h-6 w-6 rounded-full border-2 border-primary border-t-transparent animate-spin" />
           </div>
-        ) : visible.length === 0 ? (
+        ) : notifs.length === 0 ? (
           <div className="text-center py-14 text-muted-foreground">
             <Bell className="h-8 w-8 mx-auto mb-2 opacity-30" />
-            <p className="text-sm font-medium mb-1">
-              {filter === "unread" ? "You're all caught up!" : "No notifications yet"}
-            </p>
-            <p className="text-xs">
-              {filter === "unread" ? "No unread notifications." : "Activity will appear here."}
-            </p>
+            <p className="text-sm font-medium mb-1">No notifications yet</p>
+            <p className="text-xs">Activity will appear here.</p>
           </div>
         ) : (
           <div className="space-y-1">
-            {visible.map(n => {
+            {notifs.map(n => {
               const meta = TYPE_META[n.type] || TYPE_META.default;
               const Icon = meta.icon;
               const actionLabel = getActionLabel(n.action);
               return (
                 <div
                   key={n.id}
-                  onClick={() => markRead(n.id)}
-                  className={`group flex items-start gap-3 px-4 py-3.5 rounded-xl transition-all duration-200 cursor-pointer select-none ${
-                    !n.read ? "bg-secondary hover:bg-secondary/80" : "hover:bg-muted"
-                  }`}
+                  className="group flex items-start gap-3 px-4 py-3.5 rounded-xl hover:bg-muted transition-all duration-200 select-none"
                 >
                   <div className={`h-9 w-9 rounded-full flex items-center justify-center shrink-0 ${meta.color}`}>
                     <Icon className="h-4 w-4" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className={`text-sm leading-snug ${!n.read ? "font-semibold text-foreground" : "text-foreground"}`}>
-                      {n.text}
-                    </p>
+                    <p className="text-sm leading-snug text-foreground">{n.text}</p>
                     {n.subtext && (
                       <p className="text-xs text-muted-foreground mt-0.5 truncate">{n.subtext}</p>
                     )}
@@ -346,7 +307,7 @@ export default function Notifications() {
                       <p className="text-xs text-muted-foreground">{fmtTime(n.created_at)}</p>
                       {actionLabel && (
                         <button
-                          onClick={e => { e.stopPropagation(); handleAction(n); }}
+                          onClick={() => handleAction(n)}
                           className="text-xs text-primary font-semibold hover:underline"
                         >
                           {actionLabel} →
@@ -354,16 +315,12 @@ export default function Notifications() {
                       )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    {/* Unread dot — disappears with smooth transition when clicked */}
-                    <div className={`h-2 w-2 rounded-full bg-accent shrink-0 transition-all duration-300 ${!n.read ? "opacity-100 scale-100" : "opacity-0 scale-0"}`} />
-                    <button
-                      onClick={e => { e.stopPropagation(); dismiss(n.id); }}
-                      className="h-6 w-6 rounded-full flex items-center justify-center text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-muted transition-all"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </div>
+                  <button
+                    onClick={e => { e.stopPropagation(); dismiss(n.id); }}
+                    className="h-6 w-6 rounded-full flex items-center justify-center text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-muted transition-all shrink-0 mt-1"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
                 </div>
               );
             })}

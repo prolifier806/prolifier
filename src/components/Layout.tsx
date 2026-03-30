@@ -171,7 +171,8 @@ export default function Layout({ children }: { children: ReactNode }) {
         .update({ read: true })
         .eq("user_id", user.id)
         .eq("read", false)
-        .not("type", "in", "(message,match)");
+        .not("type", "in", "(message,match)")
+        .then(() => {});
     } else if (to === "/messages") {
       sessionClearedRef.current.add("/messages");
       setMsgCount(0);
@@ -180,7 +181,8 @@ export default function Layout({ children }: { children: ReactNode }) {
         .update({ read: true })
         .eq("user_id", user.id)
         .eq("type", "message")
-        .eq("read", false);
+        .eq("read", false)
+        .then(() => {});
     } else if (to === "/discover") {
       sessionClearedRef.current.add("/discover");
       setDiscoverCount(0);
@@ -189,7 +191,8 @@ export default function Layout({ children }: { children: ReactNode }) {
         .update({ read: true })
         .eq("receiver_id", user.id)
         .eq("status", "pending")
-        .eq("read", false);
+        .eq("read", false)
+        .then(() => {});
     }
   };
 
