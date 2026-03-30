@@ -330,14 +330,13 @@ function ImageCarousel({ images, onClickIndex }: { images: string[]; onClickInde
   if (images.length === 0) return null;
   if (images.length === 1) return <FeedImage src={images[0]} alt="post image" onClick={() => onClickIndex(0)} />;
 
-  // Lock all slides to FIRST image's ratio — consistent height throughout carousel
-  const lockedRatio: ImgRatio = ratios[0] ?? "portrait";
-  const isLandscape = lockedRatio === "landscape";
+  const currentRatio: ImgRatio = ratios[current] ?? "portrait";
+  const isLandscape = currentRatio === "landscape";
 
   return (
     <div
       className="relative rounded-xl overflow-hidden select-none bg-muted"
-      style={{ aspectRatio: RATIO_STYLE[lockedRatio] }}
+      style={{ aspectRatio: RATIO_STYLE[currentRatio], transition: "aspect-ratio 0.2s ease" }}
     >
       {/* Blurred background for landscape */}
       {isLandscape && slidesLoaded[current] && (
@@ -379,345 +378,114 @@ function ImageCarousel({ images, onClickIndex }: { images: string[]; onClickInde
   );
 }
 
-// ── Crop Modal — zoom slider + grid overlay + drag to reposition ──────────
-const CROP_RATIOS: { label: string; value: ImgRatio }[] = [
-  { label: "1:1", value: "square" },
-  { label: "4:5", value: "portrait" },
-  { label: "16:9", value: "landscape" },
-];
-
-function CropModal({ src, lockedRatio, onDone, onCancel }: {
-  src: string;
-  lockedRatio: ImgRatio | null;  // null = first image, user can pick ratio
-  onDone: (blob: Blob, ratio: ImgRatio) => void;
-  onCancel: () => void;
-}) {
-  const [ratio, setRatio] = useState<ImgRatio>(lockedRatio ?? "square");
-  const [zoom, setZoom] = useState(1);
-  const [offset, setOffset] = useState({ x: 0, y: 0 });
-  const [dragging, setDragging] = useState(false);
-  const dragStart = useRef({ mx: 0, my: 0, ox: 0, oy: 0 });
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const imgRef = useRef<HTMLImageElement | null>(null);
-  const [imgLoaded, setImgLoaded] = useState(false);
-
-  // Container display size (px) — fixed preview box
-  const PREVIEW = 300;
-  const ASPECT = RATIO_STYLE[ratio];  // e.g. "4/5"
-  const [ar_w, ar_h] = ASPECT.split("/").map(Number);
-  const previewW = PREVIEW;
-  const previewH = Math.round(PREVIEW * (ar_h / ar_w));
-
-  // Load image once
-  useEffect(() => {
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => { imgRef.current = img; setImgLoaded(true); };
-    img.src = src;
-  }, [src]);
-
-  // Reset offset when ratio changes
-  useEffect(() => { setOffset({ x: 0, y: 0 }); setZoom(1); }, [ratio]);
-
-  // Clamp offset so image always fills container
-  const clamp = (ox: number, oy: number, z: number) => {
-    const img = imgRef.current;
-    if (!img) return { x: ox, y: oy };
-    const scale = (previewW / img.naturalWidth) * z;
-    const renderedW = img.naturalWidth * scale;
-    const renderedH = img.naturalHeight * scale;
-    const maxX = Math.max(0, (renderedW - previewW) / 2);
-    const maxY = Math.max(0, (renderedH - previewH) / 2);
-    return { x: Math.max(-maxX, Math.min(maxX, ox)), y: Math.max(-maxY, Math.min(maxY, oy)) };
-  };
-
-  const onPointerDown = (e: React.PointerEvent) => {
-    e.currentTarget.setPointerCapture(e.pointerId);
-    setDragging(true);
-    dragStart.current = { mx: e.clientX, my: e.clientY, ox: offset.x, oy: offset.y };
-  };
-  const onPointerMove = (e: React.PointerEvent) => {
-    if (!dragging) return;
-    const dx = e.clientX - dragStart.current.mx;
-    const dy = e.clientY - dragStart.current.my;
-    setOffset(clamp(dragStart.current.ox + dx, dragStart.current.oy + dy, zoom));
-  };
-  const onPointerUp = () => setDragging(false);
-
-  const handleZoom = (v: number) => {
-    setZoom(v);
-    setOffset(o => clamp(o.x, o.y, v));
-  };
-
-  // Export: draw cropped region to canvas → blob
-  const exportCrop = () => {
-    const img = imgRef.current;
-    if (!img) return;
-    const OUTPUT = 1080;
-    const outH = Math.round(OUTPUT * (ar_h / ar_w));
-    const canvas = canvasRef.current!;
-    canvas.width = OUTPUT;
-    canvas.height = outH;
-    const ctx = canvas.getContext("2d")!;
-
-    const scale = (previewW / img.naturalWidth) * zoom;
-    const renderedW = img.naturalWidth * scale;
-    const renderedH = img.naturalHeight * scale;
-    const drawX = (previewW - renderedW) / 2 + offset.x;
-    const drawY = (previewH - renderedH) / 2 + offset.y;
-
-    // Map preview coords back to source coords
-    const sx = (-drawX / scale);
-    const sy = (-drawY / scale);
-    const sw = previewW / scale;
-    const sh = previewH / scale;
-
-    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, OUTPUT, outH);
-    canvas.toBlob(blob => { if (blob) onDone(blob, ratio); }, "image/jpeg", 0.92);
-  };
-
-  return (
-    <div className="fixed inset-0 z-[200] bg-black/80 flex items-center justify-center p-4" onClick={onCancel}>
-      <div className="bg-card rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden" onClick={e => e.stopPropagation()}>
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-          <button onClick={onCancel} className="text-sm text-muted-foreground hover:text-foreground transition-colors">Cancel</button>
-          <span className="text-sm font-semibold">Adjust photo</span>
-          <button onClick={exportCrop} className="text-sm font-semibold text-primary hover:opacity-75 transition-opacity">Done</button>
-        </div>
-
-        {/* Ratio picker — only for first image (lockedRatio === null) */}
-        {lockedRatio === null && (
-          <div className="flex gap-2 px-4 py-2 border-b border-border">
-            {CROP_RATIOS.map(r => (
-              <button key={r.value} onClick={() => setRatio(r.value)}
-                className={`flex-1 py-1 rounded-lg text-xs font-semibold border transition-colors ${ratio === r.value ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:border-primary"}`}>
-                {r.label}
-              </button>
-            ))}
-          </div>
-        )}
-        {/* Show locked ratio label */}
-        {lockedRatio !== null && (
-          <div className="px-4 py-2 border-b border-border">
-            <p className="text-xs text-muted-foreground text-center">
-              Ratio locked to <span className="font-semibold text-foreground">{CROP_RATIOS.find(r => r.value === lockedRatio)?.label}</span> (matches first photo)
-            </p>
-          </div>
-        )}
-
-        {/* Preview with grid + drag */}
-        <div className="flex justify-center py-4 px-4">
-          <div
-            className="relative overflow-hidden rounded-xl bg-black cursor-grab active:cursor-grabbing"
-            style={{ width: previewW, height: previewH }}
-            onPointerDown={onPointerDown}
-            onPointerMove={onPointerMove}
-            onPointerUp={onPointerUp}
-            onPointerLeave={onPointerUp}
-          >
-            {imgLoaded && imgRef.current && (() => {
-              const img = imgRef.current!;
-              const scale = (previewW / img.naturalWidth) * zoom;
-              const renderedW = img.naturalWidth * scale;
-              const renderedH = img.naturalHeight * scale;
-              const left = (previewW - renderedW) / 2 + offset.x;
-              const top = (previewH - renderedH) / 2 + offset.y;
-              return (
-                <img src={src} draggable={false}
-                  style={{ position: "absolute", left, top, width: renderedW, height: renderedH, pointerEvents: "none", userSelect: "none" }} />
-              );
-            })()}
-            {/* Grid overlay — rule-of-thirds */}
-            <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ opacity: 0.35 }}>
-              <line x1="33.3%" y1="0" x2="33.3%" y2="100%" stroke="white" strokeWidth="0.8" />
-              <line x1="66.6%" y1="0" x2="66.6%" y2="100%" stroke="white" strokeWidth="0.8" />
-              <line x1="0" y1="33.3%" x2="100%" y2="33.3%" stroke="white" strokeWidth="0.8" />
-              <line x1="0" y1="66.6%" x2="100%" y2="66.6%" stroke="white" strokeWidth="0.8" />
-            </svg>
-            {/* Corner brackets */}
-            <div className="absolute inset-0 pointer-events-none">
-              {[["top-0 left-0 border-t-2 border-l-2",""],["top-0 right-0 border-t-2 border-r-2",""],
-                ["bottom-0 left-0 border-b-2 border-l-2",""],["bottom-0 right-0 border-b-2 border-r-2",""]].map(([cls],i)=>(
-                <div key={i} className={`absolute ${cls} border-white w-5 h-5 rounded-sm`} />
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Zoom slider */}
-        <div className="px-4 pb-4 space-y-1">
-          <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
-            <span>Zoom</span>
-            <span>{Math.round(zoom * 100)}%</span>
-          </div>
-          <input type="range" min={1} max={3} step={0.01} value={zoom}
-            onChange={e => handleZoom(parseFloat(e.target.value))}
-            className="w-full accent-primary h-1.5 cursor-pointer" />
-          <div className="flex justify-between text-[10px] text-muted-foreground">
-            <span>1×</span><span>3×</span>
-          </div>
-        </div>
-
-        {/* Hidden canvas for export */}
-        <canvas ref={canvasRef} className="hidden" />
-      </div>
-    </div>
-  );
-}
-
 // ── Media Upload Bar ───────────────────────────────────────────────────────
-function MediaUploadBar({ images, onAddImage, onRemoveImage, onVideo, onUploadingChange, hasVideo, lockedRatio, onSetLockedRatio }: {
+function MediaUploadBar({ images, onAddImage, onRemoveImage, onVideo, onUploadingChange, hasVideo }: {
   images: string[];
   onAddImage: (url: string) => void;
   onRemoveImage: (i: number) => void;
   onVideo: (url: string) => void;
   onUploadingChange?: (uploading: boolean) => void;
   hasVideo?: boolean;
-  lockedRatio?: ImgRatio | null;
-  onSetLockedRatio?: (r: ImgRatio) => void;
 }) {
   const imgRef = useRef<HTMLInputElement>(null);
   const vidRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadLabel, setUploadLabel] = useState("");
-  // Pending file waiting for crop
-  const [cropSrc, setCropSrc] = useState<string | null>(null);
 
   const canAddMore = images.length < 4;
 
-  // Called when user picks a file — open crop modal instead of uploading immediately
-  const handleImagePick = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>, cb: (url: string) => void, type: "image" | "video") => {
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = "";
-    const url = URL.createObjectURL(file);
-    setCropSrc(url);
-  };
 
-  const uploadBlob = async (blob: Blob) => {
     setUploading(true);
     onUploadingChange?.(true);
-    setUploadLabel("Uploading photo...");
-    const path = `${Date.now()}.jpg`;
-    const { error } = await (supabase as any).storage.from("posts").upload(path, blob, { upsert: true, contentType: "image/jpeg" });
-    if (error) {
-      toast({ title: "Upload failed", description: error.message, variant: "destructive" });
-    } else {
-      const { data } = (supabase as any).storage.from("posts").getPublicUrl(path);
-      onAddImage(data.publicUrl);
-      setUploadLabel("Photo uploaded ✓");
-      setTimeout(() => setUploadLabel(""), 2000);
-    }
-    setUploading(false);
-    onUploadingChange?.(false);
-  };
+    setUploadLabel(type === "image" ? "Uploading photo..." : "Uploading video...");
 
-  const handleCropDone = (blob: Blob, ratio: ImgRatio) => {
-    if (cropSrc) URL.revokeObjectURL(cropSrc);
-    setCropSrc(null);
-    // Set locked ratio from first image
-    if (images.length === 0 && onSetLockedRatio) onSetLockedRatio(ratio);
-    uploadBlob(blob);
-  };
-
-  const handleCropCancel = () => {
-    if (cropSrc) URL.revokeObjectURL(cropSrc);
-    setCropSrc(null);
-  };
-
-  const handleVideoFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    e.target.value = "";
-    setUploading(true);
-    onUploadingChange?.(true);
-    setUploadLabel("Uploading video...");
     const ext = file.name.split(".").pop();
     const path = `${Date.now()}.${ext}`;
-    const { error } = await (supabase as any).storage.from("posts").upload(path, file, { upsert: true });
+
+    const { error } = await (supabase as any).storage
+      .from("posts")
+      .upload(path, file, { upsert: true });
+
     if (error) {
       toast({ title: "Upload failed", description: error.message, variant: "destructive" });
-    } else {
-      const { data } = (supabase as any).storage.from("posts").getPublicUrl(path);
-      onVideo(data.publicUrl);
-      setUploadLabel("Video uploaded ✓");
-      setTimeout(() => setUploadLabel(""), 2000);
+      setUploading(false);
+      onUploadingChange?.(false);
+      setUploadLabel("");
+      return;
     }
+
+    const { data } = (supabase as any).storage.from("posts").getPublicUrl(path);
+    cb(data.publicUrl);
     setUploading(false);
     onUploadingChange?.(false);
+    setUploadLabel(type === "image" ? "Photo uploaded ✓" : "Video uploaded ✓");
+    setTimeout(() => setUploadLabel(""), 2000);
   };
 
   return (
-    <>
-      {cropSrc && (
-        <CropModal
-          src={cropSrc}
-          lockedRatio={images.length === 0 ? null : (lockedRatio ?? "square")}
-          onDone={handleCropDone}
-          onCancel={handleCropCancel}
-        />
-      )}
-      <div className="space-y-2">
-        {/* Image previews grid — fixed 112px height per cell, no layout shift */}
-        {images.length > 0 && (
-          <div className={`grid gap-2 ${images.length === 1 ? "grid-cols-1" : "grid-cols-2"}`}>
-            {images.map((url, i) => (
-              <div key={i} className="relative rounded-xl overflow-hidden bg-muted" style={{ height: 112 }}>
-                <img src={url} alt={`photo ${i + 1}`} className="w-full h-full object-cover" />
-                <button
-                  onClick={() => onRemoveImage(i)}
-                  className="absolute top-1.5 right-1.5 h-6 w-6 rounded-full bg-black/60 text-white flex items-center justify-center hover:bg-black/80 z-10"
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </div>
-            ))}
-            {/* Add more slot — same fixed height */}
-            {canAddMore && !hasVideo && (
+    <div className="space-y-2">
+      {/* Image previews grid — fixed 112px height per cell, no layout shift */}
+      {images.length > 0 && (
+        <div className={`grid gap-2 ${images.length === 1 ? "grid-cols-1" : "grid-cols-2"}`}>
+          {images.map((url, i) => (
+            <div key={i} className="relative rounded-xl overflow-hidden bg-muted" style={{ height: 112 }}>
+              <img src={url} alt={`photo ${i + 1}`} className="w-full h-full object-cover" />
               <button
-                type="button"
-                onClick={() => imgRef.current?.click()}
-                disabled={uploading}
-                style={{ height: 112 }}
-                className="rounded-xl border-2 border-dashed border-border hover:border-primary flex flex-col items-center justify-center gap-1 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                onClick={() => onRemoveImage(i)}
+                className="absolute top-1.5 right-1.5 h-6 w-6 rounded-full bg-black/60 text-white flex items-center justify-center hover:bg-black/80 z-10"
               >
-                <ImageIcon className="h-5 w-5" />
-                <span className="text-xs">Add photo</span>
+                <X className="h-3 w-3" />
               </button>
-            )}
-          </div>
-        )}
-        {/* Buttons row — shown when no images yet */}
-        {images.length === 0 && (
-          <div className="flex gap-2">
-            <input ref={imgRef} type="file" accept="image/*" className="hidden" onChange={handleImagePick} />
-            <input ref={vidRef} type="file" accept="video/*" className="hidden" onChange={handleVideoFile} />
-            <button type="button" onClick={() => imgRef.current?.click()} disabled={uploading || hasVideo}
-              className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground border border-dashed border-border hover:border-primary rounded-lg px-3 py-2 transition-colors flex-1 justify-center disabled:opacity-50">
-              <ImageIcon className="h-4 w-4" /> Photo
+            </div>
+          ))}
+          {/* Add more slot — same fixed height */}
+          {canAddMore && !hasVideo && (
+            <button
+              type="button"
+              onClick={() => imgRef.current?.click()}
+              disabled={uploading}
+              style={{ height: 112 }}
+              className="rounded-xl border-2 border-dashed border-border hover:border-primary flex flex-col items-center justify-center gap-1 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+            >
+              <ImageIcon className="h-5 w-5" />
+              <span className="text-xs">Add photo</span>
             </button>
-            <button type="button" onClick={() => vidRef.current?.click()} disabled={uploading || images.length > 0}
-              className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground border border-dashed border-border hover:border-primary rounded-lg px-3 py-2 transition-colors flex-1 justify-center disabled:opacity-50">
-              <VideoIcon className="h-4 w-4" /> Video
-            </button>
-          </div>
-        )}
-        {/* Hidden input when images already exist */}
-        {images.length > 0 && (
-          <input ref={imgRef} type="file" accept="image/*" className="hidden" onChange={handleImagePick} />
-        )}
-        {uploading && (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground px-1">
-            <div className="h-3 w-3 rounded-full border-2 border-primary border-t-transparent animate-spin shrink-0" />
-            {uploadLabel}
-          </div>
-        )}
-        {!uploading && uploadLabel && (
-          <p className="text-xs text-emerald-600 px-1">{uploadLabel}</p>
-        )}
-      </div>
-    </>
+          )}
+        </div>
+      )}
+      {/* Buttons row — shown when no images yet or always for video */}
+      {images.length === 0 && (
+        <div className="flex gap-2">
+          <input ref={imgRef} type="file" accept="image/*" className="hidden" onChange={e => handleFile(e, onAddImage, "image")} />
+          <input ref={vidRef} type="file" accept="video/*" className="hidden" onChange={e => handleFile(e, onVideo, "video")} />
+          <button type="button" onClick={() => imgRef.current?.click()} disabled={uploading || hasVideo}
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground border border-dashed border-border hover:border-primary rounded-lg px-3 py-2 transition-colors flex-1 justify-center disabled:opacity-50">
+            <ImageIcon className="h-4 w-4" /> Photo
+          </button>
+          <button type="button" onClick={() => vidRef.current?.click()} disabled={uploading || images.length > 0}
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground border border-dashed border-border hover:border-primary rounded-lg px-3 py-2 transition-colors flex-1 justify-center disabled:opacity-50">
+            <VideoIcon className="h-4 w-4" /> Video
+          </button>
+        </div>
+      )}
+      {/* Hidden inputs when images exist */}
+      {images.length > 0 && (
+        <input ref={imgRef} type="file" accept="image/*" className="hidden" onChange={e => handleFile(e, onAddImage, "image")} />
+      )}
+      {uploading && (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground px-1">
+          <div className="h-3 w-3 rounded-full border-2 border-primary border-t-transparent animate-spin shrink-0" />
+          {uploadLabel}
+        </div>
+      )}
+      {!uploading && uploadLabel && (
+        <p className="text-xs text-emerald-600 px-1">{uploadLabel}</p>
+      )}
+    </div>
   );
 }
 
@@ -1092,8 +860,6 @@ function EditPostDialog({ post, open, onClose, onSave }: {
   const [images, setImages] = useState<string[]>(post.images);
   const [video, setVideo] = useState<string|undefined>(post.video);
   const [editUploading, setEditUploading] = useState(false);
-  const [editLockedRatio, setEditLockedRatio] = useState<ImgRatio | null>(null);
-  const firstImgRatio = useImageRatio(images[0] ?? "");
 
   const removeImageAt = async (i: number) => {
     const url = images[i];
@@ -1125,8 +891,6 @@ function EditPostDialog({ post, open, onClose, onSave }: {
               onVideo={setVideo}
               onUploadingChange={setEditUploading}
               hasVideo={!!video}
-              lockedRatio={images.length > 0 ? (firstImgRatio ?? editLockedRatio) : editLockedRatio}
-              onSetLockedRatio={r => setEditLockedRatio(r)}
             />
           )}
         </div>
@@ -1495,7 +1259,6 @@ export default function Feed() {
   const [postDialog, setPostDialog] = useState({
     open: false, content: "", tag: "General",
     images: [] as string[],
-    lockedRatio: null as ImgRatio | null,
     video: undefined as string|undefined,
     uploading: false,
     publishing: false,
@@ -1983,7 +1746,7 @@ export default function Feed() {
         content: postDialog.content, images: postDialog.images, video: postDialog.video,
         likes: 0, commentCount: 0, isOwn: true, comments: [],
       }, ...p]);
-      setPostDialog({ open: false, content: "", tag: "General", images: [], lockedRatio: null, video: undefined, uploading: false, publishing: false });
+      setPostDialog({ open: false, content: "", tag: "General", images: [], video: undefined, uploading: false, publishing: false });
       toast({ title: "Post published! 🎉" });
     } finally {
       setPostDialog(d => ({ ...d, publishing: false }));
@@ -2191,8 +1954,6 @@ export default function Feed() {
                       onVideo={url => setPostDialog(d => ({ ...d, video: url }))}
                       onUploadingChange={v => setPostDialog(d => ({ ...d, uploading: v }))}
                       hasVideo={!!postDialog.video}
-                      lockedRatio={postDialog.lockedRatio}
-                      onSetLockedRatio={r => setPostDialog(d => ({ ...d, lockedRatio: r }))}
                     />
                   )}
                 </div>
