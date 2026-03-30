@@ -164,6 +164,7 @@ export default function Messages() {
   const [hasOlderMsgs, setHasOlderMsgs] = useState(false);
   const oldestMsgCursorRef = useRef<string | null>(null);
   const [sending, setSending] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [convSearch, setConvSearch] = useState("");
   const [showMobileChat, setShowMobileChat] = useState(false);
   const [mediaPreview, setMediaPreview] = useState<{ type: string; url: string } | null>(null);
@@ -611,14 +612,18 @@ export default function Messages() {
   const handleFileInput = async (e: React.ChangeEvent<HTMLInputElement>, type: "image" | "video" | "file") => {
     const file = e.target.files?.[0];
     if (!file || !selectedId) return;
+    setUploading(true);
     try {
       const path = `dm/${user.id}/${Date.now()}-${file.name}`;
-      const { error } = await supabase.storage.from("media").upload(path, file);
+      const { error } = await supabase.storage.from("messages").upload(path, file);
       if (error) throw error;
-      const { data: urlData } = supabase.storage.from("media").getPublicUrl(path);
-      await sendMessage(undefined, urlData.publicUrl, type);
-    } catch {
-      toast({ title: "Upload failed", variant: "destructive" });
+      const { data: urlData } = supabase.storage.from("messages").getPublicUrl(path);
+      // For files pass the original filename as text so it shows in the message
+      await sendMessage(type === "file" ? file.name : undefined, urlData.publicUrl, type);
+    } catch (err: any) {
+      toast({ title: "Upload failed", description: err.message, variant: "destructive" });
+    } finally {
+      setUploading(false);
     }
     e.target.value = "";
   };
@@ -627,11 +632,18 @@ export default function Messages() {
   const { recording, seconds, start: startRec, stop: stopRec, cancel: cancelRec } = useVoiceRecorder(
     async (blob) => {
       if (!selectedId) return;
-      const path = `dm/${user.id}/${Date.now()}.webm`;
-      const { error } = await supabase.storage.from("media").upload(path, blob);
-      if (error) { toast({ title: "Voice upload failed", variant: "destructive" }); return; }
-      const { data: urlData } = supabase.storage.from("media").getPublicUrl(path);
-      await sendMessage(undefined, urlData.publicUrl, "audio");
+      setUploading(true);
+      try {
+        const path = `dm/${user.id}/${Date.now()}.webm`;
+        const { error } = await supabase.storage.from("messages").upload(path, blob);
+        if (error) throw error;
+        const { data: urlData } = supabase.storage.from("messages").getPublicUrl(path);
+        await sendMessage(undefined, urlData.publicUrl, "audio");
+      } catch {
+        toast({ title: "Voice upload failed", variant: "destructive" });
+      } finally {
+        setUploading(false);
+      }
     }
   );
 
@@ -728,8 +740,9 @@ export default function Messages() {
             <video src={m.media_url} controls className="max-w-full max-h-56 rounded-2xl bg-black" />
           )}
           {m.media_type === "file" && m.media_url && (
-            <a href={m.media_url} download className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-sm ${isMe ? "bg-primary text-primary-foreground" : "bg-secondary text-secondary-foreground"}`}>
-              <Paperclip className="h-4 w-4 shrink-0" /><span className="truncate max-w-[180px]">File</span>
+            <a href={m.media_url} target="_blank" rel="noopener noreferrer" download className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-sm ${isMe ? "bg-primary text-primary-foreground" : "bg-secondary text-secondary-foreground"}`}>
+              <Paperclip className="h-4 w-4 shrink-0" />
+              <span className="truncate max-w-[200px]">{m.text || "File"}</span>
             </a>
           )}
           {m.media_type === "audio" && m.media_url && <AudioPlayer src={m.media_url} isMe={isMe} />}
@@ -955,34 +968,43 @@ export default function Messages() {
                 </div>
               )}
 
+              {/* Upload progress bar */}
+              {uploading && !isBlocked && (
+                <div className="px-4 py-2.5 border-t border-border bg-muted/40 flex items-center gap-3 shrink-0">
+                  <div className="h-4 w-4 rounded-full border-2 border-primary border-t-transparent animate-spin shrink-0" />
+                  <span className="text-xs text-muted-foreground">Uploading…</span>
+                </div>
+              )}
+
               {/* Input bar */}
               {!recording && !isBlocked && (
                 <div className="p-3 border-t border-border shrink-0">
                   <div className="flex items-center gap-2 bg-muted rounded-2xl px-3 py-1.5">
                     <div className="flex items-center gap-0.5 shrink-0">
-                      <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => imageRef.current?.click()}
-                        className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors" title="Image">
+                      <button type="button" disabled={uploading} onMouseDown={e => e.preventDefault()} onClick={() => imageRef.current?.click()}
+                        className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors disabled:opacity-40" title="Image">
                         <Image className="h-4 w-4" />
                       </button>
-                      <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => videoRef.current?.click()}
-                        className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors" title="Video">
+                      <button type="button" disabled={uploading} onMouseDown={e => e.preventDefault()} onClick={() => videoRef.current?.click()}
+                        className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors disabled:opacity-40" title="Video">
                         <Video className="h-4 w-4" />
                       </button>
-                      <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => fileRef.current?.click()}
-                        className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors" title="File">
+                      <button type="button" disabled={uploading} onMouseDown={e => e.preventDefault()} onClick={() => fileRef.current?.click()}
+                        className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors disabled:opacity-40" title="File">
                         <Paperclip className="h-4 w-4" />
                       </button>
-                      <button type="button" onMouseDown={e => e.preventDefault()} onClick={startRec}
-                        className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:text-rose-500 hover:bg-rose-50 transition-colors" title="Voice message">
+                      <button type="button" disabled={uploading} onMouseDown={e => e.preventDefault()} onClick={startRec}
+                        className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:text-rose-500 hover:bg-rose-50 transition-colors disabled:opacity-40" title="Voice message">
                         <Mic className="h-4 w-4" />
                       </button>
                     </div>
                     <input ref={inputRef} value={msg}
                       onChange={e => setMsg(e.target.value)}
                       onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(msg); } }}
-                      placeholder={`Message ${selectedConvo.name}…`}
-                      className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none min-w-0 py-1" />
-                    <button type="button" onClick={() => sendMessage(msg)} disabled={!msg.trim() || sending}
+                      placeholder={uploading ? "Uploading…" : `Message ${selectedConvo.name}…`}
+                      disabled={uploading}
+                      className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none min-w-0 py-1 disabled:opacity-50" />
+                    <button type="button" onClick={() => sendMessage(msg)} disabled={!msg.trim() || sending || uploading}
                       className="h-7 w-7 rounded-full bg-primary text-primary-foreground flex items-center justify-center hover:opacity-90 transition-opacity disabled:opacity-30 shrink-0">
                       {sending ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
                     </button>
