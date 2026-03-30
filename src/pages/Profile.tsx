@@ -211,13 +211,18 @@ export default function Profile() {
     try {
       const [postsRes, connsReq, connsRec, savedRes] = await Promise.all([
         (supabase as any).from("posts").select("id", { count: "exact", head: true }).eq("user_id", user.id),
-        (supabase as any).from("connections").select("id", { count: "exact", head: true }).eq("requester_id", user.id).eq("status", "accepted"),
-        (supabase as any).from("connections").select("id", { count: "exact", head: true }).eq("receiver_id", user.id).eq("status", "accepted"),
+        (supabase as any).from("connections").select("receiver_id").eq("requester_id", user.id).eq("status", "accepted"),
+        (supabase as any).from("connections").select("requester_id").eq("receiver_id", user.id).eq("status", "accepted"),
         (supabase as any).from("saved_posts").select("post_id", { count: "exact", head: true }).eq("user_id", user.id),
+      ]);
+      // Deduplicate by connected user ID — handles any duplicate rows in DB
+      const uniqueConnected = new Set([
+        ...(connsReq.data || []).map((r: any) => r.receiver_id),
+        ...(connsRec.data || []).map((r: any) => r.requester_id),
       ]);
       setAnalytics({
         postCount: postsRes.count || 0,
-        connectionCount: (connsReq.count || 0) + (connsRec.count || 0),
+        connectionCount: uniqueConnected.size,
         savedCount: savedRes.count || 0,
       });
     } catch { /* silent */ }
