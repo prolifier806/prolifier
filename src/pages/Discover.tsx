@@ -12,6 +12,7 @@ import { useUser } from "@/context/UserContext";
 import { supabase } from "@/lib/supabase";
 import { createNotification } from "@/lib/notifications";
 import { traceParallel, traceQuery } from "@/lib/logger";
+import { useRealtimeChannel } from "@/hooks/useRealtimeChannel";
 
 
 type Profile = {
@@ -257,6 +258,42 @@ export default function Discover() {
       .eq("read", false)
       .then(({ count }: any) => setRequestCount(count ?? 0));
   }, [user.id]);
+
+  // ── Realtime: live connection status updates in People tab ───────────────
+  // When User B accepts our pending request, or sends/cancels a request,
+  // update connected/pending sets immediately without a full refetch.
+  useRealtimeChannel(
+    user.id ? `discover-conns-${user.id}` : null,
+    ch => ch
+      .on("postgres_changes", {
+        event: "UPDATE",
+        schema: "public",
+        table: "connections",
+      }, (payload) => {
+        const row = payload.new as any;
+        // Only care about rows that involve the current user
+        const involvesMe = row.requester_id === user.id || row.receiver_id === user.id;
+        if (!involvesMe) return;
+        const otherId = row.requester_id === user.id ? row.receiver_id : row.requester_id;
+        if (row.status === "accepted") {
+          // Move to connected, remove from pending
+          setConnected(prev => new Set([...prev, otherId]));
+          setPending(prev => { const n = new Set(prev); n.delete(otherId); return n; });
+        }
+      })
+      .on("postgres_changes", {
+        event: "DELETE",
+        schema: "public",
+        table: "connections",
+      }, (payload) => {
+        const row = payload.old as any;
+        const involvesMe = row.requester_id === user.id || row.receiver_id === user.id;
+        if (!involvesMe) return;
+        const otherId = row.requester_id === user.id ? row.receiver_id : row.requester_id;
+        setConnected(prev => { const n = new Set(prev); n.delete(otherId); return n; });
+        setPending(prev => { const n = new Set(prev); n.delete(otherId); return n; });
+      }),
+  );
 
   const handleUnblock = async (id: string, name: string) => {
     await (supabase as any).from("blocks").delete().eq("blocker_id", user.id).eq("blocked_id", id);

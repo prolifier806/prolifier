@@ -142,6 +142,10 @@ export default function Messages() {
   const navigate = useNavigate();
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  // Ref kept in sync so fetchMessages callbacks read current conversations
+  // without needing 'conversations' in their useCallback dep array
+  const conversationsRef = useRef<Conversation[]>([]);
+  useEffect(() => { conversationsRef.current = conversations; }, [conversations]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [msg, setMsg] = useState("");
@@ -415,8 +419,8 @@ export default function Messages() {
       // Clear per-conversation unread badge in sidebar
       setConversations(prev => prev.map(c => c.id === otherId ? { ...c, unread: 0 } : c));
 
-      // If ALL conversations are now read, clear the global nav badge too
-      const hasAnyUnread = conversations.some(c => c.id !== otherId && c.unread > 0);
+      // Use ref (always current) to check if any other convo still has unread
+      const hasAnyUnread = conversationsRef.current.some(c => c.id !== otherId && c.unread > 0);
       if (!hasAnyUnread) {
         window.dispatchEvent(new Event("prolifier:messages-all-read"));
       }
@@ -425,7 +429,7 @@ export default function Messages() {
     } finally {
       setLoadingMsgs(false);
     }
-  }, [user.id, conversations]);
+  }, [user.id]);
 
   // ── Load older messages (cursor-based, prepend to top) ────────────────
   const fetchOlderMessages = useCallback(async (otherId: string) => {
@@ -663,7 +667,9 @@ export default function Messages() {
       if (share) {
         const link = share.type === "post" && share.id
           ? `/feed?post=${share.id}`
-          : share.type === "collab" ? `/feed?tab=collabs` : "/feed";
+          : share.type === "collab" && share.id
+            ? `/feed?tab=collabs&collab=${share.id}`
+            : "/feed";
         return (
           <div key={m.id} className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
             <div className="flex flex-col gap-0.5 max-w-[75%]">
