@@ -962,11 +962,11 @@ function EditCollabDialog({ collab, open, onClose, onSave }: {
 // OPT: wrapped in memo with a custom comparator — only re-renders when this
 // specific post's like/save status or content actually changes, not when any
 // other state in the Feed changes (dialogs opening, search input, etc.)
-const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, highlighted, onLike, onSave, onComment, onDelete, onEdit, onHide, onReport, onShare }: {
+const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, highlighted, onLike, onSave, onComment, onDelete, onEdit, onHide, onReport, onShare, onSend }: {
   post: Post; likedPosts: Set<string>; savedPosts: Set<string>; highlighted?: boolean;
   onLike:(id:string)=>void; onSave:(id:string)=>void; onComment:(p:Post)=>void;
   onDelete:(id:string)=>void; onEdit:(p:Post)=>void; onHide:(id:string)=>void;
-  onReport:(id:string)=>void; onShare:(id:string)=>void;
+  onReport:(id:string)=>void; onShare:(id:string)=>void; onSend:(id:string)=>void;
 }) {
   const isLiked = likedPosts.has(post.id);
   const isSaved = savedPosts.has(post.id);
@@ -1017,7 +1017,8 @@ const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, highligh
                 {isSaved?<BookmarkCheck className="h-4 w-4 text-primary"/>:<Bookmark className="h-4 w-4"/>}
                 {isSaved?"Saved":"Save post"}
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={()=>onShare(post.id)} className="gap-2"><Share2 className="h-4 w-4"/> Share</DropdownMenuItem>
+              <DropdownMenuItem onClick={()=>onSend(post.id)} className="gap-2"><Send className="h-4 w-4"/> Send to connections</DropdownMenuItem>
+              <DropdownMenuItem onClick={()=>onShare(post.id)} className="gap-2"><Share2 className="h-4 w-4"/> Share externally</DropdownMenuItem>
               {post.isOwn ? (
                 <>
                   <DropdownMenuSeparator/>
@@ -1060,7 +1061,10 @@ const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, highligh
           <button onClick={()=>onSave(post.id)} className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors ml-auto ${isSaved?"text-primary bg-primary/10":"text-muted-foreground hover:bg-muted"}`}>
             <Bookmark className={`h-4 w-4 ${isSaved?"fill-current":""}`}/><span className="hidden sm:inline">{isSaved?"Saved":"Save"}</span>
           </button>
-          <button onClick={()=>onShare(post.id)} className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg text-muted-foreground hover:bg-muted transition-colors">
+          <button onClick={()=>onSend(post.id)} className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg text-muted-foreground hover:bg-muted transition-colors" title="Send to connections">
+            <Send className="h-4 w-4"/>
+          </button>
+          <button onClick={()=>onShare(post.id)} className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg text-muted-foreground hover:bg-muted transition-colors" title="Share externally">
             <Share2 className="h-4 w-4"/>
           </button>
         </div>
@@ -1079,11 +1083,11 @@ const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, highligh
 
 // ── Collab Card ────────────────────────────────────────────────────────────
 // OPT: same memo treatment as PostCard
-const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollabs, highlighted, onInterest, onMessage, onSave, onDelete, onEdit, onHide, onReport, onShare }: {
+const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollabs, highlighted, onInterest, onMessage, onSave, onDelete, onEdit, onHide, onReport, onShare, onSend }: {
   collab: Collab; interestedSet: Set<string>; savedCollabs: Set<string>; highlighted?: boolean;
   onInterest:(id:string,name:string)=>void; onMessage:(name:string)=>void; onSave:(id:string)=>void;
   onDelete:(id:string)=>void; onEdit:(c:Collab)=>void; onHide:(id:string)=>void;
-  onReport:(id:string)=>void; onShare:(id:string)=>void;
+  onReport:(id:string)=>void; onShare:(id:string)=>void; onSend:(id:string)=>void;
 }) {
   const isInterested = interestedSet.has(collab.id);
   const isSaved = savedCollabs.has(collab.id);
@@ -1127,7 +1131,8 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
                 {isSaved?<BookmarkCheck className="h-4 w-4 text-primary"/>:<Bookmark className="h-4 w-4"/>}
                 {isSaved?"Saved":"Save collab"}
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={()=>onShare(collab.id)} className="gap-2"><Share2 className="h-4 w-4"/> Share</DropdownMenuItem>
+              <DropdownMenuItem onClick={()=>onSend(collab.id)} className="gap-2"><Send className="h-4 w-4"/> Send to connections</DropdownMenuItem>
+              <DropdownMenuItem onClick={()=>onShare(collab.id)} className="gap-2"><Share2 className="h-4 w-4"/> Share externally</DropdownMenuItem>
               {collab.isOwn ? (
                 <>
                   <DropdownMenuSeparator/>
@@ -1176,6 +1181,16 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
             <Button size="sm" variant="outline" className="flex-1 gap-1.5" onClick={()=>onMessage(collab.author)}>
               <MessageCircle className="h-3.5 w-3.5"/> Message
             </Button>
+            <Button size="sm" variant="outline" className="gap-1.5 px-3" onClick={()=>onSend(collab.id)} title="Send to connections">
+              <Send className="h-3.5 w-3.5"/>
+            </Button>
+          </div>
+        )}
+        {collab.isOwn && (
+          <div className="flex gap-2 px-5 pb-5 pt-1 border-t border-border mt-1 justify-end">
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={()=>onSend(collab.id)} title="Send to connections">
+              <Send className="h-3.5 w-3.5"/> Send
+            </Button>
           </div>
         )}
       </div>
@@ -1189,6 +1204,140 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
     prev.savedCollabs.has(prev.collab.id) === next.savedCollabs.has(next.collab.id)
   );
 });
+
+// ── Send to Connections Dialog ─────────────────────────────────────────────
+function SendToConnectionsDialog({
+  onClose, content,
+}: {
+  onClose: () => void;
+  content: { text: string; authorName: string; type: "post" | "collab" };
+}) {
+  const { user } = useUser();
+  const [connections, setConnections] = useState<{ id: string; name: string; avatar: string; avatarUrl?: string; color: string }[]>([]);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [search, setSearch] = useState("");
+  const [loadingConns, setLoadingConns] = useState(true);
+  const [sending, setSending] = useState(false);
+
+  useEffect(() => {
+    if (!user.id) return;
+    (async () => {
+      const [sent, received] = await Promise.all([
+        (supabase as any).from("connections")
+          .select("profiles:receiver_id(id, name, avatar, avatar_url, color)")
+          .eq("requester_id", user.id).eq("status", "accepted"),
+        (supabase as any).from("connections")
+          .select("profiles:requester_id(id, name, avatar, avatar_url, color)")
+          .eq("receiver_id", user.id).eq("status", "accepted"),
+      ]);
+      const all = [
+        ...((sent.data || []).map((r: any) => r.profiles)),
+        ...((received.data || []).map((r: any) => r.profiles)),
+      ].filter(Boolean).map((p: any) => ({
+        id: p.id, name: p.name || "Unknown", avatar: p.avatar || "?",
+        avatarUrl: p.avatar_url || undefined, color: p.color || "bg-primary",
+      }));
+      setConnections(all);
+      setLoadingConns(false);
+    })();
+  }, [user.id]);
+
+  const toggle = (id: string) => setSelected(prev => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+
+  const handleSend = async () => {
+    if (!selected.size || !user.id || sending) return;
+    setSending(true);
+    const msg = content.type === "post"
+      ? `📌 ${content.authorName} shared a post:\n\n"${content.text}"`
+      : `🤝 ${content.authorName} shared a collab opportunity:\n\n${content.text}`;
+    await Promise.all([...selected].map(receiverId =>
+      (supabase as any).from("messages").insert({
+        sender_id: user.id, receiver_id: receiverId, text: msg, read: false,
+      })
+    ));
+    toast({ title: `Sent to ${selected.size} connection${selected.size > 1 ? "s" : ""} ✓` });
+    setSending(false);
+    onClose();
+  };
+
+  const filtered = connections.filter(c => c.name.toLowerCase().includes(search.toLowerCase()));
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center animate-in fade-in duration-150">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative z-10 w-full max-w-sm bg-background rounded-t-2xl sm:rounded-2xl shadow-2xl border border-border animate-in slide-in-from-bottom-4 duration-200 flex flex-col max-h-[80vh]">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
+          <div>
+            <h3 className="font-semibold text-foreground">Send to connections</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {selected.size > 0 ? `${selected.size} selected` : "Choose who to send this to"}
+            </p>
+          </div>
+          <button onClick={onClose} className="h-7 w-7 rounded-full bg-muted flex items-center justify-center hover:bg-secondary transition-colors">
+            <X className="h-4 w-4 text-muted-foreground" />
+          </button>
+        </div>
+        {/* Search */}
+        <div className="px-4 py-3 border-b border-border shrink-0">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search connections…"
+              className="w-full pl-9 pr-3 py-2 text-sm bg-muted rounded-lg outline-none placeholder:text-muted-foreground"
+            />
+          </div>
+        </div>
+        {/* List */}
+        <div className="overflow-y-auto flex-1 py-2">
+          {loadingConns ? (
+            <div className="flex items-center justify-center py-10">
+              <div className="h-5 w-5 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="text-center py-10 text-muted-foreground text-sm">
+              {connections.length === 0 ? "No connections yet — connect with people on Discover!" : "No results"}
+            </div>
+          ) : (
+            filtered.map(c => {
+              const isSelected = selected.has(c.id);
+              return (
+                <button
+                  key={c.id}
+                  onClick={() => toggle(c.id)}
+                  className={`w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/60 transition-colors ${isSelected ? "bg-primary/5" : ""}`}
+                >
+                  <div className={`h-10 w-10 rounded-full flex items-center justify-center text-white font-semibold shrink-0 overflow-hidden ${c.avatarUrl ? "" : c.color}`}>
+                    {c.avatarUrl ? <img src={c.avatarUrl} alt={c.name} className="w-full h-full object-cover" /> : c.avatar}
+                  </div>
+                  <span className="flex-1 text-left text-sm font-medium text-foreground">{c.name}</span>
+                  <div className={`h-5 w-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${isSelected ? "bg-primary border-primary" : "border-border"}`}>
+                    {isSelected && <Check className="h-3 w-3 text-primary-foreground" />}
+                  </div>
+                </button>
+              );
+            })
+          )}
+        </div>
+        {/* Send button */}
+        <div className="px-4 py-4 border-t border-border shrink-0">
+          <Button className="w-full gap-2" disabled={!selected.size || sending} onClick={handleSend}>
+            {sending
+              ? <div className="h-4 w-4 rounded-full border-2 border-primary-foreground border-t-transparent animate-spin" />
+              : <Send className="h-4 w-4" />}
+            {sending ? "Sending…" : `Send${selected.size > 0 ? ` (${selected.size})` : ""}`}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ── Feed Skeleton ──────────────────────────────────────────────────────────
 function FeedSkeleton() {
@@ -1239,6 +1388,7 @@ export default function Feed() {
   const [commentingPost, setCommentingPost] = useState<Post|null>(null);
   const [editingPost, setEditingPost] = useState<Post|null>(null);
   const [shareTarget, setShareTarget] = useState<{type:"post"|"collab";id:string}|null>(null);
+  const [sendTarget, setSendTarget] = useState<{type:"post"|"collab";text:string;authorName:string}|null>(null);
   const [reportTarget, setReportTarget] = useState<{type:"post"|"collab"|"comment";id:string}|null>(null);
   const [interestedCollabs, setInterestedCollabs] = useState<Set<string>>(new Set());
   const [savedCollabs, setSavedCollabs] = useState<Set<string>>(new Set());
@@ -1870,6 +2020,18 @@ export default function Feed() {
     setCollabDialog(d => ({ ...d, video: undefined }));
   };
 
+  const openSendDialog = (type: "post" | "collab", id: string) => {
+    if (type === "post") {
+      const p = posts.find(x => x.id === id);
+      if (!p) return;
+      setSendTarget({ type: "post", authorName: p.author, text: p.content.slice(0, 300) + (p.content.length > 300 ? "…" : "") });
+    } else {
+      const c = collabs.find(x => x.id === id);
+      if (!c) return;
+      setSendTarget({ type: "collab", authorName: c.author, text: `${c.title}\n\n${c.description.slice(0, 200)}${c.description.length > 200 ? "…" : ""}` });
+    }
+  };
+
   const shareLink = shareTarget
     ? shareTarget.type === "post"
       ? `${window.location.origin}/feed?post=${shareTarget.id}`
@@ -2009,6 +2171,7 @@ export default function Feed() {
                   onDelete={handleDeletePost} onEdit={setEditingPost} onHide={handleHidePost}
                   onReport={id => setReportTarget({type:"post",id})}
                   onShare={id => setShareTarget({type:"post",id})}
+                  onSend={id => openSendDialog("post", id)}
                 />
               ))}
             {postsHasMore && !loading && (
@@ -2166,6 +2329,7 @@ export default function Feed() {
                     onHide={handleHideCollab}
                     onReport={id => setReportTarget({type:"collab",id})}
                     onShare={id => setShareTarget({type:"collab",id})}
+                    onSend={id => openSendDialog("collab", id)}
                   />
                 ))}
               </>
@@ -2187,6 +2351,7 @@ export default function Feed() {
       {editingPost && <EditPostDialog post={editingPost} open={!!editingPost} onClose={() => setEditingPost(null)} onSave={handleEditPost}/>}
       {editingCollab && <EditCollabDialog collab={editingCollab} open={!!editingCollab} onClose={() => setEditingCollab(null)} onSave={handleEditCollab}/>}
       {shareTarget && <ShareDialog onClose={() => setShareTarget(null)} link={shareLink}/>}
+      {sendTarget && <SendToConnectionsDialog onClose={() => setSendTarget(null)} content={sendTarget}/>}
       {reportTarget && <ReportDialog open={!!reportTarget} onClose={() => setReportTarget(null)} target={reportTarget.type==="post"?"this post":reportTarget.type==="collab"?"this collab":"this comment"} targetType={reportTarget.type} targetId={reportTarget.id}/>}
 
     </Layout>
