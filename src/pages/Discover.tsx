@@ -221,10 +221,21 @@ export default function Discover() {
   }, [user.id]);
 
   useEffect(() => {
-    if (activeTab === "requests" && user.id) fetchRequests();
+    if (activeTab === "requests" && user.id) {
+      fetchRequests();
+      // Mark all as read whenever requests tab is active
+      setRequestCount(0);
+      window.dispatchEvent(new Event("prolifier:requests-opened"));
+      (supabase as any)
+        .from("connections")
+        .update({ read: true })
+        .eq("receiver_id", user.id)
+        .eq("status", "pending")
+        .eq("read", false);
+    }
   }, [activeTab, user.id, fetchRequests]);
 
-  // Fetch request count on mount (realtime removed to save Disk IO)
+  // Fetch unread request count on mount — only pending + unread rows
   useEffect(() => {
     if (!user.id) return;
     (supabase as any)
@@ -232,6 +243,7 @@ export default function Discover() {
       .select("id", { count: "exact", head: true })
       .eq("receiver_id", user.id)
       .eq("status", "pending")
+      .eq("read", false)
       .then(({ count }: any) => setRequestCount(count ?? 0));
   }, [user.id]);
 
@@ -324,22 +336,7 @@ export default function Discover() {
       <div className="max-w-3xl mx-auto px-4 py-6">
         <h1 className="font-display text-2xl font-bold mb-6">Discover</h1>
 
-        <Tabs value={activeTab} onValueChange={(tab) => {
-          setActiveTab(tab);
-          if (tab === "requests") {
-            setRequestCount(0);
-            window.dispatchEvent(new Event("prolifier:requests-opened"));
-            // Mark all pending requests as read in DB so badge stays 0 on refetch
-            if (user.id) {
-              (supabase as any)
-                .from("connections")
-                .update({ read: true })
-                .eq("receiver_id", user.id)
-                .eq("status", "pending")
-                .eq("read", false);
-            }
-          }
-        }}>
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="w-full mb-6">
             <TabsTrigger value="discover" className="flex-1">People</TabsTrigger>
             <TabsTrigger value="requests" className="flex-1">
