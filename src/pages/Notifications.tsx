@@ -293,7 +293,8 @@ export default function Notifications() {
               return (
                 <div
                   key={n.id}
-                  className="group flex items-start gap-3 px-4 py-3.5 rounded-xl hover:bg-muted transition-all duration-200 select-none"
+                  onClick={() => handleAction(n)}
+                  className={`group flex items-start gap-3 px-4 py-3.5 rounded-xl transition-all duration-200 select-none ${n.action ? "cursor-pointer hover:bg-muted" : "hover:bg-muted/50"}`}
                 >
                   <div className={`h-9 w-9 rounded-full flex items-center justify-center shrink-0 ${meta.color}`}>
                     <Icon className="h-4 w-4" />
@@ -307,7 +308,7 @@ export default function Notifications() {
                       <p className="text-xs text-muted-foreground">{fmtTime(n.created_at)}</p>
                       {actionLabel && (
                         <button
-                          onClick={() => handleAction(n)}
+                          onClick={e => { e.stopPropagation(); handleAction(n); }}
                           className="text-xs text-primary font-semibold hover:underline"
                         >
                           {actionLabel} →

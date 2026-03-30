@@ -307,8 +307,9 @@ export default function Discover() {
 
     if (isConnected) {
       setConnected(prev => { const n = new Set(prev); n.delete(id); return n; });
+      // Delete in both directions — the row could be A→B or B→A depending on who requested
       await (supabase as any).from("connections").delete()
-        .eq("requester_id", user.id).eq("receiver_id", id);
+        .or(`and(requester_id.eq.${user.id},receiver_id.eq.${id}),and(requester_id.eq.${id},receiver_id.eq.${user.id})`);
       toast({ title: "Connection removed", description: `You disconnected from ${name}.` });
       return;
     }
@@ -317,7 +318,7 @@ export default function Discover() {
       // Cancel pending request
       setPending(prev => { const n = new Set(prev); n.delete(id); return n; });
       await (supabase as any).from("connections").delete()
-        .eq("requester_id", user.id).eq("receiver_id", id);
+        .or(`and(requester_id.eq.${user.id},receiver_id.eq.${id}),and(requester_id.eq.${id},receiver_id.eq.${user.id})`);
       toast({ title: "Request cancelled" });
       return;
     }

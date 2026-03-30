@@ -44,6 +44,15 @@ type UserCollab = {
   skills: string[];
 };
 
+type UserConnection = {
+  id: string;
+  name: string;
+  avatar: string;
+  avatarUrl?: string;
+  color: string;
+  location: string;
+};
+
 const TAG_COLORS: Record<string, string> = {
   Launch: "bg-emerald-100 text-emerald-700",
   Progress: "bg-sky-100 text-sky-700",
@@ -104,6 +113,10 @@ export default function UserProfile() {
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [posts, setPosts] = useState<UserPost[]>([]);
   const [collabs, setCollabs] = useState<UserCollab[]>([]);
+  const [userConnections, setUserConnections] = useState<UserConnection[]>([]);
+  const [connectionCount, setConnectionCount] = useState(0);
+  const [connectionsLoaded, setConnectionsLoaded] = useState(false);
+  const [connectionsLoading, setConnectionsLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [isDeleted, setIsDeleted] = useState(false);
@@ -169,15 +182,24 @@ export default function UserProfile() {
         // ── Step 3: blocked user sees no content — stop here ─────────────
         if (ownerHasBlockedMe) return;
 
-        // ── Step 4: load posts / collabs / connection state ───────────────
-        const [postsRes, collabsRes, [connSentRes, connRecvRes]] = await Promise.all([
+        // ── Step 4: load posts / collabs / connection state / their conn count ──
+        const [postsRes, collabsRes, [connSentRes, connRecvRes], theirConnsReq, theirConnsRec] = await Promise.all([
           (supabase as any).from("posts").select("id, tag, content, created_at, likes").eq("user_id", id).order("created_at", { ascending: false }).limit(20),
           (supabase as any).from("collabs").select("id, title, looking, description, skills").eq("user_id", id).order("created_at", { ascending: false }).limit(10),
           Promise.all([
             (supabase as any).from("connections").select("id, status").eq("requester_id", user.id).eq("receiver_id", id).maybeSingle(),
             (supabase as any).from("connections").select("id, status").eq("requester_id", id).eq("receiver_id", user.id).maybeSingle(),
           ]),
+          (supabase as any).from("connections").select("receiver_id").eq("requester_id", id).eq("status", "accepted"),
+          (supabase as any).from("connections").select("requester_id").eq("receiver_id", id).eq("status", "accepted"),
         ]);
+
+        // Deduplicated connection count for their profile
+        const theirConnIds = new Set([
+          ...(theirConnsReq.data || []).map((r: any) => r.receiver_id),
+          ...(theirConnsRec.data || []).map((r: any) => r.requester_id),
+        ]);
+        setConnectionCount(theirConnIds.size);
 
         setPosts((postsRes.data || []).map((post: any) => ({
           id: post.id, tag: post.tag, content: post.content,
@@ -229,7 +251,7 @@ export default function UserProfile() {
 
     if (connected) {
       await (supabase as any).from("connections").delete()
-        .eq("requester_id", user.id).eq("receiver_id", profile.id);
+        .or(`and(requester_id.eq.${user.id},receiver_id.eq.${profile.id}),and(requester_id.eq.${profile.id},receiver_id.eq.${user.id})`);
       setConnected(false);
       toast({ title: "Connection removed" });
     } else {
@@ -433,8 +455,8 @@ export default function UserProfile() {
             </div>
           )}
 
-          <div className="pt-4 border-t border-border grid grid-cols-2 text-center divide-x divide-border">
-            {[[String(posts.length), "Posts"], [String(collabs.length), "Collabs"]].map(([n, l]) => (
+          <div className="pt-4 border-t border-border grid grid-cols-3 text-center divide-x divide-border">
+            {[[String(posts.length), "Posts"], [String(collabs.length), "Collabs"], [String(connectionCount), "Connections"]].map(([n, l]) => (
               <div key={l} className="px-2">
                 <p className="text-2xl font-bold text-foreground">{n}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">{l}</p>
@@ -443,15 +465,43 @@ export default function UserProfile() {
           </div>
         </div>
 
-        {/* Posts & Collabs */}
+        {/* Posts, Collabs & Connections */}
         <div className="rounded-xl border border-border bg-card overflow-hidden">
-          <Tabs defaultValue="posts">
+          <Tabs defaultValue="posts" onValueChange={async (tab) => {
+            if (tab === "connections" && !connectionsLoaded) {
+              setConnectionsLoading(true);
+              try {
+                const [reqRes, recRes] = await Promise.all([
+                  (supabase as any).from("connections").select("receiver_id").eq("requester_id", id).eq("status", "accepted"),
+                  (supabase as any).from("connections").select("requester_id").eq("receiver_id", id).eq("status", "accepted"),
+                ]);
+                const ids = [...new Set([
+                  ...(reqRes.data || []).map((r: any) => r.receiver_id),
+                  ...(recRes.data || []).map((r: any) => r.requester_id),
+                ])];
+                if (ids.length > 0) {
+                  const { data: profiles } = await (supabase as any)
+                    .from("profiles").select("id, name, avatar, avatar_url, color, location").in("id", ids);
+                  setUserConnections((profiles || []).map((p: any) => ({
+                    id: p.id, name: p.name || "Unknown", avatar: p.avatar || "?",
+                    avatarUrl: p.avatar_url || undefined, color: p.color || "bg-primary", location: p.location || "",
+                  })));
+                }
+                setConnectionsLoaded(true);
+              } finally {
+                setConnectionsLoading(false);
+              }
+            }
+          }}>
             <TabsList className="w-full rounded-none border-b border-border bg-transparent h-11">
               <TabsTrigger value="posts" className="flex-1 rounded-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:shadow-none">
                 Posts ({posts.length})
               </TabsTrigger>
               <TabsTrigger value="collabs" className="flex-1 rounded-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:shadow-none">
                 Collabs ({collabs.length})
+              </TabsTrigger>
+              <TabsTrigger value="connections" className="flex-1 rounded-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:shadow-none">
+                Connections ({connectionCount})
               </TabsTrigger>
             </TabsList>
 
@@ -475,6 +525,36 @@ export default function UserProfile() {
                         </span>
                       </div>
                     </div>
+                  ))}
+                </div>
+              )}
+            </TabsContent>
+
+            <TabsContent value="connections" className="p-0">
+              {connectionsLoading ? (
+                <div className="flex items-center justify-center py-10">
+                  <div className="h-5 w-5 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+                </div>
+              ) : userConnections.length === 0 && connectionsLoaded ? (
+                <div className="text-center py-10 text-muted-foreground text-sm">No connections yet</div>
+              ) : (
+                <div className="divide-y divide-border">
+                  {userConnections.map(c => (
+                    <button
+                      key={c.id}
+                      onClick={() => navigate(`/profile/${c.id}`)}
+                      className="w-full flex items-center gap-3 px-5 py-3.5 hover:bg-muted transition-colors text-left"
+                    >
+                      <div className={`h-10 w-10 rounded-full shrink-0 flex items-center justify-center text-white font-semibold overflow-hidden ${c.avatarUrl ? "" : c.color}`}>
+                        {c.avatarUrl
+                          ? <img src={c.avatarUrl} alt={c.avatar} className="w-full h-full object-cover" />
+                          : c.avatar}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-foreground truncate">{c.name}</p>
+                        {c.location && <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5"><MapPin className="h-3 w-3 shrink-0" />{c.location}</p>}
+                      </div>
+                    </button>
                   ))}
                 </div>
               )}
