@@ -329,6 +329,15 @@ export default function Discover() {
           if (tab === "requests") {
             setRequestCount(0);
             window.dispatchEvent(new Event("prolifier:requests-opened"));
+            // Mark all pending requests as read in DB so badge stays 0 on refetch
+            if (user.id) {
+              (supabase as any)
+                .from("connections")
+                .update({ read: true })
+                .eq("receiver_id", user.id)
+                .eq("status", "pending")
+                .eq("read", false);
+            }
           }
         }}>
           <TabsList className="w-full mb-6">

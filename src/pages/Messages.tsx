@@ -374,12 +374,21 @@ export default function Messages() {
         oldestMsgCursorRef.current = rows[0].created_at;
       }
 
-      // Mark received messages as read
-      await (supabase as any).from("messages")
-        .update({ read: true })
-        .eq("sender_id", otherId)
-        .eq("receiver_id", user.id)
-        .eq("read", false);
+      // Mark received messages as read + clear message notification badge
+      await Promise.all([
+        (supabase as any).from("messages")
+          .update({ read: true })
+          .eq("sender_id", otherId)
+          .eq("receiver_id", user.id)
+          .eq("read", false),
+        // Mark message notifications from this sender as read so sidebar badge decrements
+        (supabase as any).from("notifications")
+          .update({ read: true })
+          .eq("user_id", user.id)
+          .eq("type", "message")
+          .eq("actor_id", otherId)
+          .eq("read", false),
+      ]);
 
       // Clear unread count in local state
       setConversations(prev => prev.map(c => c.id === otherId ? { ...c, unread: 0 } : c));

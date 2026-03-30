@@ -48,7 +48,8 @@ export default function Layout({ children }: { children: ReactNode }) {
           .from("connections")
           .select("id", { count: "exact", head: true })
           .eq("receiver_id", user.id)
-          .eq("status", "pending"),
+          .eq("status", "pending")
+          .eq("read", false),
       ]);
       setNotifCount(notifRes.count ?? 0);
       setMsgCount(msgRes.count ?? 0);
@@ -72,7 +73,10 @@ export default function Layout({ children }: { children: ReactNode }) {
         (payload) => {
           const t = (payload.new as any).type as string;
           if (t === "message") {
-            setMsgCount((c) => c + 1);
+            // Don't increment badge if user is already viewing messages
+            if (!window.location.pathname.startsWith("/messages")) {
+              setMsgCount((c) => c + 1);
+            }
           } else if (t !== "match") {
             // Don't increment badge if user is already viewing notifications
             if (!window.location.pathname.startsWith("/notifications")) {
@@ -114,6 +118,7 @@ export default function Layout({ children }: { children: ReactNode }) {
             .select("id", { count: "exact", head: true })
             .eq("receiver_id", user.id)
             .eq("status", "pending")
+            .eq("read", false)
             .then(({ count }: any) => setDiscoverCount(count ?? 0));
         }
       )

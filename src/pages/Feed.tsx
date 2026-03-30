@@ -337,8 +337,8 @@ function MediaUploadBar({ images, onAddImage, onRemoveImage, onVideo, onUploadin
       {images.length > 0 && (
         <div className={`grid gap-2 ${images.length === 1 ? "grid-cols-1" : "grid-cols-2"}`}>
           {images.map((url, i) => (
-            <div key={i} className="relative rounded-xl overflow-hidden aspect-square bg-muted">
-              <img src={url} alt={`photo ${i + 1}`} className="w-full h-full object-cover" />
+            <div key={i} className={`relative rounded-xl overflow-hidden bg-muted ${images.length === 1 ? "max-h-40" : "aspect-square"}`}>
+              <img src={url} alt={`photo ${i + 1}`} className={`rounded-xl ${images.length === 1 ? "w-full h-40 object-cover" : "w-full h-full object-cover"}`} />
               <button
                 onClick={() => onRemoveImage(i)}
                 className="absolute top-1.5 right-1.5 h-6 w-6 rounded-full bg-black/60 text-white flex items-center justify-center hover:bg-black/80 z-10"
@@ -353,7 +353,7 @@ function MediaUploadBar({ images, onAddImage, onRemoveImage, onVideo, onUploadin
               type="button"
               onClick={() => imgRef.current?.click()}
               disabled={uploading}
-              className="aspect-square rounded-xl border-2 border-dashed border-border hover:border-primary flex flex-col items-center justify-center gap-1 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+              className="aspect-square rounded-xl border-2 border-dashed border-border hover:border-primary flex flex-col items-center justify-center gap-1 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 min-h-[80px]"
             >
               <ImageIcon className="h-5 w-5" />
               <span className="text-xs">Add photo</span>
