@@ -134,7 +134,9 @@ export default function Discover() {
       const [{ data, error }, connsRes, myBlocksRes, blockedByRes] = await traceParallel([
         ["discover.profiles", () => query],
         ["discover.connections", () => !cursor
-          ? (supabase as any).from("connections").select("receiver_id, status").eq("requester_id", user.id)
+          ? (supabase as any).from("connections")
+              .select("requester_id, receiver_id, status")
+              .or(`requester_id.eq.${user.id},receiver_id.eq.${user.id}`)
           : Promise.resolve({ data: null, error: null })],
         ["discover.blocks.mine", () => !cursor
           ? (supabase as any).from("blocks").select("blocked_id").eq("blocker_id", user.id)
@@ -172,8 +174,17 @@ export default function Discover() {
       setHasMore((data || []).length === PAGE_SIZE);
       if ((data || []).length > 0) cursorRef.current = data[data.length - 1].created_at;
       if (connsRes.data) {
-        setConnected(new Set(connsRes.data.filter((c: any) => c.status === "accepted").map((c: any) => c.receiver_id)));
-        setPending(new Set(connsRes.data.filter((c: any) => c.status === "pending").map((c: any) => c.receiver_id)));
+        // Build connected/pending from both directions
+        const acceptedIds = new Set<string>();
+        const pendingIds = new Set<string>();
+        for (const c of connsRes.data) {
+          const otherId = c.requester_id === user.id ? c.receiver_id : c.requester_id;
+          if (c.status === "accepted") acceptedIds.add(otherId);
+          // Only "pending" label if I was the one who sent
+          else if (c.status === "pending" && c.requester_id === user.id) pendingIds.add(c.receiver_id);
+        }
+        setConnected(acceptedIds);
+        setPending(pendingIds);
       }
     } catch (err: any) {
       toast({ title: "Failed to load profiles", description: err.message, variant: "destructive" });
@@ -298,6 +309,9 @@ export default function Discover() {
         .eq("requester_id", requesterId).eq("receiver_id", user.id);
       setRequests(prev => prev.filter(r => r.requesterId !== requesterId));
       setRequestCount(prev => Math.max(0, prev - 1));
+      // Sync People tab — move requester from pending→connected so card shows "Connected"
+      setConnected(prev => new Set([...prev, requesterId]));
+      setPending(prev => { const n = new Set(prev); n.delete(requesterId); return n; });
       toast({ title: `Connected with ${name}! 🎉` });
       createNotification({
         userId: requesterId,

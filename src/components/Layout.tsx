@@ -212,6 +212,16 @@ export default function Layout({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("prolifier:requests-opened", handler);
   }, []);
 
+  // Clear message badge when all conversations are read (fired by Messages page)
+  useEffect(() => {
+    const handler = () => {
+      sessionClearedRef.current.add("/messages");
+      setMsgCount(0);
+    };
+    window.addEventListener("prolifier:messages-all-read", handler);
+    return () => window.removeEventListener("prolifier:messages-all-read", handler);
+  }, []);
+
   // Clear notification badge when Notifications page mounts (handles direct URL)
   useEffect(() => {
     const handler = () => {

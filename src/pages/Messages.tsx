@@ -50,6 +50,28 @@ function initials(name: string) {
   return name ? name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase() : "?";
 }
 
+// ── Link-aware text renderer ──────────────────────────────────────────────
+function renderTextWithLinks(text: string, isMe: boolean) {
+  const URL_RE = /(https?:\/\/[^\s]+)/g;
+  const parts = text.split(URL_RE);
+  return parts.map((part, i) =>
+    URL_RE.test(part) ? (
+      <a
+        key={i}
+        href={part}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={`underline break-all ${isMe ? "text-primary-foreground/90 hover:text-primary-foreground" : "text-primary hover:opacity-80"}`}
+        onClick={e => e.stopPropagation()}
+      >
+        {part}
+      </a>
+    ) : (
+      <span key={i}>{part}</span>
+    )
+  );
+}
+
 // ── Audio player ──────────────────────────────────────────────────────────
 function AudioPlayer({ src, isMe }: { src: string; isMe: boolean }) {
   const [playing, setPlaying] = useState(false);
@@ -390,14 +412,20 @@ export default function Messages() {
           .eq("read", false),
       ]);
 
-      // Clear unread count in local state
+      // Clear per-conversation unread badge in sidebar
       setConversations(prev => prev.map(c => c.id === otherId ? { ...c, unread: 0 } : c));
+
+      // If ALL conversations are now read, clear the global nav badge too
+      const hasAnyUnread = conversations.some(c => c.id !== otherId && c.unread > 0);
+      if (!hasAnyUnread) {
+        window.dispatchEvent(new Event("prolifier:messages-all-read"));
+      }
     } catch (err) {
       console.error("fetchMessages:", err);
     } finally {
       setLoadingMsgs(false);
     }
-  }, [user.id]);
+  }, [user.id, conversations]);
 
   // ── Load older messages (cursor-based, prepend to top) ────────────────
   const fetchOlderMessages = useCallback(async (otherId: string) => {
@@ -627,12 +655,53 @@ export default function Messages() {
 
   const renderMessage = (m: Message) => {
     const isMe = m.sender_id === user.id;
+
+    // ── Shared post/collab card ───────────────────────────────────────────
+    if (m.media_type === "shared_post" && m.text) {
+      let share: any = null;
+      try { share = JSON.parse(m.text); } catch { /* fallback to plain text below */ }
+      if (share) {
+        const link = share.type === "post" && share.id
+          ? `/feed?post=${share.id}`
+          : share.type === "collab" ? `/feed?tab=collabs` : "/feed";
+        return (
+          <div key={m.id} className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
+            <div className="flex flex-col gap-0.5 max-w-[75%]">
+              <button
+                onClick={() => navigate(link)}
+                className={`rounded-2xl overflow-hidden border text-left transition-opacity hover:opacity-90 ${isMe ? "border-primary/30 bg-primary/10" : "border-border bg-card"}`}
+              >
+                {share.image && (
+                  <img src={share.image} alt="preview" className="w-full max-h-36 object-cover" loading="lazy" />
+                )}
+                <div className="px-3 py-2.5">
+                  <p className="text-[10px] font-semibold text-primary uppercase tracking-wide mb-0.5">
+                    {share.type === "collab" ? "🤝 Shared Collab" : "📌 Shared Post"}
+                  </p>
+                  {share.title && <p className="text-sm font-semibold text-foreground leading-snug mb-1">{share.title}</p>}
+                  <p className="text-xs text-muted-foreground leading-relaxed line-clamp-3">{share.caption}</p>
+                  <p className="text-[11px] text-primary font-medium mt-1.5">Tap to view →</p>
+                </div>
+              </button>
+              <div className={`flex items-center gap-1 ${isMe ? "justify-end" : "justify-start"}`}>
+                <span className="text-xs text-muted-foreground">{fmtTime(m.created_at)}</span>
+                {isMe && (m.read
+                  ? <CheckCheck className="h-3 w-3 text-primary" />
+                  : <Check className="h-3 w-3 text-muted-foreground" />
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      }
+    }
+
     return (
       <div key={m.id} className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
         <div className="flex flex-col gap-0.5 max-w-[75%]">
-          {m.text && (
+          {m.text && m.media_type !== "shared_post" && (
             <div className={`px-4 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap break-words ${isMe ? "bg-primary text-primary-foreground rounded-br-md" : "bg-secondary text-secondary-foreground rounded-bl-md"}`}>
-              {m.text}
+              {renderTextWithLinks(m.text, isMe)}
             </div>
           )}
           {m.media_type === "image" && m.media_url && (

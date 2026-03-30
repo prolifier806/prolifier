@@ -58,6 +58,27 @@ type Group = {
 };
 
 const TOPICS = ["General", "AI", "Design", "Marketing", "Tech"];
+
+function renderTextWithLinks(text: string) {
+  const URL_RE = /(https?:\/\/[^\s]+)/g;
+  const parts = text.split(URL_RE);
+  return parts.map((part, i) =>
+    URL_RE.test(part) ? (
+      <a
+        key={i}
+        href={part}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="underline text-primary hover:opacity-80 break-all"
+        onClick={e => e.stopPropagation()}
+      >
+        {part}
+      </a>
+    ) : (
+      <span key={i}>{part}</span>
+    )
+  );
+}
 const EMOJIS = ["🤖", "🎨", "📈", "💡", "🚀", "🎵", "📚", "🌱", "⚡", "🔥", "🌍", "🎮"];
 
 function fmtTime(iso: string) {
@@ -715,7 +736,7 @@ export default function Groups() {
               <>
                 {m.text?.trim() && (
                   <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap break-words">
-                    {m.text.trim()}
+                    {renderTextWithLinks(m.text.trim())}
                     {m.edited && grouped && <span className="text-[10px] text-muted-foreground italic ml-1">· edited</span>}
                   </p>
                 )}

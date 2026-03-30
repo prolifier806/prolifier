@@ -1210,7 +1210,7 @@ function SendToConnectionsDialog({
   onClose, content,
 }: {
   onClose: () => void;
-  content: { text: string; authorName: string; type: "post" | "collab" };
+  content: { text: string; authorName: string; type: "post" | "collab"; postId?: string; imageUrl?: string; collabTitle?: string };
 }) {
   const { user } = useUser();
   const [connections, setConnections] = useState<{ id: string; name: string; avatar: string; avatarUrl?: string; color: string }[]>([]);
@@ -1251,12 +1251,21 @@ function SendToConnectionsDialog({
   const handleSend = async () => {
     if (!selected.size || !user.id || sending) return;
     setSending(true);
-    const msg = content.type === "post"
-      ? `📌 ${content.authorName} shared a post:\n\n"${content.text}"`
-      : `🤝 ${content.authorName} shared a collab opportunity:\n\n${content.text}`;
+    // Store as structured JSON so Messages.tsx can render a rich card
+    const payload = JSON.stringify({
+      type: content.type,
+      id: content.postId || null,
+      author: content.authorName,
+      caption: content.text,
+      image: content.imageUrl || null,
+      title: content.collabTitle || null,
+    });
     await Promise.all([...selected].map(receiverId =>
       (supabase as any).from("messages").insert({
-        sender_id: user.id, receiver_id: receiverId, text: msg, read: false,
+        sender_id: user.id, receiver_id: receiverId,
+        text: payload,
+        media_type: "shared_post",
+        read: false,
       })
     ));
     toast({ title: `Sent to ${selected.size} connection${selected.size > 1 ? "s" : ""} ✓` });
@@ -1388,7 +1397,7 @@ export default function Feed() {
   const [commentingPost, setCommentingPost] = useState<Post|null>(null);
   const [editingPost, setEditingPost] = useState<Post|null>(null);
   const [shareTarget, setShareTarget] = useState<{type:"post"|"collab";id:string}|null>(null);
-  const [sendTarget, setSendTarget] = useState<{type:"post"|"collab";text:string;authorName:string}|null>(null);
+  const [sendTarget, setSendTarget] = useState<{type:"post"|"collab";text:string;authorName:string;postId?:string;imageUrl?:string;collabTitle?:string}|null>(null);
   const [reportTarget, setReportTarget] = useState<{type:"post"|"collab"|"comment";id:string}|null>(null);
   const [interestedCollabs, setInterestedCollabs] = useState<Set<string>>(new Set());
   const [savedCollabs, setSavedCollabs] = useState<Set<string>>(new Set());
@@ -2024,11 +2033,24 @@ export default function Feed() {
     if (type === "post") {
       const p = posts.find(x => x.id === id);
       if (!p) return;
-      setSendTarget({ type: "post", authorName: p.author, text: p.content.slice(0, 300) + (p.content.length > 300 ? "…" : "") });
+      setSendTarget({
+        type: "post",
+        postId: p.id,
+        authorName: p.author,
+        text: p.content.slice(0, 300) + (p.content.length > 300 ? "…" : ""),
+        imageUrl: p.images?.[0] || undefined,
+      });
     } else {
       const c = collabs.find(x => x.id === id);
       if (!c) return;
-      setSendTarget({ type: "collab", authorName: c.author, text: `${c.title}\n\n${c.description.slice(0, 200)}${c.description.length > 200 ? "…" : ""}` });
+      setSendTarget({
+        type: "collab",
+        postId: c.id,
+        authorName: c.author,
+        collabTitle: c.title,
+        text: c.description.slice(0, 200) + (c.description.length > 200 ? "…" : ""),
+        imageUrl: c.image || undefined,
+      });
     }
   };
 
