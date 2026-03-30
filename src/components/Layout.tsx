@@ -13,6 +13,7 @@ const NAV_PATHS = [
   { to: "/notifications", icon: Bell,          label: "Notifications" },
 ];
 
+
 export default function Layout({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
   const { theme, toggleTheme } = useTheme();
@@ -22,8 +23,12 @@ export default function Layout({ children }: { children: ReactNode }) {
   const [msgCount, setMsgCount] = useState(0);
   const [discoverCount, setDiscoverCount] = useState(0);
 
-  // Track last fetch time to rate-limit visibility refreshes
+  // Rate-limit visibility refreshes
   const lastFetchRef = useRef<number>(0);
+
+  // Track badges cleared this session — fetchCounts must NEVER restore these.
+  // Only a new incoming realtime event (not on that page) removes the flag.
+  const sessionClearedRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!user.id) return;
@@ -51,17 +56,26 @@ export default function Layout({ children }: { children: ReactNode }) {
           .eq("status", "pending")
           .eq("read", false),
       ]);
-      setNotifCount(notifRes.count ?? 0);
-      setMsgCount(msgRes.count ?? 0);
-      setDiscoverCount(discoverRes.count ?? 0);
+
+      const path = window.location.pathname;
+      const cleared = sessionClearedRef.current;
+
+      // Only apply a count if:
+      //   1. User is NOT currently on that page, AND
+      //   2. User has NOT already cleared it this session
+      if (!path.startsWith("/notifications") && !cleared.has("/notifications"))
+        setNotifCount(notifRes.count ?? 0);
+      if (!path.startsWith("/messages") && !cleared.has("/messages"))
+        setMsgCount(msgRes.count ?? 0);
+      if (!path.startsWith("/discover") && !cleared.has("/discover"))
+        setDiscoverCount(discoverRes.count ?? 0);
     };
 
     fetchCounts();
 
-    // --- Realtime: increment badges on new notifications (no polling) ---
+    // --- Realtime: increment badges on new events ---
     const channel = supabase
       .channel(`layout-badges-${user.id}`)
-      // New notification inserted → increment the right badge
       .on(
         "postgres_changes",
         {
@@ -73,19 +87,19 @@ export default function Layout({ children }: { children: ReactNode }) {
         (payload) => {
           const t = (payload.new as any).type as string;
           if (t === "message") {
-            // Don't increment badge if user is already viewing messages
             if (!window.location.pathname.startsWith("/messages")) {
+              // New message arrived — lift the session-cleared lock so future fetches work
+              sessionClearedRef.current.delete("/messages");
               setMsgCount((c) => c + 1);
             }
           } else if (t !== "match") {
-            // Don't increment badge if user is already viewing notifications
             if (!window.location.pathname.startsWith("/notifications")) {
+              sessionClearedRef.current.delete("/notifications");
               setNotifCount((c) => c + 1);
             }
           }
         }
       )
-      // New pending connection request → increment discover badge
       .on(
         "postgres_changes",
         {
@@ -96,14 +110,14 @@ export default function Layout({ children }: { children: ReactNode }) {
         },
         (payload) => {
           if ((payload.new as any).status === "pending") {
-            // Don't increment if user is already on the discover page
             if (!window.location.pathname.startsWith("/discover")) {
+              sessionClearedRef.current.delete("/discover");
               setDiscoverCount((c) => c + 1);
             }
           }
         }
       )
-      // Connection status changed (accepted/declined) → re-fetch connections count only
+      // Connection accepted/declined → re-fetch pending count (only if not cleared)
       .on(
         "postgres_changes",
         {
@@ -113,6 +127,11 @@ export default function Layout({ children }: { children: ReactNode }) {
           filter: `receiver_id=eq.${user.id}`,
         },
         () => {
+          // Skip refetch if user is on discover or cleared the badge themselves
+          if (
+            window.location.pathname.startsWith("/discover") ||
+            sessionClearedRef.current.has("/discover")
+          ) return;
           (supabase as any)
             .from("connections")
             .select("id", { count: "exact", head: true })
@@ -124,12 +143,11 @@ export default function Layout({ children }: { children: ReactNode }) {
       )
       .subscribe();
 
-    // --- Visibility change: re-fetch ONLY if tab was away for 5+ minutes ---
-    // Previously: re-fetch on EVERY tab switch (catastrophic at 200 users)
+    // Visibility change: re-fetch ONLY if tab was away for 5+ minutes
     const onVisible = () => {
       if (
         document.visibilityState === "visible" &&
-        Date.now() - lastFetchRef.current > 5 * 60_000 // 5 minutes minimum
+        Date.now() - lastFetchRef.current > 5 * 60_000
       ) {
         fetchCounts();
       }
@@ -142,10 +160,11 @@ export default function Layout({ children }: { children: ReactNode }) {
     };
   }, [user.id]);
 
-  // Clear badge + mark-as-read — called both on navigation AND on nav-link click
+  // Clear badge + mark-as-read in DB + lock this badge for the session
   const clearBadge = (to: string) => {
     if (!user.id) return;
     if (to === "/notifications") {
+      sessionClearedRef.current.add("/notifications");
       setNotifCount(0);
       (supabase as any)
         .from("notifications")
@@ -154,6 +173,7 @@ export default function Layout({ children }: { children: ReactNode }) {
         .eq("read", false)
         .not("type", "in", "(message,match)");
     } else if (to === "/messages") {
+      sessionClearedRef.current.add("/messages");
       setMsgCount(0);
       (supabase as any)
         .from("notifications")
@@ -162,8 +182,8 @@ export default function Layout({ children }: { children: ReactNode }) {
         .eq("type", "message")
         .eq("read", false);
     } else if (to === "/discover") {
+      sessionClearedRef.current.add("/discover");
       setDiscoverCount(0);
-      // Mark all pending connection requests as read in DB so refetch stays at 0
       (supabase as any)
         .from("connections")
         .update({ read: true })
@@ -184,14 +204,20 @@ export default function Layout({ children }: { children: ReactNode }) {
 
   // Clear discover badge when Requests tab opens inside Discover page
   useEffect(() => {
-    const handler = () => setDiscoverCount(0);
+    const handler = () => {
+      sessionClearedRef.current.add("/discover");
+      setDiscoverCount(0);
+    };
     window.addEventListener("prolifier:requests-opened", handler);
     return () => window.removeEventListener("prolifier:requests-opened", handler);
   }, []);
 
   // Clear notification badge when Notifications page mounts (handles direct URL)
   useEffect(() => {
-    const handler = () => setNotifCount(0);
+    const handler = () => {
+      sessionClearedRef.current.add("/notifications");
+      setNotifCount(0);
+    };
     window.addEventListener("prolifier:notifications-opened", handler);
     return () => window.removeEventListener("prolifier:notifications-opened", handler);
   }, []);
