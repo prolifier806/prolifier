@@ -240,45 +240,53 @@ function ImageLightbox({ images, startIndex, onClose }: { images: string[]; star
 }
 
 // ── Image Carousel ─────────────────────────────────────────────────────────
+// Fixed 4:5 aspect ratio container — same dimensions for every image regardless of natural size
 function ImageCarousel({ images, onClickIndex }: { images: string[]; onClickIndex: (i: number) => void }) {
   const [current, setCurrent] = useState(0);
   const prev = (e: React.MouseEvent) => { e.stopPropagation(); setCurrent(i => (i - 1 + images.length) % images.length); };
   const next = (e: React.MouseEvent) => { e.stopPropagation(); setCurrent(i => (i + 1) % images.length); };
 
   if (images.length === 0) return null;
-  if (images.length === 1) {
-    return <SmartImage src={images[0]} alt="post" onClick={() => onClickIndex(0)} />;
-  }
 
   return (
-    <div className="relative rounded-xl overflow-hidden select-none">
+    <div className="relative rounded-xl overflow-hidden select-none bg-muted" style={{ aspectRatio: "4/5" }}>
       <img
         src={images[current]}
         alt={`photo ${current + 1}`}
-        className="w-full max-h-72 object-cover rounded-xl cursor-pointer"
+        className="w-full h-full object-cover cursor-pointer"
         onClick={() => onClickIndex(current)}
         loading="lazy"
       />
-      {/* Arrows */}
-      <button onClick={prev}
-        className="absolute left-2 top-1/2 -translate-y-1/2 h-8 w-8 rounded-full bg-black/40 flex items-center justify-center text-white hover:bg-black/60 transition-colors">
-        <ChevronLeft className="h-4 w-4" />
-      </button>
-      <button onClick={next}
-        className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8 rounded-full bg-black/40 flex items-center justify-center text-white hover:bg-black/60 transition-colors">
-        <ChevronRight className="h-4 w-4" />
-      </button>
-      {/* Dots */}
-      <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1 z-10">
-        {images.map((_, i) => (
-          <button key={i} onClick={e => { e.stopPropagation(); setCurrent(i); }}
-            className={`rounded-full transition-all ${i === current ? "w-4 h-1.5 bg-white" : "w-1.5 h-1.5 bg-white/50"}`} />
-        ))}
-      </div>
-      {/* Counter badge */}
-      <span className="absolute top-2 right-2 bg-black/50 text-white text-xs font-medium px-2 py-0.5 rounded-full">
-        {current + 1}/{images.length}
-      </span>
+      {/* Arrows — only for multi-image */}
+      {images.length > 1 && (
+        <>
+          <button onClick={prev}
+            className="absolute left-2 top-1/2 -translate-y-1/2 h-8 w-8 rounded-full bg-black/40 flex items-center justify-center text-white hover:bg-black/60 transition-colors">
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <button onClick={next}
+            className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8 rounded-full bg-black/40 flex items-center justify-center text-white hover:bg-black/60 transition-colors">
+            <ChevronRight className="h-4 w-4" />
+          </button>
+          {/* Dots */}
+          <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1 z-10">
+            {images.map((_, i) => (
+              <button key={i} onClick={e => { e.stopPropagation(); setCurrent(i); }}
+                className={`rounded-full transition-all ${i === current ? "w-4 h-1.5 bg-white" : "w-1.5 h-1.5 bg-white/50"}`} />
+            ))}
+          </div>
+          {/* Counter badge */}
+          <span className="absolute top-2 right-2 bg-black/50 text-white text-xs font-medium px-2 py-0.5 rounded-full">
+            {current + 1}/{images.length}
+          </span>
+        </>
+      )}
+      {/* Zoom hint on single image */}
+      {images.length === 1 && (
+        <div className="absolute inset-0 bg-black/0 hover:bg-black/15 transition-colors flex items-center justify-center group cursor-pointer" onClick={() => onClickIndex(0)}>
+          <ZoomIn className="h-7 w-7 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-lg" />
+        </div>
+      )}
     </div>
   );
 }
@@ -333,12 +341,12 @@ function MediaUploadBar({ images, onAddImage, onRemoveImage, onVideo, onUploadin
 
   return (
     <div className="space-y-2">
-      {/* Image previews grid */}
+      {/* Image previews grid — fixed 112px height per cell, no layout shift */}
       {images.length > 0 && (
         <div className={`grid gap-2 ${images.length === 1 ? "grid-cols-1" : "grid-cols-2"}`}>
           {images.map((url, i) => (
-            <div key={i} className={`relative rounded-xl overflow-hidden bg-muted ${images.length === 1 ? "max-h-40" : "aspect-square"}`}>
-              <img src={url} alt={`photo ${i + 1}`} className={`rounded-xl ${images.length === 1 ? "w-full h-40 object-cover" : "w-full h-full object-cover"}`} />
+            <div key={i} className="relative rounded-xl overflow-hidden bg-muted" style={{ height: 112 }}>
+              <img src={url} alt={`photo ${i + 1}`} className="w-full h-full object-cover" />
               <button
                 onClick={() => onRemoveImage(i)}
                 className="absolute top-1.5 right-1.5 h-6 w-6 rounded-full bg-black/60 text-white flex items-center justify-center hover:bg-black/80 z-10"
@@ -347,13 +355,14 @@ function MediaUploadBar({ images, onAddImage, onRemoveImage, onVideo, onUploadin
               </button>
             </div>
           ))}
-          {/* Add more slot */}
+          {/* Add more slot — same fixed height */}
           {canAddMore && !hasVideo && (
             <button
               type="button"
               onClick={() => imgRef.current?.click()}
               disabled={uploading}
-              className="aspect-square rounded-xl border-2 border-dashed border-border hover:border-primary flex flex-col items-center justify-center gap-1 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 min-h-[80px]"
+              style={{ height: 112 }}
+              className="rounded-xl border-2 border-dashed border-border hover:border-primary flex flex-col items-center justify-center gap-1 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
             >
               <ImageIcon className="h-5 w-5" />
               <span className="text-xs">Add photo</span>
@@ -1381,7 +1390,7 @@ export default function Feed() {
         images: p.image_urls?.length > 0 ? p.image_urls : (p.image_url ? [p.image_url] : []), video: p.video_url || undefined,
         likes: p.likes || 0, commentCount: p.comment_count || 0, isOwn: p.user_id === user.id, comments: [],
       }));
-      setPosts(prev => [...prev, ...more]);
+      setPosts(prev => [...prev, ...more.filter(p => !blockedUserIds.has(p.user_id))]);
       setPostsHasMore((data || []).length === 30);
       if ((data || []).length > 0) postsCursorRef.current = data[data.length - 1].created_at;
     } catch { /* silent */ }
@@ -1412,7 +1421,7 @@ export default function Feed() {
         skills: c.skills || [], image: c.image_url || undefined, video: c.video_url || undefined,
         isOwn: c.user_id === user.id,
       }));
-      setCollabs(prev => [...prev, ...more]);
+      setCollabs(prev => [...prev, ...more.filter(c => !blockedUserIds.has(c.user_id))]);
       setCollabsHasMore((data || []).length === 30);
       if ((data || []).length > 0) collabsCursorRef.current = data[data.length - 1].created_at;
     } catch { /* silent */ }
@@ -1780,12 +1789,14 @@ export default function Feed() {
       : `${window.location.origin}/feed?tab=collabs`
     : "";
   const filteredPosts = useMemo(() => posts.filter(p => {
+    if (blockedUserIds.has(p.user_id)) return false;
     const matchTag = activePostTag === "All" || p.tag === activePostTag;
     const q = postSearch.toLowerCase().trim();
     const matchSearch = !q || p.author.toLowerCase().includes(q) || p.content.toLowerCase().includes(q) || p.tag.toLowerCase().includes(q);
     return matchTag && matchSearch;
-  }), [posts, activePostTag, postSearch]);
+  }), [posts, activePostTag, postSearch, blockedUserIds]);
   const filteredCollabs = useMemo(() => collabs.filter(c => {
+    if (blockedUserIds.has(c.user_id)) return false;
     const q = search.toLowerCase();
     const ms = !search || c.author.toLowerCase().includes(q) || c.title.toLowerCase().includes(q) || c.looking.toLowerCase().includes(q) || c.description.toLowerCase().includes(q) || c.skills.some(s => s.toLowerCase().includes(q));
     const mf = activeFilter === "All"
@@ -1794,7 +1805,7 @@ export default function Feed() {
         ? c.skills.some(s => !(SKILL_OPTIONS as readonly string[]).includes(s))
         : c.skills.some(s => s.toLowerCase().includes(activeFilter.toLowerCase())) || c.looking.toLowerCase().includes(activeFilter.toLowerCase());
     return ms && mf;
-  }), [collabs, search, activeFilter]);
+  }), [collabs, search, activeFilter, blockedUserIds]);
 
   return (
     <Layout>
