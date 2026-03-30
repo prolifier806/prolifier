@@ -163,6 +163,13 @@ export default function Layout({ children }: { children: ReactNode }) {
         .eq("read", false);
     } else if (to === "/discover") {
       setDiscoverCount(0);
+      // Mark all pending connection requests as read in DB so refetch stays at 0
+      (supabase as any)
+        .from("connections")
+        .update({ read: true })
+        .eq("receiver_id", user.id)
+        .eq("status", "pending")
+        .eq("read", false);
     }
   };
 
@@ -175,11 +182,18 @@ export default function Layout({ children }: { children: ReactNode }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname, user.id]);
 
-  // Also clear discover badge when the Requests tab is opened from within the page
+  // Clear discover badge when Requests tab opens inside Discover page
   useEffect(() => {
     const handler = () => setDiscoverCount(0);
     window.addEventListener("prolifier:requests-opened", handler);
     return () => window.removeEventListener("prolifier:requests-opened", handler);
+  }, []);
+
+  // Clear notification badge when Notifications page mounts (handles direct URL)
+  useEffect(() => {
+    const handler = () => setNotifCount(0);
+    window.addEventListener("prolifier:notifications-opened", handler);
+    return () => window.removeEventListener("prolifier:notifications-opened", handler);
   }, []);
 
   const getBadge = (to: string) => {
