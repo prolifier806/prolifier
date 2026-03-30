@@ -50,6 +50,15 @@ function initials(name: string) {
   return name ? name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase() : "?";
 }
 
+function previewText(text: string | null, mediaType: string | null): string {
+  if (mediaType === "shared_post") return "📌 Shared a post";
+  if (mediaType === "image") return "📷 Image";
+  if (mediaType === "video") return "🎥 Video";
+  if (mediaType === "audio") return "🎤 Voice message";
+  if (mediaType === "file") return "📎 File";
+  return text || "";
+}
+
 // ── Link-aware text renderer ──────────────────────────────────────────────
 function renderTextWithLinks(text: string, isMe: boolean) {
   const URL_RE = /(https?:\/\/[^\s]+)/g;
@@ -265,7 +274,7 @@ export default function Messages() {
           name: "Loading…",
           avatar: "?",
           color: "bg-primary",
-          lastMsg: m.text || (m.media_type ? `[${m.media_type}]` : ""),
+          lastMsg: previewText(m.text, m.media_type),
           lastTime: fmtTime(m.created_at),
           unread: 0,
         };
@@ -488,7 +497,7 @@ export default function Messages() {
                   ...c,
                   // Don't increment unread badge if sender is muted
                   unread: senderMuted ? c.unread : c.unread + 1,
-                  lastMsg: row.text || "",
+                  lastMsg: previewText(row.text, row.media_type),
                   lastTime: fmtTime(row.created_at),
                 }
               : c
@@ -576,7 +585,7 @@ export default function Messages() {
     } else {
       setMessages(prev => prev.map(m => m.id === tempId ? { ...optimistic, id: data.id, created_at: data.created_at } : m));
       setConversations(prev => prev.map(c => c.id === selectedId
-        ? { ...c, lastMsg: trimmed || `[${mediaType}]`, lastTime: "now" } : c
+        ? { ...c, lastMsg: previewText(trimmed || null, mediaType || null), lastTime: "now" } : c
       ));
       // Notify recipient — skip if they have muted me
       const { data: muteCheck } = await (supabase as any)
