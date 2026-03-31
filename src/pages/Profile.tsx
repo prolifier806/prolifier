@@ -1049,7 +1049,14 @@ export default function Profile() {
               ) : (
                 <>
                   <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <h1 className="text-xl font-bold text-foreground truncate">{user.name}</h1>
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <h1 className="text-xl font-bold text-foreground truncate">{user.name}</h1>
+                      {user.role === "admin" && (
+                        <span title="Verified" className="shrink-0 h-5 w-5 rounded-full bg-blue-500 flex items-center justify-center">
+                          <Check className="h-3 w-3 text-white stroke-[3]" />
+                        </span>
+                      )}
+                    </div>
                     <div className="flex items-center gap-2 shrink-0">
                       <button
                         onClick={() => { updateUser({ openToCollab: !user.openToCollab }); toast({ title: !user.openToCollab ? "You're open to collaborate 🤝" : "Status set to Not available" }); }}

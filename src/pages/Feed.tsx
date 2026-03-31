@@ -31,13 +31,13 @@ import VideoPlayer from "@/components/VideoPlayer";
 type Comment = { id: string; user_id: string; author: string; avatar: string; avatarUrl?: string; color: string; text: string; time: string; parentId?: string | null; };
 type Post = {
   id: string; user_id: string; author: string; avatar: string; avatarUrl?: string; avatarColor: string; location: string;
-  authorSkills?: string[]; authorDeleted?: boolean;
+  authorSkills?: string[]; authorDeleted?: boolean; authorRole?: string;
   tag: string; time: string; content: string; images: string[]; video?: string; likes: number; commentCount: number; isOwn: boolean;
   comments: Comment[];
 };
 type Collab = {
   id: string; user_id: string; author: string; avatar: string; avatarUrl?: string; avatarColor: string; location: string;
-  authorSkills?: string[]; authorDeleted?: boolean;
+  authorSkills?: string[]; authorDeleted?: boolean; authorRole?: string;
   title: string; looking: string; description: string; skills: string[]; image?: string; video?: string;
   isOwn: boolean;
 };
@@ -1091,7 +1091,14 @@ const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, highligh
             <Avatar initials={post.authorDeleted ? "?" : post.avatar} color={post.authorDeleted ? "bg-muted" : post.avatarColor} url={post.authorDeleted ? undefined : post.avatarUrl}/>
           </div>
           <div className="flex-1 min-w-0">
-            <span className={`font-semibold text-sm text-left ${post.authorDeleted ? "text-muted-foreground italic" : "text-foreground cursor-pointer hover:underline"}`} onClick={goToProfile}>{post.author}</span>
+            <span className={`inline-flex items-center gap-1 font-semibold text-sm text-left ${post.authorDeleted ? "text-muted-foreground italic" : "text-foreground cursor-pointer hover:underline"}`} onClick={goToProfile}>
+              {post.author}
+              {!post.authorDeleted && post.authorRole === "admin" && (
+                <span title="Verified" className="shrink-0 h-4 w-4 rounded-full bg-blue-500 inline-flex items-center justify-center">
+                  <Check className="h-2.5 w-2.5 text-white stroke-[3]" />
+                </span>
+              )}
+            </span>
             {!post.authorDeleted && post.authorSkills && post.authorSkills.length > 0 && (
               <div className="flex flex-wrap gap-1 mt-0.5">
                 {post.authorSkills.map(s => <span key={s} className="text-xs font-medium bg-primary/10 text-primary px-2 py-0.5 rounded-full">{s}</span>)}
@@ -1208,7 +1215,14 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
             <Avatar initials={collab.authorDeleted ? "?" : collab.avatar} color={collab.authorDeleted ? "bg-muted" : collab.avatarColor} url={collab.authorDeleted ? undefined : collab.avatarUrl}/>
           </div>
           <div className="flex-1 min-w-0">
-            <span className={`font-semibold text-sm text-left ${collab.authorDeleted ? "text-muted-foreground italic" : "text-foreground cursor-pointer hover:underline"}`} onClick={goToProfile}>{collab.author}</span>
+            <span className={`inline-flex items-center gap-1 font-semibold text-sm text-left ${collab.authorDeleted ? "text-muted-foreground italic" : "text-foreground cursor-pointer hover:underline"}`} onClick={goToProfile}>
+              {collab.author}
+              {!collab.authorDeleted && collab.authorRole === "admin" && (
+                <span title="Verified" className="shrink-0 h-4 w-4 rounded-full bg-blue-500 inline-flex items-center justify-center">
+                  <Check className="h-2.5 w-2.5 text-white stroke-[3]" />
+                </span>
+              )}
+            </span>
             {!collab.authorDeleted && collab.authorSkills && collab.authorSkills.length > 0 && (
               <div className="flex flex-wrap gap-1 mt-0.5">
                 {collab.authorSkills.map(s => <span key={s} className="text-xs font-medium bg-primary/10 text-primary px-2 py-0.5 rounded-full">{s}</span>)}
@@ -1598,12 +1612,12 @@ export default function Feed() {
       const [postsRes, collabsRes, myBlocksRes, blockedByRes] = await traceParallel([
         ["feed.posts", () => (supabase as any)
           .from("posts")
-          .select(`id, user_id, tag, content, image_url, image_urls, video_url, created_at, likes, comment_count, profiles:user_id (name, avatar, avatar_url, color, location, skills, deleted_at)`)
+          .select(`id, user_id, tag, content, image_url, image_urls, video_url, created_at, likes, comment_count, profiles:user_id (name, avatar, avatar_url, color, location, skills, deleted_at, role)`)
           .order("created_at", { ascending: false })
           .limit(30)],
         ["feed.collabs", () => (supabase as any)
           .from("collabs")
-          .select(`id, user_id, title, looking, description, skills, image_url, video_url, created_at, profiles:user_id (name, avatar, avatar_url, color, location, skills, deleted_at)`)
+          .select(`id, user_id, title, looking, description, skills, image_url, video_url, created_at, profiles:user_id (name, avatar, avatar_url, color, location, skills, deleted_at, role)`)
           .order("created_at", { ascending: false })
           .limit(30)],
         ["feed.blocks.mine", () => (supabase as any).from("blocks").select("blocked_id").eq("blocker_id", user.id)],
@@ -1651,6 +1665,7 @@ export default function Feed() {
         location: p.profiles?.deleted_at ? "" : (p.profiles?.location || ""),
         authorSkills: p.profiles?.deleted_at ? [] : (p.profiles?.skills?.slice(0, 3) || []),
         authorDeleted: !!p.profiles?.deleted_at,
+        authorRole: p.profiles?.role || "user",
         tag: p.tag, time: timeAgo(p.created_at), content: p.content,
         images: p.image_urls?.length > 0 ? p.image_urls : (p.image_url ? [p.image_url] : []), video: p.video_url || undefined,
         likes: p.likes || 0, commentCount: p.comment_count || 0, isOwn: p.user_id === user.id,
@@ -1666,6 +1681,7 @@ export default function Feed() {
         location: c.profiles?.deleted_at ? "" : (c.profiles?.location || ""),
         authorSkills: c.profiles?.deleted_at ? [] : (c.profiles?.skills?.slice(0, 3) || []),
         authorDeleted: !!c.profiles?.deleted_at,
+        authorRole: c.profiles?.role || "user",
         title: c.title, looking: c.looking, description: c.description,
         skills: c.skills || [], image: c.image_url || undefined, video: c.video_url || undefined,
         isOwn: c.user_id === user.id,
@@ -1722,7 +1738,7 @@ export default function Feed() {
     try {
       const { data, error } = await traceQuery("feed.posts.more", () => (supabase as any)
         .from("posts")
-        .select(`id, user_id, tag, content, image_url, image_urls, video_url, created_at, likes, comment_count, profiles:user_id (name, avatar, avatar_url, color, location, skills, deleted_at)`)
+        .select(`id, user_id, tag, content, image_url, image_urls, video_url, created_at, likes, comment_count, profiles:user_id (name, avatar, avatar_url, color, location, skills, deleted_at, role)`)
         .order("created_at", { ascending: false })
         .lt("created_at", postsCursorRef.current)
         .limit(30));
@@ -1736,6 +1752,7 @@ export default function Feed() {
         location: p.profiles?.deleted_at ? "" : (p.profiles?.location || ""),
         authorSkills: p.profiles?.deleted_at ? [] : (p.profiles?.skills?.slice(0, 3) || []),
         authorDeleted: !!p.profiles?.deleted_at,
+        authorRole: p.profiles?.role || "user",
         tag: p.tag, time: timeAgo(p.created_at), content: p.content,
         images: p.image_urls?.length > 0 ? p.image_urls : (p.image_url ? [p.image_url] : []), video: p.video_url || undefined,
         likes: p.likes || 0, commentCount: p.comment_count || 0, isOwn: p.user_id === user.id, comments: [],
@@ -1753,7 +1770,7 @@ export default function Feed() {
     try {
       const { data, error } = await (supabase as any)
         .from("collabs")
-        .select(`*, profiles:user_id (name, avatar, avatar_url, color, location, skills, deleted_at)`)
+        .select(`*, profiles:user_id (name, avatar, avatar_url, color, location, skills, deleted_at, role)`)
         .order("created_at", { ascending: false })
         .lt("created_at", collabsCursorRef.current)
         .limit(30);
@@ -1767,6 +1784,7 @@ export default function Feed() {
         location: c.profiles?.deleted_at ? "" : (c.profiles?.location || ""),
         authorSkills: c.profiles?.deleted_at ? [] : (c.profiles?.skills?.slice(0, 3) || []),
         authorDeleted: !!c.profiles?.deleted_at,
+        authorRole: c.profiles?.role || "user",
         title: c.title, looking: c.looking, description: c.description,
         skills: c.skills || [], image: c.image_url || undefined, video: c.video_url || undefined,
         isOwn: c.user_id === user.id,

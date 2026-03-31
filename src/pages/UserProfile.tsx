@@ -26,6 +26,7 @@ type ProfileData = {
   website: string;
   twitter: string;
   openToCollab: boolean;
+  role: string;
 };
 
 type UserPost = {
@@ -162,6 +163,7 @@ export default function UserProfile() {
           website: p.website || "",
           twitter: p.twitter || "",
           openToCollab: p.open_to_collab ?? true,
+          role: p.role || "user",
         });
 
         // ── Step 2: check block status (optional — never kills profile load)
@@ -376,7 +378,14 @@ export default function UserProfile() {
                 : profile.avatar}
             </button>
             <div className="flex-1 min-w-0">
-              <h1 className="text-xl font-bold text-foreground">{profile.name}</h1>
+              <div className="flex items-center gap-1.5">
+                <h1 className="text-xl font-bold text-foreground">{profile.name}</h1>
+                {profile.role === "admin" && (
+                  <span title="Verified" className="shrink-0 h-5 w-5 rounded-full bg-blue-500 flex items-center justify-center">
+                    <Check className="h-3 w-3 text-white stroke-[3]" />
+                  </span>
+                )}
+              </div>
               {profile.location && (
                 <p className="text-sm text-muted-foreground flex items-center gap-1 mt-0.5">
                   <MapPin className="h-3.5 w-3.5" /> {profile.location}

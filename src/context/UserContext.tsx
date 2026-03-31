@@ -21,6 +21,7 @@ export type CurrentUser = {
   skills: string[];
   lookingFor: string[];
   roles: string[];
+  role: string;
   github: string;
   website: string;
   twitter: string;
@@ -44,6 +45,7 @@ const DEFAULT_USER: CurrentUser = {
   skills: [],
   lookingFor: [],
   roles: [],
+  role: "user",
   github: "",
   website: "",
   twitter: "",
@@ -134,6 +136,7 @@ function profileFromRow(userId: string, email: string, row: any): CurrentUser {
     skills: row.skills || [],
     lookingFor: row.looking_for || [],
     roles: row.roles || [],
+    role: row.role || "user",
     github: row.github || "",
     website: row.website || "",
     twitter: row.twitter || "",
