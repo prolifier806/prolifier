@@ -2062,7 +2062,17 @@ export default function Feed() {
           media_url: null,
           media_type: "shared_post",
           read: false,
-        }).then(() => {});
+        }).then(() => {
+          // Fire a message notification so the receiver's badge increments
+          createNotification({
+            userId: collab.user_id,
+            type: "message",
+            text: `${user.name} sent you a message`,
+            subtext: `Interested in your collab "${collab.title}"`,
+            action: `message:${user.id}`,
+            actorId: user.id,
+          });
+        });
       }
       toast({ title: `Interest sent to ${name}! 🤝` });
     }

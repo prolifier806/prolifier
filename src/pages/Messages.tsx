@@ -636,6 +636,38 @@ export default function Messages() {
       }, (payload) => {
         const row = payload.new as any;
         if (row.read) setMessages(prev => prev.map(m => m.id === row.id ? { ...m, read: true } : m));
+      })
+      // Messages sent BY current user (e.g. silent collab interest) — refresh conversation list
+      .on("postgres_changes", {
+        event: "INSERT", schema: "public", table: "messages",
+        filter: `sender_id=eq.${user.id}`,
+      }, async (payload) => {
+        const row = payload.new as any;
+        // If this convo is already open, append the message
+        if (row.receiver_id === selectedIdRef.current) {
+          scrollBehaviorRef.current = "smooth";
+          setMessages(prev => [...prev, {
+            id: row.id, sender_id: row.sender_id, text: row.text,
+            media_url: row.media_url, media_type: row.media_type,
+            created_at: row.created_at, read: false,
+            reply_to_id: row.reply_to_id || null,
+            reply_to_text: row.reply_to_text || null,
+          }]);
+        } else {
+          // Update or add conversation entry in sidebar
+          setConversations(prev => {
+            const existing = prev.find(c => c.id === row.receiver_id);
+            if (existing) {
+              return prev.map(c => c.id === row.receiver_id
+                ? { ...c, lastMsg: previewText(row.text, row.media_type), lastTime: fmtTime(row.created_at) }
+                : c
+              );
+            }
+            // New conversation — full refresh to get profile info
+            fetchConversations();
+            return prev;
+          });
+        }
       }),
   );
 
