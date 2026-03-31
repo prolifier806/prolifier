@@ -1547,9 +1547,17 @@ export default function Feed() {
   }, [posts]);
 
   // ── Deep-link: scroll + highlight collab when ?collab=<id> is in the URL ──
+  // Depends on both [collabs, searchParams] so it fires when:
+  //   • Collabs finish loading on first mount (URL already has ?collab=)
+  //   • User navigates here from a notification while Feed is already mounted
   useEffect(() => {
     const collabId = searchParams.get("collab");
-    if (!collabId || collabs.length === 0) return;
+    if (!collabId) return;
+    // Reset ref when param changes so the same collab can be deep-linked again
+    if (deepLinkHandledRef.current !== collabId) {
+      deepLinkHandledRef.current = null;
+    }
+    if (collabs.length === 0) return;
     if (deepLinkHandledRef.current === collabId) return;
     const target = collabs.find(c => c.id === collabId);
     if (target) {
@@ -1562,7 +1570,7 @@ export default function Feed() {
       navigate("/feed", { replace: true });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [collabs]);
+  }, [collabs, searchParams]);
 
   // ── Clear highlight rings after 2 seconds ──
   useEffect(() => {

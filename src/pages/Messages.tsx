@@ -474,13 +474,6 @@ export default function Messages() {
           .update({ read: true })
           .eq("sender_id", withId).eq("receiver_id", user.id).eq("read", false);
 
-        // Pre-fill message box if ?msg= param is present (e.g. from collab interest)
-        const preMsg = params.get("msg");
-        if (preMsg) {
-          setMsg(decodeURIComponent(preMsg));
-          // Clean the URL so refreshing doesn't re-fill
-          window.history.replaceState({}, "", window.location.pathname + `?with=${withId}`);
-        }
       }
     } catch (err) {
       console.error("fetchConversations:", err);
@@ -491,7 +484,18 @@ export default function Messages() {
 
   useEffect(() => { fetchConversations(); }, [fetchConversations]);
 
-
+  // Pre-fill message input when navigating with ?msg= param (e.g. from collab interest).
+  // Runs whenever selectedId becomes set AND a ?msg= param exists in the URL.
+  // Using searchParams from useSearchParams() (reactive) is more reliable than
+  // reading window.location.search inside the async fetchConversations body.
+  useEffect(() => {
+    if (!selectedId) return;
+    const preMsg = searchParams.get("msg");
+    if (!preMsg) return;
+    setMsg(decodeURIComponent(preMsg));
+    // Clean the URL so refreshing doesn't re-fill
+    window.history.replaceState({}, "", `/messages?with=${selectedId}`);
+  }, [selectedId, searchParams]);
 
   const MSG_PAGE = 50;
 
