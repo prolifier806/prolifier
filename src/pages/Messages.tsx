@@ -679,14 +679,26 @@ export default function Messages() {
     if (!file || !selectedId) return;
     setUploading(true);
     try {
-      const path = `dm/${user.id}/${Date.now()}-${file.name}`;
-      const { error } = await supabase.storage.from("messages").upload(path, file);
-      if (error) throw error;
-      const { data: urlData } = supabase.storage.from("messages").getPublicUrl(path);
-      // For files pass the original filename as text so it shows in the message
-      await sendMessage(type === "file" ? file.name : undefined, urlData.publicUrl, type);
+      if (type === "image") {
+        // Validate + compress + convert to WebP
+        const { processImage } = await import("@/lib/imageProcessor");
+        const processed = await processImage(file, "chat");
+        const path = `dm/${user.id}/${processed.filename}`;
+        const { error } = await supabase.storage.from("messages").upload(path, processed.blob, { contentType: "image/webp" });
+        if (error) throw error;
+        const { data: urlData } = supabase.storage.from("messages").getPublicUrl(path);
+        await sendMessage(undefined, urlData.publicUrl, "image");
+      } else {
+        // Video / file — upload as-is
+        const safeName = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+        const path = `dm/${user.id}/${safeName}`;
+        const { error } = await supabase.storage.from("messages").upload(path, file);
+        if (error) throw error;
+        const { data: urlData } = supabase.storage.from("messages").getPublicUrl(path);
+        await sendMessage(type === "file" ? file.name : undefined, urlData.publicUrl, type);
+      }
     } catch (err: any) {
-      toast({ title: "Upload failed", description: err.message, variant: "destructive" });
+      toast({ title: err.message || "Upload failed, try again.", variant: "destructive" });
     } finally {
       setUploading(false);
     }
@@ -882,7 +894,7 @@ export default function Messages() {
 
   return (
     <Layout>
-      <input ref={imageRef} type="file" accept="image/*" className="hidden" onChange={e => handleFileInput(e, "image")} />
+      <input ref={imageRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={e => handleFileInput(e, "image")} />
       <input ref={videoRef} type="file" accept="video/*" className="hidden" onChange={e => handleFileInput(e, "video")} />
       <input ref={fileRef} type="file" className="hidden" onChange={e => handleFileInput(e, "file")} />
 

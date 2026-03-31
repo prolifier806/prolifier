@@ -401,29 +401,42 @@ function MediaUploadBar({ images, onAddImage, onRemoveImage, onVideo, onUploadin
 
     setUploading(true);
     onUploadingChange?.(true);
-    setUploadLabel(type === "image" ? "Uploading photo..." : "Uploading video...");
 
-    const ext = file.name.split(".").pop();
-    const path = `${Date.now()}.${ext}`;
-
-    const { error } = await (supabase as any).storage
-      .from("posts")
-      .upload(path, file, { upsert: true });
-
-    if (error) {
-      toast({ title: "Upload failed", description: error.message, variant: "destructive" });
-      setUploading(false);
-      onUploadingChange?.(false);
-      setUploadLabel("");
+    if (type === "video") {
+      setUploadLabel("Uploading video…");
+      const ext = file.name.split(".").pop()?.replace(/[^a-z0-9]/gi, "") || "mp4";
+      const path = `${Date.now()}.${ext}`;
+      const { error } = await (supabase as any).storage.from("posts").upload(path, file, { upsert: true });
+      if (error) {
+        toast({ title: "Upload failed", description: error.message, variant: "destructive" });
+        setUploading(false); onUploadingChange?.(false); setUploadLabel(""); return;
+      }
+      const { data } = (supabase as any).storage.from("posts").getPublicUrl(path);
+      cb(data.publicUrl);
+      setUploading(false); onUploadingChange?.(false);
+      setUploadLabel("Video uploaded ✓"); setTimeout(() => setUploadLabel(""), 2000);
       return;
     }
 
-    const { data } = (supabase as any).storage.from("posts").getPublicUrl(path);
-    cb(data.publicUrl);
-    setUploading(false);
-    onUploadingChange?.(false);
-    setUploadLabel(type === "image" ? "Photo uploaded ✓" : "Video uploaded ✓");
-    setTimeout(() => setUploadLabel(""), 2000);
+    // Image — validate + compress + convert to WebP
+    try {
+      setUploadLabel("Processing image…");
+      const { processImage } = await import("@/lib/imageProcessor");
+      const processed = await processImage(file, "feed");
+      setUploadLabel("Uploading…");
+      const { error } = await (supabase as any).storage
+        .from("posts")
+        .upload(processed.filename, processed.blob, { upsert: true, contentType: "image/webp" });
+      if (error) throw error;
+      const { data } = (supabase as any).storage.from("posts").getPublicUrl(processed.filename);
+      cb(data.publicUrl);
+      setUploadLabel("Photo uploaded ✓"); setTimeout(() => setUploadLabel(""), 2000);
+    } catch (err: any) {
+      toast({ title: err.message || "Upload failed, try again.", variant: "destructive" });
+      setUploadLabel("");
+    } finally {
+      setUploading(false); onUploadingChange?.(false);
+    }
   };
 
   return (
@@ -460,7 +473,7 @@ function MediaUploadBar({ images, onAddImage, onRemoveImage, onVideo, onUploadin
       {/* Buttons row — shown when no images yet or always for video */}
       {images.length === 0 && (
         <div className="flex gap-2">
-          <input ref={imgRef} type="file" accept="image/*" className="hidden" onChange={e => handleFile(e, onAddImage, "image")} />
+          <input ref={imgRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={e => handleFile(e, onAddImage, "image")} />
           <input ref={vidRef} type="file" accept="video/*" className="hidden" onChange={e => handleFile(e, onVideo, "video")} />
           <button type="button" onClick={() => imgRef.current?.click()} disabled={uploading || hasVideo}
             className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground border border-dashed border-border hover:border-primary rounded-lg px-3 py-2 transition-colors flex-1 justify-center disabled:opacity-50">
@@ -474,7 +487,7 @@ function MediaUploadBar({ images, onAddImage, onRemoveImage, onVideo, onUploadin
       )}
       {/* Hidden inputs when images exist */}
       {images.length > 0 && (
-        <input ref={imgRef} type="file" accept="image/*" className="hidden" onChange={e => handleFile(e, onAddImage, "image")} />
+        <input ref={imgRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={e => handleFile(e, onAddImage, "image")} />
       )}
       {uploading && (
         <div className="flex items-center gap-2 text-xs text-muted-foreground px-1">
