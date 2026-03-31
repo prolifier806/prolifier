@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import VideoPlayer from "@/components/VideoPlayer";
 import { useRealtimeChannel } from "@/hooks/useRealtimeChannel";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { Input } from "@/components/ui/input";
@@ -80,6 +81,38 @@ function renderTextWithLinks(text: string, isMe: boolean) {
     ) : (
       <span key={i}>{part}</span>
     )
+  );
+}
+
+// ── Chat video player — HLS-aware with fallback ───────────────────────────
+function VideoPlayerInMessage({ src }: { src: string }) {
+  const [hlsSrc, setHlsSrc] = useState<string | null>(null);
+  const [poster, setPoster] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!src) return;
+    let mounted = true;
+    (async () => {
+      const { data } = await (supabase as any)
+        .from("videos")
+        .select("hls_url, thumbnail_url")
+        .eq("fallback_url", src)
+        .eq("status", "ready")
+        .maybeSingle();
+      if (!mounted) return;
+      if (data?.hls_url) setHlsSrc(data.hls_url);
+      if (data?.thumbnail_url) setPoster(data.thumbnail_url);
+    })();
+    return () => { mounted = false; };
+  }, [src]);
+
+  return (
+    <VideoPlayer
+      hlsSrc={hlsSrc}
+      fallbackSrc={src}
+      poster={poster}
+      compact
+    />
   );
 }
 
@@ -281,9 +314,8 @@ export default function Messages() {
     if (!selectedId) return;
     setDeletingChat(true);
     try {
-      // Delete messages where I am the sender (RLS allows this)
-      await (supabase as any).from("messages").delete()
-        .eq("sender_id", user.id).eq("receiver_id", selectedId);
+      // Only hide the conversation on this user's side — do NOT delete messages
+      // from the DB (the other person should still see everything).
       // Persist hidden state in localStorage — survives refresh without DB table
       addHiddenId(selectedId);
       // Also try DB table if it exists (best-effort)
@@ -296,7 +328,7 @@ export default function Messages() {
       setSelectedId(null);
       setShowMobileChat(false);
       setShowDeleteConfirm(false);
-      toast({ title: "Chat deleted" });
+      toast({ title: "Chat hidden" });
     } catch (err: any) {
       toast({ title: "Failed to delete chat", description: err.message, variant: "destructive" });
     } finally {
@@ -441,6 +473,14 @@ export default function Messages() {
         await (supabase as any).from("messages")
           .update({ read: true })
           .eq("sender_id", withId).eq("receiver_id", user.id).eq("read", false);
+
+        // Pre-fill message box if ?msg= param is present (e.g. from collab interest)
+        const preMsg = params.get("msg");
+        if (preMsg) {
+          setMsg(decodeURIComponent(preMsg));
+          // Clean the URL so refreshing doesn't re-fill
+          window.history.replaceState({}, "", window.location.pathname + `?with=${withId}`);
+        }
       }
     } catch (err) {
       console.error("fetchConversations:", err);
@@ -709,14 +749,60 @@ export default function Messages() {
         if (error) throw error;
         const { data: urlData } = supabase.storage.from("messages").getPublicUrl(path);
         await sendMessage(undefined, urlData.publicUrl, "image");
+      } else if (type === "video") {
+        // Validate format/size/duration, upload with progress, trigger processing
+        const { validateVideo, uploadVideoXHR, sanitizeVideoFilename } = await import("@/lib/videoProcessor");
+        const meta = await validateVideo(file, "chat");
+        const filename = sanitizeVideoFilename(file.name);
+        const path = `dm/${user.id}/${filename}`;
+
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) throw new Error("Not authenticated");
+
+        await uploadVideoXHR({
+          file,
+          bucket: "messages",
+          path,
+          supabaseUrl: import.meta.env.VITE_SUPABASE_URL,
+          anonKey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+          accessToken: session.access_token,
+          onProgress: () => {}, // uploading spinner already shown
+        });
+
+        const { data: urlData } = supabase.storage.from("messages").getPublicUrl(path);
+        const fallbackUrl = urlData.publicUrl;
+
+        // Create videos row + trigger processing (non-blocking)
+        const { data: videoRow } = await (supabase as any)
+          .from("videos")
+          .insert({
+            user_id: user.id,
+            context: "chat",
+            status: "uploading",
+            fallback_url: fallbackUrl,
+            raw_path: path,
+            duration_secs: meta.duration,
+            width: meta.width,
+            height: meta.height,
+            size_bytes: file.size,
+          })
+          .select("id")
+          .single();
+
+        if (videoRow?.id) {
+          supabase.functions.invoke("process-video", { body: { video_id: videoRow.id } })
+            .catch(() => {});
+        }
+
+        await sendMessage(undefined, fallbackUrl, "video");
       } else {
-        // Video / file — upload as-is
+        // File — upload as-is
         const safeName = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
         const path = `dm/${user.id}/${safeName}`;
         const { error } = await supabase.storage.from("messages").upload(path, file);
         if (error) throw error;
         const { data: urlData } = supabase.storage.from("messages").getPublicUrl(path);
-        await sendMessage(type === "file" ? file.name : undefined, urlData.publicUrl, type);
+        await sendMessage(file.name, urlData.publicUrl, type);
       }
     } catch (err: any) {
       toast({ title: err.message || "Upload failed, try again.", variant: "destructive" });
@@ -888,7 +974,7 @@ export default function Messages() {
             </div>
           )}
           {m.media_type === "video" && m.media_url && (
-            <video src={m.media_url} controls className="max-w-full max-h-56 rounded-2xl bg-black" />
+            <VideoPlayerInMessage src={m.media_url} />
           )}
           {m.media_type === "file" && m.media_url && (
             <button
@@ -924,8 +1010,8 @@ export default function Messages() {
 
   return (
     <Layout>
-      <input ref={imageRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={e => handleFileInput(e, "image")} />
-      <input ref={videoRef} type="file" accept="video/*" className="hidden" onChange={e => handleFileInput(e, "video")} />
+      <input ref={imageRef} type="file" accept="image/*" className="hidden" onChange={e => handleFileInput(e, "image")} />
+      <input ref={videoRef} type="file" accept="video/mp4,video/quicktime,.mp4,.mov" className="hidden" onChange={e => handleFileInput(e, "video")} />
       <input ref={fileRef} type="file" className="hidden" onChange={e => handleFileInput(e, "file")} />
 
       <div className="max-w-4xl mx-auto flex h-[calc(100vh-4rem)] md:h-screen">
@@ -1247,7 +1333,7 @@ export default function Messages() {
               </div>
             </div>
             <p className="text-sm text-muted-foreground mb-5">
-              This will permanently delete all messages in this conversation for both sides. This cannot be undone.
+              This will hide the conversation from your inbox. The other person's messages won't be affected. The chat will reappear if they send you a new message.
             </p>
             <div className="flex gap-2">
               <button

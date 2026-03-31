@@ -189,6 +189,9 @@ export default function Notifications() {
     } else if (n.action.startsWith("post:")) {
       const postId = n.action.split(":")[1];
       navigate(`/feed?post=${postId}`);
+    } else if (n.action.startsWith("collab:")) {
+      const collabId = n.action.split(":")[1];
+      navigate(`/feed?tab=collabs&collab=${collabId}`);
     } else if (n.action === "feed") {
       navigate("/feed");
     } else if (n.action === "messages") {
@@ -203,7 +206,7 @@ export default function Notifications() {
     if (action.startsWith("message:") || action === "messages") return "Reply";
     if (action.startsWith("profile:")) return "View";
     if (action.startsWith("group:") || action === "groups") return "Open";
-    if (action.startsWith("post:") || action === "feed") return "View";
+    if (action.startsWith("post:") || action.startsWith("collab:") || action === "feed") return "View";
     return "Open";
   };
 

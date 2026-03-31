@@ -25,7 +25,20 @@ export interface ProcessedImage {
 
 // ── Constants ─────────────────────────────────────────────────────────────
 
-const ALLOWED_TYPES = new Set(["image/webp", "image/jpeg", "image/jpg", "image/png"]);
+const ALLOWED_TYPES = new Set([
+  "image/webp",
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/gif",
+  "image/heic",
+  "image/heif",
+  "image/avif",
+  "image/bmp",
+  "image/tiff",
+  "image/tif",
+  "image/svg+xml",
+]);
 const HARD_LIMIT_BYTES = 20 * 1024 * 1024; // 20 MB
 
 const CONFIG = {
@@ -37,7 +50,7 @@ const CONFIG = {
 
 export function validateImage(file: File): void {
   if (!ALLOWED_TYPES.has(file.type)) {
-    throw new Error("Unsupported file format. Please use JPEG, PNG, or WebP.");
+    throw new Error("Unsupported file format. Please use a photo (JPEG, PNG, WebP, HEIC, GIF, etc.).");
   }
   if (file.size > HARD_LIMIT_BYTES) {
     throw new Error("File too large (max 20 MB). Please choose a smaller image.");

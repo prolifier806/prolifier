@@ -25,6 +25,7 @@ import { checkContent, parseModerationError } from "@/lib/moderation";
 // OPT: import from the single consolidated helper instead of defining inline
 import { createNotification } from "@/lib/notifications";
 import { traceQuery, traceParallel, logger } from "@/lib/logger";
+import VideoPlayer from "@/components/VideoPlayer";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 type Comment = { id: string; user_id: string; author: string; avatar: string; avatarUrl?: string; color: string; text: string; time: string; parentId?: string | null; };
@@ -118,13 +119,46 @@ async function deleteFromStorage(url: string) {
   }
 }
 
-// ── Smart Video ─────────────────────────────────────────────────────────────
+// ── Smart Video — HLS-aware, falls back to native MP4 ────────────────────────
 function SmartVideo({ src, className }: { src: string; className?: string }) {
   const [portrait, setPortrait] = useState(false);
+  const [hlsSrc, setHlsSrc] = useState<string | null>(null);
+  const [poster, setPoster] = useState<string | null>(null);
+
+  // Look up processed HLS from videos table (lazy, non-blocking)
+  useEffect(() => {
+    if (!src) return;
+    let mounted = true;
+    (async () => {
+      const { data } = await (supabase as any)
+        .from("videos")
+        .select("hls_url, thumbnail_url")
+        .eq("fallback_url", src)
+        .eq("status", "ready")
+        .maybeSingle();
+      if (!mounted) return;
+      if (data?.hls_url) setHlsSrc(data.hls_url);
+      if (data?.thumbnail_url) setPoster(data.thumbnail_url);
+    })();
+    return () => { mounted = false; };
+  }, [src]);
+
+  if (hlsSrc) {
+    return (
+      <VideoPlayer
+        hlsSrc={hlsSrc}
+        fallbackSrc={src}
+        poster={poster}
+        className={`rounded-xl ${portrait ? "mx-auto max-h-[70vh] w-auto max-w-full" : "w-full max-h-72"} ${className ?? ""}`}
+      />
+    );
+  }
+
   return (
     <div className={portrait ? "flex justify-center" : ""}>
       <video
         src={src}
+        poster={poster ?? undefined}
         controls
         disablePictureInPicture
         controlsList="nodownload nopictureinpicture"
@@ -379,13 +413,14 @@ function ImageCarousel({ images, onClickIndex }: { images: string[]; onClickInde
 }
 
 // ── Media Upload Bar ───────────────────────────────────────────────────────
-function MediaUploadBar({ images, onAddImage, onRemoveImage, onVideo, onUploadingChange, hasVideo }: {
+function MediaUploadBar({ images, onAddImage, onRemoveImage, onVideo, onUploadingChange, hasVideo, userId }: {
   images: string[];
   onAddImage: (url: string) => void;
   onRemoveImage: (i: number) => void;
   onVideo: (url: string) => void;
   onUploadingChange?: (uploading: boolean) => void;
   hasVideo?: boolean;
+  userId: string;
 }) {
   const imgRef = useRef<HTMLInputElement>(null);
   const vidRef = useRef<HTMLInputElement>(null);
@@ -403,18 +438,64 @@ function MediaUploadBar({ images, onAddImage, onRemoveImage, onVideo, onUploadin
     onUploadingChange?.(true);
 
     if (type === "video") {
-      setUploadLabel("Uploading video…");
-      const ext = file.name.split(".").pop()?.replace(/[^a-z0-9]/gi, "") || "mp4";
-      const path = `${Date.now()}.${ext}`;
-      const { error } = await (supabase as any).storage.from("posts").upload(path, file, { upsert: true });
-      if (error) {
-        toast({ title: "Upload failed", description: error.message, variant: "destructive" });
-        setUploading(false); onUploadingChange?.(false); setUploadLabel(""); return;
+      try {
+        // 1. Validate format, size, duration
+        setUploadLabel("Validating video…");
+        const { validateVideo, uploadVideoXHR, sanitizeVideoFilename } = await import("@/lib/videoProcessor");
+        const meta = await validateVideo(file, "feed");
+
+        // 2. Generate path and upload raw to posts bucket (public = immediate playback)
+        const filename = sanitizeVideoFilename(file.name);
+        const path = `${userId}/${filename}`;
+        setUploadLabel("Uploading…  0%");
+
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) throw new Error("Not authenticated");
+
+        await uploadVideoXHR({
+          file,
+          bucket: "posts",
+          path,
+          supabaseUrl: import.meta.env.VITE_SUPABASE_URL,
+          anonKey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+          accessToken: session.access_token,
+          onProgress: (pct) => setUploadLabel(`Uploading… ${pct}%`),
+        });
+
+        const { data: urlData } = (supabase as any).storage.from("posts").getPublicUrl(path);
+        const fallbackUrl: string = urlData.publicUrl;
+
+        // 3. Create videos row for tracking
+        const { data: videoRow, error: insertErr } = await (supabase as any)
+          .from("videos")
+          .insert({
+            user_id: userId,
+            context: "feed",
+            status: "uploading",
+            fallback_url: fallbackUrl,
+            raw_path: path,
+            duration_secs: meta.duration,
+            width: meta.width,
+            height: meta.height,
+            size_bytes: file.size,
+          })
+          .select("id")
+          .single();
+        if (insertErr) throw insertErr;
+
+        // 4. Trigger background processing (non-blocking)
+        setUploadLabel("Processing…");
+        supabase.functions.invoke("process-video", { body: { video_id: videoRow.id } })
+          .catch(() => { /* processing failure is non-fatal — fallback MP4 still plays */ });
+
+        cb(fallbackUrl);
+        setUploadLabel("Video ready ✓"); setTimeout(() => setUploadLabel(""), 2000);
+      } catch (err: any) {
+        toast({ title: err.message || "Video upload failed.", variant: "destructive" });
+        setUploadLabel("");
+      } finally {
+        setUploading(false); onUploadingChange?.(false);
       }
-      const { data } = (supabase as any).storage.from("posts").getPublicUrl(path);
-      cb(data.publicUrl);
-      setUploading(false); onUploadingChange?.(false);
-      setUploadLabel("Video uploaded ✓"); setTimeout(() => setUploadLabel(""), 2000);
       return;
     }
 
@@ -473,8 +554,8 @@ function MediaUploadBar({ images, onAddImage, onRemoveImage, onVideo, onUploadin
       {/* Buttons row — shown when no images yet or always for video */}
       {images.length === 0 && (
         <div className="flex gap-2">
-          <input ref={imgRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={e => handleFile(e, onAddImage, "image")} />
-          <input ref={vidRef} type="file" accept="video/*" className="hidden" onChange={e => handleFile(e, onVideo, "video")} />
+          <input ref={imgRef} type="file" accept="image/*" className="hidden" onChange={e => handleFile(e, onAddImage, "image")} />
+          <input ref={vidRef} type="file" accept="video/mp4,video/quicktime,.mp4,.mov" className="hidden" onChange={e => handleFile(e, onVideo, "video")} />
           <button type="button" onClick={() => imgRef.current?.click()} disabled={uploading || hasVideo}
             className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground border border-dashed border-border hover:border-primary rounded-lg px-3 py-2 transition-colors flex-1 justify-center disabled:opacity-50">
             <ImageIcon className="h-4 w-4" /> Photo
@@ -864,9 +945,10 @@ function CommentSheet({ post, currentUserId, onClose, onAddComment, onDeleteComm
 }
 
 // ── Edit Post Dialog ───────────────────────────────────────────────────────
-function EditPostDialog({ post, open, onClose, onSave }: {
+function EditPostDialog({ post, open, onClose, onSave, userId }: {
   post: Post; open: boolean; onClose: () => void;
   onSave: (id: string, content: string, tag: string, images: string[], video?: string) => void;
+  userId: string;
 }) {
   const [content, setContent] = useState(post.content);
   const [tag, setTag] = useState(post.tag);
@@ -904,6 +986,7 @@ function EditPostDialog({ post, open, onClose, onSave }: {
               onVideo={setVideo}
               onUploadingChange={setEditUploading}
               hasVideo={!!video}
+              userId={userId}
             />
           )}
         </div>
@@ -1944,20 +2027,25 @@ export default function Feed() {
       toast({ title: "Interest withdrawn" });
     } else {
       await (supabase as any).from("collab_interests").insert({ user_id: user.id, collab_id: id });
-      toast({ title: `Interest sent to ${name}! 🤝` });
       const collab = collabs.find(c => c.id === id);
       if (collab && collab.user_id !== user.id) {
+        // Send notification linking directly to the collab post
         createNotification({
           userId: collab.user_id,
           type: "collab",
           text: `${user.name} is interested in your collab`,
           subtext: collab.title,
-          action: "feed",
+          action: `collab:${collab.id}`,
           actorId: user.id,
         });
+        // Navigate to messages with pre-filled interest message
+        const preMsg = encodeURIComponent(`Hi! I'm interested in your collab "${collab.title}" 🤝`);
+        navigate(`/messages?with=${collab.user_id}&msg=${preMsg}`);
+      } else {
+        toast({ title: `Interest sent to ${name}! 🤝` });
       }
     }
-  }, [interestedCollabs, collabs, user.id, user.name]);
+  }, [interestedCollabs, collabs, user.id, user.name, navigate]);
 
   const handleSaveCollab = useCallback(async (id: string) => {
     const was = savedCollabs.has(id);
@@ -2151,6 +2239,7 @@ export default function Feed() {
                       onVideo={url => setPostDialog(d => ({ ...d, video: url }))}
                       onUploadingChange={v => setPostDialog(d => ({ ...d, uploading: v }))}
                       hasVideo={!!postDialog.video}
+                      userId={user.id}
                     />
                   )}
                 </div>
@@ -2383,7 +2472,7 @@ export default function Feed() {
       </div>
 
       {commentingPost && <CommentSheet post={commentingPost} currentUserId={user.id} onClose={() => setCommentingPost(null)} onAddComment={handleAddComment} onDeleteComment={handleDeleteComment} onEditComment={handleEditComment} onReportComment={handleReportComment}/>}
-      {editingPost && <EditPostDialog post={editingPost} open={!!editingPost} onClose={() => setEditingPost(null)} onSave={handleEditPost}/>}
+      {editingPost && <EditPostDialog post={editingPost} open={!!editingPost} onClose={() => setEditingPost(null)} onSave={handleEditPost} userId={user.id}/>}
       {editingCollab && <EditCollabDialog collab={editingCollab} open={!!editingCollab} onClose={() => setEditingCollab(null)} onSave={handleEditCollab}/>}
       {shareTarget && <ShareDialog onClose={() => setShareTarget(null)} link={shareLink}/>}
       {sendTarget && <SendToConnectionsDialog onClose={() => setSendTarget(null)} content={sendTarget}/>}
