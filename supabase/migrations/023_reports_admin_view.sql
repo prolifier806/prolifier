@@ -8,11 +8,13 @@
 --   3. Adds a content_snapshot text column so the reported text is stored at
 --      report time (content may be deleted later, making investigation impossible).
 
--- Add content snapshot so report preserves what was reported
+-- Add missing columns (safe if they already exist)
+alter table public.reports
+  add column if not exists status text not null default 'pending';
+
 alter table public.reports
   add column if not exists content_snapshot text;
 
--- Add reporter name convenience column (denormalized for admin readability)
 alter table public.reports
   add column if not exists reporter_name text;
 
