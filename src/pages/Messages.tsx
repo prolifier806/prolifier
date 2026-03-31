@@ -6,8 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
   Search, Send, ArrowLeft, Image, Video, Paperclip,
-  X, Play, Pause, PenSquare, Mic, StopCircle, RefreshCw, Check, CheckCheck,
-  BellOff, Bell, Flag, Trash2, Reply,
+  X, Play, Pause, Mic, StopCircle, RefreshCw, Check, CheckCheck,
+  BellOff, Bell, Flag, Trash2, Reply, MessageCircle,
 } from "lucide-react";
 import Layout from "@/components/Layout";
 import { toast } from "@/hooks/use-toast";
@@ -203,9 +203,6 @@ export default function Messages() {
   const [convSearch, setConvSearch] = useState("");
   const [showMobileChat, setShowMobileChat] = useState(false);
   const [mediaPreview, setMediaPreview] = useState<{ type: string; url: string } | null>(null);
-  const [showNewConvo, setShowNewConvo] = useState(false);
-  const [newConvoSearch, setNewConvoSearch] = useState("");
-  const [allUsers, setAllUsers] = useState<{ id: string; name: string; avatarUrl?: string; color: string }[]>([]);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollBehaviorRef = useRef<"smooth" | "instant">("instant");
@@ -217,6 +214,10 @@ export default function Messages() {
   useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
 
   const selectedConvo = conversations.find(c => c.id === selectedId) ?? null;
+
+  // IDs of messages we inserted ourselves (optimistic → real). The realtime
+  // sender INSERT handler must skip these to prevent duplicates.
+  const sentMsgIdsRef = useRef<Set<string>>(new Set());
 
   // Track who the current user has blocked (DB-sourced)
   const [blockedByMe, setBlockedByMe] = useState<Set<string>>(new Set());
@@ -643,6 +644,11 @@ export default function Messages() {
         filter: `sender_id=eq.${user.id}`,
       }, async (payload) => {
         const row = payload.new as any;
+        // Skip messages we already added optimistically via sendMessage
+        if (sentMsgIdsRef.current.has(row.id)) {
+          sentMsgIdsRef.current.delete(row.id);
+          return;
+        }
         // If this convo is already open, append the message
         if (row.receiver_id === selectedIdRef.current) {
           scrollBehaviorRef.current = "smooth";
@@ -672,7 +678,11 @@ export default function Messages() {
   );
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: scrollBehaviorRef.current });
+    // Use rAF so the DOM has painted the new messages before we scroll
+    const id = requestAnimationFrame(() => {
+      bottomRef.current?.scrollIntoView({ behavior: scrollBehaviorRef.current });
+    });
+    return () => cancelAnimationFrame(id);
   }, [messages]);
 
   // ── Select conversation ──────────────────────────────────────────────
@@ -746,6 +756,8 @@ export default function Messages() {
       setMsg(trimmed || "");
       toast({ title: "Failed to send", variant: "destructive" });
     } else {
+      // Record real ID so the realtime sender INSERT handler skips it
+      sentMsgIdsRef.current.add(data.id);
       setMessages(prev => prev.map(m => m.id === tempId ? { ...optimistic, id: data.id, created_at: data.created_at } : m));
       setConversations(prev => prev.map(c => c.id === selectedId
         ? { ...c, lastMsg: previewText(trimmed || null, mediaType || null), lastTime: "now" } : c
@@ -867,36 +879,8 @@ export default function Messages() {
     }
   );
 
-  // ── Fetch all users for new conversation ─────────────────────────────
-  const fetchAllUsers = async () => {
-    if (allUsers.length > 0) return;
-    const { data } = await (supabase as any).from("profiles")
-      .select("id, name, avatar_url, color")
-      .neq("id", user.id)
-      .limit(50);
-    setAllUsers((data || []).map((p: any) => ({ id: p.id, name: p.name, avatarUrl: p.avatar_url || undefined, color: p.color || "bg-primary" })));
-  };
-
-  const startNewConvo = (u: typeof allUsers[0]) => {
-    const existing = conversations.find(c => c.id === u.id);
-    if (!existing) {
-      setConversations(prev => [{
-        id: u.id, name: u.name, avatar: initials(u.name),
-        avatarUrl: u.avatarUrl,
-        color: u.color, lastMsg: "Start a conversation…", lastTime: "now", unread: 0,
-      }, ...prev]);
-    }
-    setShowNewConvo(false);
-    setNewConvoSearch("");
-    selectConvo(u.id);
-  };
-
   const fmt = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
   const filteredConvos = conversations.filter(c => !convSearch || c.name.toLowerCase().includes(convSearch.toLowerCase()));
-  const filteredNewUsers = allUsers.filter(u =>
-    !conversations.find(c => c.id === u.id) &&
-    (!newConvoSearch || u.name.toLowerCase().includes(newConvoSearch.toLowerCase()))
-  );
 
   // Get a short label for quoting a message
   const quoteLabel = (m: Message): string => {
@@ -1057,45 +1041,15 @@ export default function Messages() {
           <div className="p-4 border-b border-border">
             <div className="flex items-center justify-between mb-3">
               <h1 className="text-xl font-bold">Messages</h1>
-              <div className="flex items-center gap-1">
-                <button onClick={fetchConversations} className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors">
-                  <RefreshCw className={`h-4 w-4 ${loadingConvos ? "animate-spin" : ""}`} />
-                </button>
-                <button onClick={() => { setShowNewConvo(v => !v); fetchAllUsers(); }}
-                  className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors" title="New message">
-                  <PenSquare className="h-4 w-4" />
-                </button>
-              </div>
+              <button onClick={fetchConversations} className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors">
+                <RefreshCw className={`h-4 w-4 ${loadingConvos ? "animate-spin" : ""}`} />
+              </button>
             </div>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input placeholder="Search…" value={convSearch} onChange={e => setConvSearch(e.target.value)} className="pl-10 h-9 text-sm" />
             </div>
           </div>
-
-          {/* New convo panel */}
-          {showNewConvo && (
-            <div className="border-b border-border bg-muted/40 p-3">
-              <p className="text-xs font-semibold text-muted-foreground mb-2">New conversation</p>
-              <Input placeholder="Search people…" value={newConvoSearch}
-                onChange={e => setNewConvoSearch(e.target.value)}
-                className="h-8 text-sm mb-2" autoFocus />
-              <div className="space-y-1 max-h-40 overflow-y-auto">
-                {filteredNewUsers.length === 0
-                  ? <p className="text-xs text-muted-foreground text-center py-2">No users found</p>
-                  : filteredNewUsers.map(u => (
-                    <button key={u.id} onClick={() => startNewConvo(u)}
-                      className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-muted transition-colors text-left">
-                      <div className={`h-7 w-7 rounded-full ${u.avatarUrl ? "" : u.color} flex items-center justify-center text-white text-xs font-semibold shrink-0 overflow-hidden`}>
-                        {u.avatarUrl ? <img src={u.avatarUrl} alt={initials(u.name)} className="w-full h-full object-cover" /> : initials(u.name)}
-                      </div>
-                      <span className="text-sm text-foreground">{u.name}</span>
-                    </button>
-                  ))
-                }
-              </div>
-            </div>
-          )}
 
           {/* Conversation list */}
           <div className="flex-1 overflow-y-auto">
@@ -1106,7 +1060,7 @@ export default function Messages() {
             ) : filteredConvos.length === 0 ? (
               <div className="text-center py-12 text-muted-foreground">
                 <p className="text-sm font-medium mb-1">No conversations yet</p>
-                <p className="text-xs">Use the pencil icon to start one</p>
+                <p className="text-xs">Message someone from their profile or a collab</p>
               </div>
             ) : filteredConvos.map(c => (
               <button key={c.id} onClick={() => selectConvo(c.id)}
@@ -1134,9 +1088,9 @@ export default function Messages() {
           {!selectedConvo ? (
             <div className="flex-1 flex items-center justify-center text-muted-foreground">
               <div className="text-center">
-                <PenSquare className="h-8 w-8 mx-auto mb-3 opacity-20" />
+                <MessageCircle className="h-8 w-8 mx-auto mb-3 opacity-20" />
                 <p className="text-sm font-medium mb-1">No conversation selected</p>
-                <p className="text-xs">Pick one or start a new one</p>
+                <p className="text-xs">Message someone from their profile or a collab</p>
               </div>
             </div>
           ) : (
