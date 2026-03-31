@@ -29,6 +29,8 @@ export default function Layout({ children }: { children: ReactNode }) {
   // Track badges cleared this session — fetchCounts must NEVER restore these.
   // Only a new incoming realtime event (not on that page) removes the flag.
   const sessionClearedRef = useRef<Set<string>>(new Set());
+  // Muted senders — badge increments are skipped for these
+  const mutedByMeRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!user.id) return;
@@ -73,6 +75,15 @@ export default function Layout({ children }: { children: ReactNode }) {
 
     fetchCounts();
 
+    // Load muted users so badge increments can skip them
+    (supabase as any)
+      .from("mutes")
+      .select("muted_id")
+      .eq("muter_id", user.id)
+      .then(({ data }: any) => {
+        mutedByMeRef.current = new Set((data || []).map((m: any) => m.muted_id));
+      });
+
     // --- Realtime: increment badges on new events ---
     const channel = supabase
       .channel(`layout-badges-${user.id}`)
@@ -87,6 +98,9 @@ export default function Layout({ children }: { children: ReactNode }) {
         (payload) => {
           const t = (payload.new as any).type as string;
           if (t === "message") {
+            const actorId = (payload.new as any).actor_id as string | undefined;
+            // Skip badge if sender is muted
+            if (actorId && mutedByMeRef.current.has(actorId)) return;
             if (!window.location.pathname.startsWith("/messages")) {
               // New message arrived — lift the session-cleared lock so future fetches work
               sessionClearedRef.current.delete("/messages");

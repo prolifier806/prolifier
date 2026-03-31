@@ -173,6 +173,7 @@ export default function Messages() {
   const [allUsers, setAllUsers] = useState<{ id: string; name: string; avatarUrl?: string; color: string }[]>([]);
 
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollBehaviorRef = useRef<"smooth" | "instant">("instant");
   const inputRef = useRef<HTMLInputElement>(null);
   const imageRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLInputElement>(null);
@@ -188,6 +189,12 @@ export default function Messages() {
   const [blockedByThem, setBlockedByThem] = useState<Set<string>>(new Set());
   // Track muted users (no badge/notification for their messages)
   const [mutedByMe, setMutedByMe] = useState<Set<string>>(new Set());
+
+  // Bug 4A: refs kept in sync so realtime closures always read current values
+  const blockedByMeRef = useRef<Set<string>>(new Set());
+  const mutedByMeRef = useRef<Set<string>>(new Set());
+  useEffect(() => { blockedByMeRef.current = blockedByMe; }, [blockedByMe]);
+  useEffect(() => { mutedByMeRef.current = mutedByMe; }, [mutedByMe]);
   // Report modal state
   const [showReportModal, setShowReportModal] = useState(false);
   const [reportReason, setReportReason] = useState("spam");
@@ -403,6 +410,7 @@ export default function Messages() {
       if (error) throw error;
 
       const rows: Message[] = (data || []).reverse();
+      scrollBehaviorRef.current = "instant";
       setMessages(rows);
 
       if (rows.length === MSG_PAGE) {
@@ -482,9 +490,10 @@ export default function Messages() {
       }, async (payload) => {
         const row = payload.new as any;
         // Drop realtime messages if I have blocked the sender
-        if (blockedByMe.has(row.sender_id)) return;
-        const senderMuted = mutedByMe.has(row.sender_id);
+        if (blockedByMeRef.current.has(row.sender_id)) return;
+        const senderMuted = mutedByMeRef.current.has(row.sender_id);
         if (row.sender_id === selectedIdRef.current) {
+          scrollBehaviorRef.current = "smooth";
           setMessages(prev => [...prev, {
             id: row.id, sender_id: row.sender_id, text: row.text,
             media_url: row.media_url, media_type: row.media_type,
@@ -517,8 +526,8 @@ export default function Messages() {
   );
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages.length]);
+    bottomRef.current?.scrollIntoView({ behavior: scrollBehaviorRef.current });
+  }, [messages]);
 
   // ── Select conversation ──────────────────────────────────────────────
   const selectConvo = (otherId: string) => {
@@ -566,6 +575,7 @@ export default function Messages() {
       media_url: mediaUrl || null, media_type: mediaType || null,
       created_at: new Date().toISOString(), read: false,
     };
+    scrollBehaviorRef.current = "smooth";
     setMessages(prev => [...prev, optimistic]);
     setMsg("");
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -678,6 +688,23 @@ export default function Messages() {
     (!newConvoSearch || u.name.toLowerCase().includes(newConvoSearch.toLowerCase()))
   );
 
+  const downloadFile = async (url: string, filename: string) => {
+    try {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = filename || "file";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(objectUrl);
+    } catch {
+      toast({ title: "Download failed", variant: "destructive" });
+    }
+  };
+
   const renderMessage = (m: Message) => {
     const isMe = m.sender_id === user.id;
 
@@ -726,7 +753,7 @@ export default function Messages() {
     return (
       <div key={m.id} className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
         <div className="flex flex-col gap-0.5 max-w-[75%]">
-          {m.text && m.media_type !== "shared_post" && (
+          {m.text && !m.media_type && (
             <div className={`px-4 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap break-words ${isMe ? "bg-primary text-primary-foreground rounded-br-md" : "bg-secondary text-secondary-foreground rounded-bl-md"}`}>
               {renderTextWithLinks(m.text, isMe)}
             </div>
@@ -740,10 +767,13 @@ export default function Messages() {
             <video src={m.media_url} controls className="max-w-full max-h-56 rounded-2xl bg-black" />
           )}
           {m.media_type === "file" && m.media_url && (
-            <a href={m.media_url} target="_blank" rel="noopener noreferrer" download className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-sm ${isMe ? "bg-primary text-primary-foreground" : "bg-secondary text-secondary-foreground"}`}>
+            <button
+              onClick={() => downloadFile(m.media_url!, m.text || "file")}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-sm cursor-pointer hover:opacity-80 transition-opacity ${isMe ? "bg-primary text-primary-foreground" : "bg-secondary text-secondary-foreground"}`}
+            >
               <Paperclip className="h-4 w-4 shrink-0" />
               <span className="truncate max-w-[200px]">{m.text || "File"}</span>
-            </a>
+            </button>
           )}
           {m.media_type === "audio" && m.media_url && <AudioPlayer src={m.media_url} isMe={isMe} />}
           <div className={`flex items-center gap-1 ${isMe ? "justify-end" : "justify-start"}`}>
