@@ -29,6 +29,7 @@ export type CurrentUser = {
   openToCollab: boolean;
   profileSetupDone: boolean;
   updatedAt: string;
+  nameChangedAt: string | null;
   deletedAt: string | null;
 };
 
@@ -53,6 +54,7 @@ const DEFAULT_USER: CurrentUser = {
   openToCollab: true,
   profileSetupDone: false,
   updatedAt: "",
+  nameChangedAt: null,
   deletedAt: null,
 };
 
@@ -144,6 +146,7 @@ function profileFromRow(userId: string, email: string, row: any): CurrentUser {
     openToCollab: row.open_to_collab ?? true,
     profileSetupDone: row.profile_complete ?? false,
     updatedAt: row.updated_at || "",
+    nameChangedAt: row.name_changed_at || null,
     deletedAt: row.deleted_at || null,
   };
 }
@@ -381,7 +384,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const updateUser = async (patch: Partial<CurrentUser>) => {
     if (!authUser) return;
     const now = new Date().toISOString();
-    const next = { ...user, ...patch, updatedAt: now };
+    const nameChanged = patch.name !== undefined && patch.name !== user.name;
+    const next = { ...user, ...patch, updatedAt: now, ...(nameChanged ? { nameChangedAt: now } : {}) };
     setUser(next);
     writeCache(next);
     const profileData: Record<string, any> = {
@@ -401,6 +405,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       primary_lang: next.primaryLang,
       open_to_collab: next.openToCollab,
       updated_at: now,
+      ...(nameChanged ? { name_changed_at: now } : {}),
     };
     profileData.avatar_url = next.avatarUrl || null;
     await (supabase.from("profiles") as any).upsert(profileData);

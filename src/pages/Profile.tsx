@@ -344,6 +344,15 @@ export default function Profile() {
     if (draftLocation.trim() && !LOCATIONS.includes(draftLocation.trim())) {
       toast({ title: "Please select a valid location from the list", variant: "destructive" }); return;
     }
+    // 7-day name change cooldown
+    if (draftName.trim() !== user.name && user.nameChangedAt) {
+      const daysSince = (Date.now() - new Date(user.nameChangedAt).getTime()) / (1000 * 60 * 60 * 24);
+      if (daysSince < 7) {
+        const daysLeft = Math.ceil(7 - daysSince);
+        toast({ title: "Name change too soon", description: `You can change your name again in ${daysLeft} day${daysLeft === 1 ? "" : "s"}.`, variant: "destructive" });
+        return;
+      }
+    }
     setSaving(true);
     await updateUser({
       name: draftName.trim(), location: draftLocation.trim(), bio: draftBio.trim(),
