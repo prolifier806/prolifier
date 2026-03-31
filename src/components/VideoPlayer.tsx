@@ -2,27 +2,51 @@
  * VideoPlayer.tsx
  *
  * Adaptive HLS video player with native fallback.
+ * No npm dependency — hls.js is loaded from CDN at runtime via a <script> tag
+ * so the Vite/Rollup build never needs to resolve it.
  *
  * Priority:
- *   1. HLS via hls.js (Chrome / Firefox / Android)
+ *   1. HLS via hls.js CDN (Chrome / Firefox / Android)
  *   2. HLS via native (Safari / iOS — supports HLS natively)
  *   3. Direct MP4 fallback (when HLS not yet ready or processing failed)
- *
- * Install: npm install hls.js
- * Types:   npm install -D @types/hls.js
  */
 
 import { useEffect, useRef, useState } from "react";
 
+// ── Load hls.js from CDN once per page (idempotent) ──────────────────────────
+const HLS_CDN = "https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js";
+let hlsScriptLoaded = false;
+let hlsScriptLoading = false;
+const hlsReadyCallbacks: Array<() => void> = [];
+
+function loadHlsScript(onReady: () => void) {
+  if (hlsScriptLoaded) { onReady(); return; }
+  hlsReadyCallbacks.push(onReady);
+  if (hlsScriptLoading) return;
+  hlsScriptLoading = true;
+  const s = document.createElement("script");
+  s.src = HLS_CDN;
+  s.async = true;
+  s.onload = () => {
+    hlsScriptLoaded = true;
+    hlsScriptLoading = false;
+    hlsReadyCallbacks.forEach(cb => cb());
+    hlsReadyCallbacks.length = 0;
+  };
+  s.onerror = () => {
+    hlsScriptLoading = false;
+    hlsReadyCallbacks.length = 0; // let callers fall back to MP4
+  };
+  document.head.appendChild(s);
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
+
 interface VideoPlayerProps {
-  /** Master HLS playlist URL (.m3u8). If null, falls back to `fallbackSrc`. */
   hlsSrc: string | null;
-  /** Direct MP4 URL — always served while video processes, and as permanent fallback. */
   fallbackSrc: string | null;
-  /** WebP / JPEG thumbnail shown before playback. */
   poster?: string | null;
   className?: string;
-  /** Compact mode for chat bubbles */
   compact?: boolean;
 }
 
@@ -34,7 +58,7 @@ export default function VideoPlayer({
   compact = false,
 }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const hlsRef = useRef<unknown>(null); // hls.js instance
+  const hlsRef = useRef<any>(null);
   const [quality, setQuality] = useState<string>("Auto");
   const [levels, setLevels] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -45,103 +69,75 @@ export default function VideoPlayer({
 
     setError(null);
 
-    // ── Path 1: No HLS available — use raw MP4 ────────────────────────────
+    // Path 1: No HLS URL yet — play raw MP4 immediately
     if (!hlsSrc) {
       if (fallbackSrc) video.src = fallbackSrc;
       return;
     }
 
-    // ── Path 2: Browser natively supports HLS (Safari) ────────────────────
+    // Path 2: Safari / iOS — native HLS support
     if (video.canPlayType("application/vnd.apple.mpegurl")) {
       video.src = hlsSrc;
       return;
     }
 
-    // ── Path 3: Load hls.js dynamically ──────────────────────────────────
+    // Path 3: Load hls.js from CDN, then attach
     let destroyed = false;
 
-    (async () => {
-      try {
-        const { default: Hls } = await import("hls.js");
-
-        if (destroyed) return;
-
-        if (!Hls.isSupported()) {
-          // Last resort: try direct MP4
-          if (fallbackSrc) video.src = fallbackSrc;
-          return;
-        }
-
-        const hls = new Hls({
-          // Start on the lowest quality to reduce initial buffer time
-          startLevel: -1, // auto
-          // Cap max buffer to 30 s to keep memory reasonable
-          maxBufferLength: 30,
-          // Aggressive quality switching for mobile networks
-          abrEwmaFastLive: 3,
-          abrEwmaSlowLive: 9,
-        });
-
-        hlsRef.current = hls;
-
-        hls.loadSource(hlsSrc);
-        hls.attachMedia(video);
-
-        hls.on(Hls.Events.MANIFEST_PARSED, (_event: unknown, data: { levels: Array<{ height: number }> }) => {
-          if (destroyed) return;
-          const qualityLabels = data.levels.map((l: { height: number }) => `${l.height}p`);
-          setLevels(["Auto", ...qualityLabels]);
-        });
-
-        hls.on(Hls.Events.LEVEL_SWITCHED, (_event: unknown, data: { level: number }) => {
-          if (destroyed || !hls) return;
-          // @ts-expect-error hls.levels type varies by version
-          const lvl = hls.levels?.[data.level];
-          if (lvl) setQuality(`${lvl.height}p`);
-        });
-
-        hls.on(Hls.Events.ERROR, (_event: unknown, data: { fatal: boolean; details: string }) => {
-          if (destroyed) return;
-          if (data.fatal) {
-            setError("Playback error — trying fallback.");
-            if (fallbackSrc) video.src = fallbackSrc;
-          }
-        });
-      } catch {
-        // hls.js not installed or failed to load
-        if (!destroyed && fallbackSrc) video.src = fallbackSrc;
+    const attachHls = () => {
+      if (destroyed) return;
+      const Hls = (window as any).Hls;
+      if (!Hls || !Hls.isSupported()) {
+        if (fallbackSrc) video.src = fallbackSrc;
+        return;
       }
-    })();
+
+      const hls = new Hls({ startLevel: -1, maxBufferLength: 30 });
+      hlsRef.current = hls;
+      hls.loadSource(hlsSrc);
+      hls.attachMedia(video);
+
+      hls.on(Hls.Events.MANIFEST_PARSED, (_: unknown, data: { levels: Array<{ height: number }> }) => {
+        if (destroyed) return;
+        setLevels(["Auto", ...data.levels.map((l: { height: number }) => `${l.height}p`)]);
+      });
+
+      hls.on(Hls.Events.LEVEL_SWITCHED, (_: unknown, data: { level: number }) => {
+        if (destroyed) return;
+        const lvl = hls.levels?.[data.level];
+        if (lvl) setQuality(`${lvl.height}p`);
+      });
+
+      hls.on(Hls.Events.ERROR, (_: unknown, data: { fatal: boolean }) => {
+        if (destroyed || !data.fatal) return;
+        setError("Playback error — using fallback.");
+        if (fallbackSrc) video.src = fallbackSrc;
+      });
+    };
+
+    loadHlsScript(attachHls);
 
     return () => {
       destroyed = true;
-      // @ts-expect-error hlsRef dynamic
       hlsRef.current?.destroy();
       hlsRef.current = null;
     };
   }, [hlsSrc, fallbackSrc]);
 
-  // ── Quality change ────────────────────────────────────────────────────────
   const handleQualityChange = (label: string) => {
     setQuality(label);
-    // @ts-expect-error hlsRef dynamic
     const hls = hlsRef.current;
     if (!hls) return;
     if (label === "Auto") {
       hls.currentLevel = -1;
     } else {
-      // @ts-expect-error hls.levels
       const idx = hls.levels?.findIndex((l: { height: number }) => `${l.height}p` === label);
       if (idx != null && idx >= 0) hls.currentLevel = idx;
     }
   };
 
-  const wrapClass = compact
-    ? "relative rounded-2xl overflow-hidden bg-black"
-    : "relative rounded-xl overflow-hidden bg-black";
-
   return (
-    <div className={`${wrapClass} ${className}`}>
+    <div className={`relative ${compact ? "rounded-2xl" : "rounded-xl"} overflow-hidden bg-black ${className}`}>
       <video
         ref={videoRef}
         poster={poster ?? undefined}
@@ -151,17 +147,14 @@ export default function VideoPlayer({
         className={compact ? "max-w-full max-h-56 w-full" : "w-full max-h-[70vh] object-contain"}
       />
 
-      {/* Quality selector — only shown when hls.js loaded multiple levels */}
       {!compact && levels.length > 1 && (
         <div className="absolute top-2 right-2">
           <select
             value={quality}
-            onChange={(e) => handleQualityChange(e.target.value)}
+            onChange={e => handleQualityChange(e.target.value)}
             className="bg-black/60 text-white text-xs rounded px-1.5 py-0.5 border-0 outline-none cursor-pointer"
           >
-            {levels.map((l) => (
-              <option key={l} value={l}>{l}</option>
-            ))}
+            {levels.map(l => <option key={l} value={l}>{l}</option>)}
           </select>
         </div>
       )}
