@@ -2046,14 +2046,20 @@ export default function Feed() {
           action: `collab:${collab.id}`,
           actorId: user.id,
         });
-        // Navigate to messages with pre-filled interest message
-        const preMsg = encodeURIComponent(`Hi! I'm interested in your collab "${collab.title}" 🤝`);
-        navigate(`/messages?with=${collab.user_id}&msg=${preMsg}`);
-      } else {
-        toast({ title: `Interest sent to ${name}! 🤝` });
+        // Silently send a default message — no redirect, no UI change
+        const interestText = `Hi! I'm interested in your collab "${collab.title}" 🤝`;
+        (supabase as any).from("messages").insert({
+          sender_id: user.id,
+          receiver_id: collab.user_id,
+          text: interestText,
+          media_url: null,
+          media_type: null,
+          read: false,
+        }).then(() => {});
       }
+      toast({ title: `Interest sent to ${name}! 🤝` });
     }
-  }, [interestedCollabs, collabs, user.id, user.name, navigate]);
+  }, [interestedCollabs, collabs, user.id, user.name]);
 
   const handleSaveCollab = useCallback(async (id: string) => {
     const was = savedCollabs.has(id);
