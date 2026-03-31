@@ -32,13 +32,13 @@ type Comment = { id: string; user_id: string; author: string; avatar: string; av
 type Post = {
   id: string; user_id: string; author: string; avatar: string; avatarUrl?: string; avatarColor: string; location: string;
   authorSkills?: string[]; authorDeleted?: boolean; authorRole?: string;
-  tag: string; time: string; content: string; images: string[]; video?: string; likes: number; commentCount: number; isOwn: boolean;
+  tag: string; time: string; createdAt: string; content: string; images: string[]; video?: string; likes: number; commentCount: number; isOwn: boolean;
   comments: Comment[];
 };
 type Collab = {
   id: string; user_id: string; author: string; avatar: string; avatarUrl?: string; avatarColor: string; location: string;
   authorSkills?: string[]; authorDeleted?: boolean; authorRole?: string;
-  title: string; looking: string; description: string; skills: string[]; image?: string; video?: string;
+  title: string; looking: string; description: string; skills: string[]; image?: string; video?: string; createdAt: string;
   isOwn: boolean;
 };
 
@@ -775,9 +775,10 @@ function ShareDialog({ onClose, link, content }: {
 }
 
 // ── Report Dialog ──────────────────────────────────────────────────────────
-function ReportDialog({ open, onClose, target, targetType, targetId }: {
+function ReportDialog({ open, onClose, target, targetType, targetId, contentSnapshot }: {
   open: boolean; onClose: () => void; target: string;
   targetType: "post" | "collab" | "comment"; targetId: string;
+  contentSnapshot?: string;
 }) {
   const { user } = useUser();
   const [reason, setReason] = useState("");
@@ -790,10 +791,12 @@ function ReportDialog({ open, onClose, target, targetType, targetId }: {
     setSubmitting(true);
     await (supabase as any).from("reports").insert({
       reporter_id: user.id,
-      target_type: targetType,
-      target_id: targetId,
+      reporter_name: user.name || null,
+      content_type: targetType,
+      content_id: targetId,
       reason,
       details: details.trim() || null,
+      content_snapshot: contentSnapshot || null,
     });
     setSubmitting(false);
     setSubmitted(true);
@@ -1496,7 +1499,7 @@ export default function Feed() {
   const [commentingPost, setCommentingPost] = useState<Post|null>(null);
   const [editingPost, setEditingPost] = useState<Post|null>(null);
   const [shareTarget, setShareTarget] = useState<{type:"post"|"collab";id:string;content?:{text:string;authorName:string;type:"post"|"collab";postId?:string;imageUrl?:string;collabTitle?:string}}|null>(null);
-  const [reportTarget, setReportTarget] = useState<{type:"post"|"collab"|"comment";id:string}|null>(null);
+  const [reportTarget, setReportTarget] = useState<{type:"post"|"collab"|"comment";id:string;snapshot?:string}|null>(null);
   const [interestedCollabs, setInterestedCollabs] = useState<Set<string>>(new Set());
   const [savedCollabs, setSavedCollabs] = useState<Set<string>>(new Set());
   const [editingCollab, setEditingCollab] = useState<Collab|null>(null);
@@ -1654,7 +1657,7 @@ export default function Feed() {
         authorSkills: p.profiles?.deleted_at ? [] : (p.profiles?.skills?.slice(0, 3) || []),
         authorDeleted: !!p.profiles?.deleted_at,
         authorRole: p.profiles?.role || "user",
-        tag: p.tag, time: timeAgo(p.created_at), content: p.content,
+        tag: p.tag, time: timeAgo(p.created_at), createdAt: p.created_at, content: p.content,
         images: p.image_urls?.length > 0 ? p.image_urls : (p.image_url ? [p.image_url] : []), video: p.video_url || undefined,
         likes: p.likes || 0, commentCount: p.comment_count || 0, isOwn: p.user_id === user.id,
         comments: [],
@@ -1670,7 +1673,7 @@ export default function Feed() {
         authorSkills: c.profiles?.deleted_at ? [] : (c.profiles?.skills?.slice(0, 3) || []),
         authorDeleted: !!c.profiles?.deleted_at,
         authorRole: c.profiles?.role || "user",
-        title: c.title, looking: c.looking, description: c.description,
+        title: c.title, looking: c.looking, description: c.description, createdAt: c.created_at,
         skills: c.skills || [], image: c.image_url || undefined, video: c.video_url || undefined,
         isOwn: c.user_id === user.id,
       }));
@@ -1690,9 +1693,38 @@ export default function Feed() {
       const allBlocked = new Set<string>([...myBlocked, ...blockedBy]);
       setBlockedUserIds(allBlocked);
 
-      // Filter out posts/collabs from blocked users (both directions)
-      setPosts(mappedPosts.filter(p => !allBlocked.has(p.user_id)));
-      setCollabs(mappedCollabs.filter(c => !allBlocked.has(c.user_id)));
+      // ── Feed algorithm — score + sort ─────────────────────────────────
+      // Fetch accepted connections so we can boost their posts
+      const [connSent, connRecv] = await Promise.all([
+        (supabase as any).from("connections").select("receiver_id").eq("requester_id", user.id).eq("status", "accepted"),
+        (supabase as any).from("connections").select("requester_id").eq("receiver_id", user.id).eq("status", "accepted"),
+      ]);
+      const connectedIds = new Set<string>([
+        ...((connSent.data || []).map((r: any) => r.receiver_id)),
+        ...((connRecv.data || []).map((r: any) => r.requester_id)),
+      ]);
+
+      const scoreItem = (userId: string, createdAt: string, likes: number) => {
+        const ageHours = (Date.now() - new Date(createdAt).getTime()) / 3_600_000;
+        const recency  = Math.max(0, 100 - ageHours * 1.5); // decays over ~67 hrs
+        const engagement = Math.min(likes * 2, 40);          // max 40 pts from likes
+        const connection = connectedIds.has(userId) ? 50 : 0; // strong connection boost
+        const own        = userId === user.id ? 10 : 0;       // slight self-boost so your posts appear
+        return recency + engagement + connection + own;
+      };
+
+      const rankedPosts = mappedPosts
+        .filter(p => !allBlocked.has(p.user_id))
+        .map(p => ({ ...p, _score: scoreItem(p.user_id, p.createdAt, p.likes) }))
+        .sort((a, b) => b._score - a._score);
+
+      const rankedCollabs = mappedCollabs
+        .filter(c => !allBlocked.has(c.user_id))
+        .map(c => ({ ...c, _score: scoreItem(c.user_id, new Date().toISOString(), 0) + (connectedIds.has(c.user_id) ? 50 : 0) }))
+        .sort((a, b) => b._score - a._score);
+
+      setPosts(rankedPosts);
+      setCollabs(rankedCollabs);
       // comment_count comes from the DB column — no extra query needed
       setLoading(false);
       logger.info("feed.load.done", { postCount: mappedPosts.length, collabCount: mappedCollabs.length });
@@ -1741,7 +1773,7 @@ export default function Feed() {
         authorSkills: p.profiles?.deleted_at ? [] : (p.profiles?.skills?.slice(0, 3) || []),
         authorDeleted: !!p.profiles?.deleted_at,
         authorRole: p.profiles?.role || "user",
-        tag: p.tag, time: timeAgo(p.created_at), content: p.content,
+        tag: p.tag, time: timeAgo(p.created_at), createdAt: p.created_at, content: p.content,
         images: p.image_urls?.length > 0 ? p.image_urls : (p.image_url ? [p.image_url] : []), video: p.video_url || undefined,
         likes: p.likes || 0, commentCount: p.comment_count || 0, isOwn: p.user_id === user.id, comments: [],
       }));
@@ -1773,7 +1805,7 @@ export default function Feed() {
         authorSkills: c.profiles?.deleted_at ? [] : (c.profiles?.skills?.slice(0, 3) || []),
         authorDeleted: !!c.profiles?.deleted_at,
         authorRole: c.profiles?.role || "user",
-        title: c.title, looking: c.looking, description: c.description,
+        title: c.title, looking: c.looking, description: c.description, createdAt: c.created_at,
         skills: c.skills || [], image: c.image_url || undefined, video: c.video_url || undefined,
         isOwn: c.user_id === user.id,
       }));
@@ -1872,7 +1904,7 @@ export default function Feed() {
     const { data, error } = await (supabase as any)
       .from("comments")
       .insert({ post_id: postId, user_id: user.id, text, parent_id: parentId ?? null })
-      .select(`*, profiles:user_id (name, avatar, color, avatar_url)`)
+      .select(`*, profiles:user_id (name, avatar, color, avatar_url, role)`)
       .single();
     if (error) {
       const modMsg = parseModerationError(error);
@@ -1887,6 +1919,7 @@ export default function Feed() {
       color: data.profiles?.color || user.color,
       text: data.text, time: "Just now",
       parentId: parentId ?? null,
+      role: data.profiles?.role || user.role,
     };
     setPosts(p => p.map(x => x.id === postId ? { ...x, comments: [...x.comments, newComment], commentCount: x.commentCount + 1 } : x));
     setCommentingPost(prev => prev ? { ...prev, comments: [...prev.comments, newComment], commentCount: prev.commentCount + 1 } : null);
@@ -1945,7 +1978,8 @@ export default function Feed() {
   }, []);
 
   const handleReportComment = useCallback((commentId: string) => {
-    setReportTarget({ type: "comment", id: commentId });
+    const c = commentingPost?.comments.find(x => x.id === commentId);
+    setReportTarget({ type: "comment", id: commentId, snapshot: c ? `${c.author}: ${c.text.slice(0, 200)}` : undefined });
   }, []);
 
   const handleEditComment = useCallback(async (commentId: string, postId: string, newText: string) => {
@@ -2151,7 +2185,7 @@ export default function Feed() {
         authorDeleted: false, authorRole: user.role,
         title: collabDialog.title,
         looking: collabDialog.looking, description: collabDialog.desc, skills: collabDialog.skills,
-        image: collabDialog.image, video: collabDialog.video, isOwn: true,
+        image: collabDialog.image, video: collabDialog.video, isOwn: true, createdAt: new Date().toISOString(),
       }, ...p]);
       setActiveTab("collabs");
       setCollabDialog({ open: false, title: "", looking: "", desc: "", skills: [], image: undefined, video: undefined, uploading: false, publishing: false, customSkillInput: "" });
@@ -2341,7 +2375,7 @@ export default function Feed() {
                   highlighted={highlightedPostId === post.id}
                   onLike={handleLike} onSave={handleSavePost} onComment={handleOpenComments}
                   onDelete={handleDeletePost} onEdit={setEditingPost} onHide={handleHidePost}
-                  onReport={id => setReportTarget({type:"post",id})}
+                  onReport={id => { const p = posts.find(x=>x.id===id); setReportTarget({type:"post",id,snapshot:p?`${p.author}: ${p.content.slice(0,200)}`:undefined}); }}
                   onShare={id => openShareWithContent("post", id)}
                 />
               ))}
@@ -2498,7 +2532,7 @@ export default function Feed() {
                     onInterest={handleInterest} onMessage={() => navigate("/messages")}
                     onSave={handleSaveCollab} onDelete={handleDeleteCollab} onEdit={setEditingCollab}
                     onHide={handleHideCollab}
-                    onReport={id => setReportTarget({type:"collab",id})}
+                    onReport={id => { const c = collabs.find(x=>x.id===id); setReportTarget({type:"collab",id,snapshot:c?`${c.author}: ${c.title} — ${c.description.slice(0,200)}`:undefined}); }}
                     onShare={id => openShareWithContent("collab", id)}
                   />
                 ))}
@@ -2521,7 +2555,7 @@ export default function Feed() {
       {editingPost && <EditPostDialog post={editingPost} open={!!editingPost} onClose={() => setEditingPost(null)} onSave={handleEditPost} userId={user.id}/>}
       {editingCollab && <EditCollabDialog collab={editingCollab} open={!!editingCollab} onClose={() => setEditingCollab(null)} onSave={handleEditCollab}/>}
       {shareTarget && <ShareDialog onClose={() => setShareTarget(null)} link={shareLink} content={shareTarget.content}/>}
-      {reportTarget && <ReportDialog open={!!reportTarget} onClose={() => setReportTarget(null)} target={reportTarget.type==="post"?"this post":reportTarget.type==="collab"?"this collab":"this comment"} targetType={reportTarget.type} targetId={reportTarget.id}/>}
+      {reportTarget && <ReportDialog open={!!reportTarget} onClose={() => setReportTarget(null)} target={reportTarget.type==="post"?"this post":reportTarget.type==="collab"?"this collab":"this comment"} targetType={reportTarget.type} targetId={reportTarget.id} contentSnapshot={reportTarget.snapshot}/>}
 
     </Layout>
   );

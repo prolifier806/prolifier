@@ -1098,6 +1098,48 @@ export default function Profile() {
             </div>
           </div>
 
+          {/* Profile completion bar */}
+          {(() => {
+            const steps = [
+              { label: "Name",            done: !!user.name.trim() },
+              { label: "Profile picture", done: !!user.avatarUrl },
+              { label: "Skills",          done: user.skills.length > 0 },
+              { label: "Bio",             done: !!user.bio.trim() },
+            ];
+            const completed = steps.filter(s => s.done).length;
+            const pct = Math.round((completed / steps.length) * 100);
+            if (pct === 100) return (
+              <div className="mb-4 flex items-center gap-2 px-3 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 animate-in fade-in duration-500">
+                <span className="text-lg">🎉</span>
+                <div>
+                  <p className="text-xs font-semibold text-emerald-600">Profile 100% complete!</p>
+                  <p className="text-xs text-emerald-600/80">Your profile is fully set up.</p>
+                </div>
+              </div>
+            );
+            return (
+              <div className="mb-4">
+                <div className="flex items-center justify-between mb-1.5">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Profile completion</p>
+                  <span className="text-xs font-bold text-primary">{pct}%</span>
+                </div>
+                <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-primary rounded-full transition-all duration-500"
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+                <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1.5">
+                  {steps.map(s => (
+                    <span key={s.label} className={`text-[11px] flex items-center gap-1 ${s.done ? "text-emerald-600" : "text-muted-foreground"}`}>
+                      {s.done ? "✓" : "○"} {s.label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
+
           {/* About */}
           <div className="mb-4">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">About</p>
