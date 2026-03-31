@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import {
   Search, Send, ArrowLeft, Image, Video, Paperclip,
   X, Play, Pause, PenSquare, Mic, StopCircle, RefreshCw, Check, CheckCheck,
-  BellOff, Bell, Flag,
+  BellOff, Bell, Flag, Trash2,
 } from "lucide-react";
 import Layout from "@/components/Layout";
 import { toast } from "@/hooks/use-toast";
@@ -198,6 +198,9 @@ export default function Messages() {
   // Report modal state
   const [showReportModal, setShowReportModal] = useState(false);
   const [reportReason, setReportReason] = useState("spam");
+  // Delete chat confirmation
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletingChat, setDeletingChat] = useState(false);
 
   // Load both block directions + mutes on mount
   useEffect(() => {
@@ -250,6 +253,27 @@ export default function Messages() {
       toast({ title: "Report submitted", description: "Thank you — our team will review it." });
     } catch {
       toast({ title: "Failed to submit report", variant: "destructive" });
+    }
+  };
+
+  const handleDeleteChat = async () => {
+    if (!selectedId) return;
+    setDeletingChat(true);
+    try {
+      // Delete all messages where current user is sender OR receiver
+      await (supabase as any).from("messages").delete()
+        .or(`and(sender_id.eq.${user.id},receiver_id.eq.${selectedId}),and(sender_id.eq.${selectedId},receiver_id.eq.${user.id})`);
+      // Remove from conversations list and clear chat view
+      setConversations(prev => prev.filter(c => c.id !== selectedId));
+      setMessages([]);
+      setSelectedId(null);
+      setShowMobileChat(false);
+      setShowDeleteConfirm(false);
+      toast({ title: "Chat deleted" });
+    } catch (err: any) {
+      toast({ title: "Failed to delete chat", description: err.message, variant: "destructive" });
+    } finally {
+      setDeletingChat(false);
     }
   };
 
@@ -928,6 +952,13 @@ export default function Messages() {
                     >
                       <Flag className="h-4 w-4" />
                     </button>
+                    <button
+                      onClick={() => setShowDeleteConfirm(true)}
+                      title="Delete chat"
+                      className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-rose-500 transition-colors"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
                   </div>
                 )}
               </div>
@@ -1073,6 +1104,43 @@ export default function Messages() {
               </button>
               <button onClick={handleReport} className="flex-1 h-9 rounded-lg bg-rose-500 text-white text-sm font-semibold hover:bg-rose-600 transition-colors">
                 Submit report
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete chat confirmation */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => setShowDeleteConfirm(false)}>
+          <div className="bg-card rounded-2xl shadow-xl w-full max-w-sm p-6" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-3">
+              <div className="h-10 w-10 rounded-full bg-rose-100 dark:bg-rose-950/40 flex items-center justify-center shrink-0">
+                <Trash2 className="h-5 w-5 text-rose-500" />
+              </div>
+              <div>
+                <h2 className="text-base font-bold text-foreground">Delete chat?</h2>
+                <p className="text-xs text-muted-foreground">With {selectedConvo?.name}</p>
+              </div>
+            </div>
+            <p className="text-sm text-muted-foreground mb-5">
+              This will permanently delete all messages in this conversation for both sides. This cannot be undone.
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="flex-1 h-9 rounded-lg border border-border text-sm font-medium text-muted-foreground hover:bg-muted transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteChat}
+                disabled={deletingChat}
+                className="flex-1 h-9 rounded-lg bg-rose-500 text-white text-sm font-semibold hover:bg-rose-600 transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
+              >
+                {deletingChat
+                  ? <><div className="h-3.5 w-3.5 rounded-full border-2 border-white border-t-transparent animate-spin" /> Deleting…</>
+                  : "Delete chat"}
               </button>
             </div>
           </div>
