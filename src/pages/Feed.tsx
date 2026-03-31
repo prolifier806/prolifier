@@ -2046,14 +2046,21 @@ export default function Feed() {
           action: `collab:${collab.id}`,
           actorId: user.id,
         });
-        // Silently send a default message — no redirect, no UI change
-        const interestText = `Hi! I'm interested in your collab "${collab.title}" 🤝`;
+        // Silently send as a shared_post card so both sides see the collab
+        // and can tap it to navigate to the post. No redirect for the sender.
+        const sharePayload = JSON.stringify({
+          type: "collab",
+          id: collab.id,
+          title: collab.title,
+          caption: `Hi! I'm interested in your collab "${collab.title}" 🤝`,
+          image: collab.image || null,
+        });
         (supabase as any).from("messages").insert({
           sender_id: user.id,
           receiver_id: collab.user_id,
-          text: interestText,
+          text: sharePayload,
           media_url: null,
-          media_type: null,
+          media_type: "shared_post",
           read: false,
         }).then(() => {});
       }
