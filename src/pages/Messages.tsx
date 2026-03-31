@@ -260,6 +260,23 @@ export default function Messages() {
     }
   };
 
+  // ── Helpers for persisting deleted chats across refreshes ──────────────
+  const HIDDEN_KEY = `hidden_chats_${user.id}`;
+  const getHiddenIds = (): Set<string> => {
+    try { return new Set(JSON.parse(localStorage.getItem(HIDDEN_KEY) || "[]")); }
+    catch { return new Set(); }
+  };
+  const addHiddenId = (otherId: string) => {
+    const ids = getHiddenIds();
+    ids.add(otherId);
+    localStorage.setItem(HIDDEN_KEY, JSON.stringify([...ids]));
+  };
+  const removeHiddenId = (otherId: string) => {
+    const ids = getHiddenIds();
+    ids.delete(otherId);
+    localStorage.setItem(HIDDEN_KEY, JSON.stringify([...ids]));
+  };
+
   const handleDeleteChat = async () => {
     if (!selectedId) return;
     setDeletingChat(true);
@@ -267,10 +284,12 @@ export default function Messages() {
       // Delete messages where I am the sender (RLS allows this)
       await (supabase as any).from("messages").delete()
         .eq("sender_id", user.id).eq("receiver_id", selectedId);
-      // Record the hidden conversation so fetchConversations filters it out on refresh
-      // even if the other person's messages still exist in the DB
-      await (supabase as any).from("hidden_conversations")
-        .upsert({ user_id: user.id, other_id: selectedId }, { onConflict: "user_id,other_id" });
+      // Persist hidden state in localStorage — survives refresh without DB table
+      addHiddenId(selectedId);
+      // Also try DB table if it exists (best-effort)
+      (supabase as any).from("hidden_conversations")
+        .upsert({ user_id: user.id, other_id: selectedId }, { onConflict: "user_id,other_id" })
+        .then(() => {});
       // Remove from conversations list and clear chat view
       setConversations(prev => prev.filter(c => c.id !== selectedId));
       setMessages([]);
@@ -376,15 +395,16 @@ export default function Messages() {
         }
       });
 
-      // Filter out conversations the user has hidden (deleted)
-      let hiddenIds = new Set<string>();
+      // Filter out conversations the user has deleted — localStorage is the
+      // primary source (always works); DB table is best-effort bonus.
+      const hiddenIds = getHiddenIds();
       try {
         const { data: hiddenData } = await (supabase as any)
           .from("hidden_conversations")
           .select("other_id")
           .eq("user_id", user.id);
-        hiddenIds = new Set((hiddenData || []).map((h: any) => h.other_id));
-      } catch { /* table may not exist yet — show all */ }
+        (hiddenData || []).forEach((h: any) => hiddenIds.add(h.other_id));
+      } catch { /* table may not exist — localStorage already covers this */ }
 
       setConversations(convList.filter(c => !hiddenIds.has(c.id)));
 
@@ -535,7 +555,8 @@ export default function Messages() {
         // Drop realtime messages if I have blocked the sender
         if (blockedByMeRef.current.has(row.sender_id)) return;
         const senderMuted = mutedByMeRef.current.has(row.sender_id);
-        // If I had hidden this conversation, remove the hidden record so it reappears
+        // If I had hidden this conversation, unhide it so it reappears with the new message
+        removeHiddenId(row.sender_id);
         (supabase as any).from("hidden_conversations")
           .delete().eq("user_id", user.id).eq("other_id", row.sender_id)
           .then(() => {});
@@ -844,13 +865,15 @@ export default function Messages() {
           {m.reply_to_text && (
             <div className={`px-3 py-2 rounded-lg border-l-[3px] mb-1 ${
               isMe
-                ? "bg-white/20 border-white text-white"
-                : "bg-secondary border-primary text-foreground"
+                ? "bg-black/30 border-white/90"
+                : "bg-black/8 border-primary bg-muted"
             }`}>
-              <p className="text-[10px] font-bold uppercase tracking-wide opacity-60 mb-0.5">
+              <p className={`text-[10px] font-bold uppercase tracking-wide mb-0.5 ${isMe ? "text-white/70" : "text-primary"}`}>
                 {isMe ? "You replied" : "Reply"}
               </p>
-              <p className="text-xs font-medium truncate leading-snug">{m.reply_to_text}</p>
+              <p className={`text-xs font-semibold truncate leading-snug ${isMe ? "text-white" : "text-foreground"}`}>
+                {m.reply_to_text}
+              </p>
             </div>
           )}
 
