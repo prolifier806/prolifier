@@ -225,7 +225,7 @@ export default function Groups() {
       }
     } catch (err) {
       console.error("fetchGroups:", err);
-      toast({ title: "Failed to load groups", variant: "destructive" });
+      toast({ title: "Failed to load communities", variant: "destructive" });
     } finally {
       setLoadingGroups(false);
     }
@@ -401,7 +401,7 @@ export default function Groups() {
     const g = groups.find(x => x.id === groupId);
     if (!g) return;
     if (!isCurrentlyJoined && g.visibility === "private") {
-      toast({ title: "Private group", description: "You need an invite to join." });
+      toast({ title: "Private community", description: "You need an invite to join." });
       return;
     }
     // Optimistic update
@@ -609,7 +609,7 @@ export default function Groups() {
       setJoinedIds(prev => { const s = new Set(prev); s.delete(activeGroup.id); return s; });
       setView("list");
       setActiveGroup(null);
-      toast({ title: "Group deleted" });
+      toast({ title: "Community deleted" });
     } catch {
       toast({ title: "Delete failed", variant: "destructive" });
     }
@@ -624,7 +624,7 @@ export default function Groups() {
     setEditingGroup(false);
     try {
       await (supabase as any).from("groups").update({ description: editDesc, bio: editBio }).eq("id", activeGroup.id);
-      toast({ title: "Group updated ✓" });
+      toast({ title: "Community updated ✓" });
     } catch {
       setActiveGroup(activeGroup);
       toast({ title: "Update failed", variant: "destructive" });
@@ -655,7 +655,7 @@ export default function Groups() {
       openGroup(data);
     } catch (err) {
       console.error(err);
-      toast({ title: "Failed to create group", variant: "destructive" });
+      toast({ title: "Failed to create community", variant: "destructive" });
     } finally {
       setCreating(false);
     }
@@ -795,10 +795,10 @@ export default function Groups() {
           <button onClick={() => setView("list")} className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-6">
             <ArrowLeft className="h-4 w-4" /> Back
           </button>
-          <h1 className="text-xl font-bold mb-6">Create a Group</h1>
+          <h1 className="text-xl font-bold mb-6">Create a Community</h1>
           <div className="space-y-5">
             <div>
-              <label className="text-sm font-medium block mb-2">Group icon</label>
+              <label className="text-sm font-medium block mb-2">Community icon</label>
               <div className="flex flex-wrap gap-2">
                 {EMOJIS.map(e => (
                   <button key={e} onClick={() => setNewEmoji(e)}
@@ -809,7 +809,7 @@ export default function Groups() {
               </div>
             </div>
             <div>
-              <label className="text-sm font-medium block mb-1.5">Group name <span className="text-destructive">*</span></label>
+              <label className="text-sm font-medium block mb-1.5">Community name <span className="text-destructive">*</span></label>
               <Input value={newName} onChange={e => setNewName(e.target.value)} placeholder="e.g. AI Builders, Design Crew…" className="h-11" />
             </div>
             <div>
@@ -833,7 +833,7 @@ export default function Groups() {
                 <div className="flex items-center gap-2.5">
                   {newPrivate ? <Lock className="h-4 w-4 text-muted-foreground" /> : <Globe className="h-4 w-4 text-muted-foreground" />}
                   <div>
-                    <p className="text-sm font-medium">{newPrivate ? "Private group" : "Public group"}</p>
+                    <p className="text-sm font-medium">{newPrivate ? "Private community" : "Public community"}</p>
                     <p className="text-xs text-muted-foreground mt-0.5">{newPrivate ? "Only invited members can join" : "Anyone can discover and join"}</p>
                   </div>
                 </div>
@@ -841,7 +841,7 @@ export default function Groups() {
               </div>
             </div>
             <Button onClick={createGroup} disabled={!newName.trim() || creating} className="w-full h-11 font-semibold gap-2">
-              {creating ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Create Group
+              {creating ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Create Community
             </Button>
           </div>
         </div>
@@ -860,7 +860,7 @@ export default function Groups() {
             className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-6">
             <ArrowLeft className="h-4 w-4" /> Back to chat
           </button>
-          <h2 className="text-lg font-bold mb-5">Group Settings</h2>
+          <h2 className="text-lg font-bold mb-5">Community Settings</h2>
 
           <div className="space-y-3">
             {/* Group info */}
@@ -1108,21 +1108,21 @@ export default function Groups() {
     <Layout>
       <div className="max-w-4xl mx-auto px-4 py-6">
         <div className="flex items-center justify-between mb-6">
-          <h1 className="font-display text-2xl font-bold">Groups</h1>
+          <h1 className="font-display text-2xl font-bold">Communities</h1>
           <div className="flex items-center gap-2">
             <button onClick={fetchGroups} title="Refresh"
               className="h-9 w-9 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors">
               <RefreshCw className={`h-4 w-4 ${loadingGroups ? "animate-spin" : ""}`} />
             </button>
             <Button size="sm" className="gap-1.5" onClick={() => setView("create")}>
-              <Plus className="h-4 w-4" /> Create Group
+              <Plus className="h-4 w-4" /> Create Community
             </Button>
           </div>
         </div>
 
         <div className="relative mb-4">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Search groups..." value={search} onChange={e => setSearch(e.target.value)} className="pl-10 h-11" />
+          <Input placeholder="Search communities..." value={search} onChange={e => setSearch(e.target.value)} className="pl-10 h-11" />
         </div>
 
         <div className="flex gap-2 flex-wrap mb-4">
@@ -1132,7 +1132,7 @@ export default function Groups() {
         </div>
 
         <div className="flex gap-2 mb-6">
-          <Badge variant={filter === "all" ? "default" : "outline"} className="cursor-pointer" onClick={() => setFilter("all")}>All Groups</Badge>
+          <Badge variant={filter === "all" ? "default" : "outline"} className="cursor-pointer" onClick={() => setFilter("all")}>All Communities</Badge>
           <Badge variant={filter === "joined" ? "default" : "outline"} className="cursor-pointer" onClick={() => setFilter("joined")}>
             Joined ({groups.filter(g => joinedIds.has(g.id) || g.owner_id === user.id).length})
           </Badge>

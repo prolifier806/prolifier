@@ -384,6 +384,28 @@ export function UserProvider({ children }: { children: ReactNode }) {
     };
   }, [authUser?.id]);
 
+  // Realtime ban watch — detect account_status changes without refresh
+  useEffect(() => {
+    if (!authUser?.id) return;
+    const channel = supabase
+      .channel(`ban-watch-${authUser.id}`)
+      .on("postgres_changes", {
+        event: "UPDATE", schema: "public", table: "profiles",
+        filter: `id=eq.${authUser.id}`,
+      }, (payload) => {
+        const row = payload.new as any;
+        if (row.account_status === "banned") {
+          setUser(prev => ({ ...prev, accountStatus: "banned" }));
+        }
+        // Also pick up role changes (verified tick without refresh)
+        if (row.role && row.role !== user.role) {
+          setUser(prev => ({ ...prev, role: row.role }));
+        }
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [authUser?.id]);
+
   const updateUser = async (patch: Partial<CurrentUser>) => {
     if (!authUser) return;
     const now = new Date().toISOString();

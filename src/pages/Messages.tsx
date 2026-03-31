@@ -24,6 +24,7 @@ type Conversation = {
   lastMsg: string;
   lastTime: string;
   unread: number;
+  role?: string;
 };
 
 type Message = {
@@ -389,7 +390,7 @@ export default function Messages() {
 
       const [profilesRes, withProfileRes] = await Promise.all([
         convList.length > 0
-          ? (supabase as any).from("profiles").select("id, name, avatar_url, color").in("id", convList.map(c => c.id))
+          ? (supabase as any).from("profiles").select("id, name, avatar_url, color, role").in("id", convList.map(c => c.id))
           : Promise.resolve({ data: [] }),
         needWithProfile
           ? (supabase as any).from("profiles").select("name, avatar_url, color").eq("id", withId).single()
@@ -400,7 +401,7 @@ export default function Messages() {
       (profilesRes.data || []).forEach((p: any) => { profileMap[p.id] = p; });
       convList.forEach(c => {
         const p = profileMap[c.id];
-        if (p) { c.name = p.name; c.avatar = initials(p.name); c.avatarUrl = p.avatar_url || undefined; c.color = p.color || "bg-primary"; }
+        if (p) { c.name = p.name; c.avatar = initials(p.name); c.avatarUrl = p.avatar_url || undefined; c.color = p.color || "bg-primary"; c.role = p.role || "user"; }
       });
 
       // Fetch block state to anonymize blocked conversations
@@ -678,9 +679,11 @@ export default function Messages() {
   );
 
   useEffect(() => {
-    // Use rAF so the DOM has painted the new messages before we scroll
+    // Double-rAF: first frame commits layout, second frame scrolls after paint
     const id = requestAnimationFrame(() => {
-      bottomRef.current?.scrollIntoView({ behavior: scrollBehaviorRef.current });
+      requestAnimationFrame(() => {
+        bottomRef.current?.scrollIntoView({ behavior: scrollBehaviorRef.current });
+      });
     });
     return () => cancelAnimationFrame(id);
   }, [messages]);
@@ -1073,7 +1076,14 @@ export default function Messages() {
                 </div>
                 <div className="flex-1 min-w-0 text-left">
                   <div className="flex items-center justify-between">
-                    <p className={`text-sm truncate ${c.unread > 0 ? "font-semibold" : "font-medium"}`}>{c.name}</p>
+                    <p className={`inline-flex items-center gap-1 text-sm truncate ${c.unread > 0 ? "font-semibold" : "font-medium"}`}>
+                      {c.name}
+                      {c.role === "admin" && (
+                        <span title="Verified" className="shrink-0 h-3.5 w-3.5 rounded-full bg-blue-500 inline-flex items-center justify-center">
+                          <Check className="h-2 w-2 text-white stroke-[3]" />
+                        </span>
+                      )}
+                    </p>
                     <span className="text-xs text-muted-foreground shrink-0 ml-2">{c.lastTime}</span>
                   </div>
                   <p className="text-xs text-muted-foreground truncate mt-0.5">{c.lastMsg}</p>
@@ -1115,8 +1125,13 @@ export default function Messages() {
                         : <span className="text-white">{selectedConvo.avatar}</span>}
                   </div>
                   <div className="min-w-0">
-                    <p className="font-semibold text-sm text-foreground truncate">
+                    <p className="inline-flex items-center gap-1 font-semibold text-sm text-foreground truncate">
                       {theyBlockedMe ? "Prolifier User" : selectedConvo.name}
+                      {!theyBlockedMe && selectedConvo.role === "admin" && (
+                        <span title="Verified" className="shrink-0 h-4 w-4 rounded-full bg-blue-500 inline-flex items-center justify-center">
+                          <Check className="h-2.5 w-2.5 text-white stroke-[3]" />
+                        </span>
+                      )}
                     </p>
                     {!theyBlockedMe && <p className="text-xs text-muted-foreground">Tap to view profile</p>}
                   </div>

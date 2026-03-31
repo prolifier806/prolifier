@@ -71,14 +71,8 @@ const SuspendedScreen = () => {
         </div>
         <h1 className="text-xl font-bold text-foreground">Account Suspended</h1>
         <p className="text-sm text-muted-foreground leading-relaxed">
-          Your account has been suspended. Please contact customer support for assistance.
+          Your account has been suspended. Kindly contact us at prolifiersupport@gmail.com
         </p>
-        <a
-          href="mailto:prolifiersupport@gmail.com"
-          className="inline-block w-full py-2.5 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition-opacity"
-        >
-          Contact Support
-        </a>
         <button
           onClick={async () => { await signOut(); }}
           className="block w-full text-xs text-muted-foreground hover:text-foreground transition-colors pt-1"

@@ -9,7 +9,7 @@ const NAV_PATHS = [
   { to: "/feed",          icon: Home,          label: "Feed"          },
   { to: "/discover",      icon: Search,        label: "Discover"      },
   { to: "/messages",      icon: MessageCircle, label: "Messages"      },
-  { to: "/groups",        icon: Users,         label: "Groups"        },
+  { to: "/groups",        icon: Users,         label: "Communities"   },
   { to: "/notifications", icon: Bell,          label: "Notifications" },
 ];
 

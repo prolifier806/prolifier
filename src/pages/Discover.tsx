@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, MapPin, UserPlus, Check, X, UserCheck, ShieldOff } from "lucide-react";
+import { Search, MapPin, UserPlus, Check, X, UserCheck, ShieldOff, BadgeCheck } from "lucide-react";
 import Layout from "@/components/Layout";
 import { toast } from "@/hooks/use-toast";
 import { useUser } from "@/context/UserContext";
@@ -26,6 +26,7 @@ type Profile = {
   project: string;
   skills: string[];
   openToCollab: boolean;
+  role?: string;
 };
 
 type Request = {
@@ -115,7 +116,7 @@ export default function Discover() {
     try {
       let query = (supabase as any)
         .from("profiles")
-        .select("id, name, avatar, avatar_url, color, location, bio, project, skills, open_to_collab, created_at")
+        .select("id, name, avatar, avatar_url, color, location, bio, project, skills, open_to_collab, created_at, role")
         .neq("id", user.id)
         .is("deleted_at", null)
         .eq("profile_complete", true)
@@ -166,6 +167,7 @@ export default function Discover() {
         project: p.project || "",
         skills: p.skills || [],
         openToCollab: p.open_to_collab ?? true,
+        role: p.role || "user",
       }));
 
       // Only hide users who have blocked ME — I should still see people I blocked
@@ -469,9 +471,14 @@ export default function Discover() {
                           <div className="flex items-center gap-2 flex-wrap">
                             <button
                               onClick={() => navigate(`/profile/${p.id}`)}
-                              className="font-semibold text-foreground hover:underline text-left text-sm"
+                              className="inline-flex items-center gap-1 font-semibold text-foreground hover:underline text-left text-sm"
                             >
                               {p.name}
+                              {p.role === "admin" && (
+                                <span title="Verified" className="shrink-0 h-4 w-4 rounded-full bg-blue-500 inline-flex items-center justify-center">
+                                  <Check className="h-2.5 w-2.5 text-white stroke-[3]" />
+                                </span>
+                              )}
                             </button>
                             <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full border ${
                               p.openToCollab
