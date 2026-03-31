@@ -1,24 +1,23 @@
--- Migration 023 — Reports: admin visibility + reporter/content details
---
--- Problem: the reports table has no SELECT policy for admins, so you can
--- only see reports through the Supabase dashboard with the service role.
--- This migration:
---   1. Adds a reporter_name computed view so you can see WHO reported WHAT.
---   2. Adds an admin SELECT policy so profiles with role='admin' can read all reports.
---   3. Adds a content_snapshot text column so the reported text is stored at
---      report time (content may be deleted later, making investigation impossible).
+-- Migration 023 — Reports: add missing columns + admin visibility
+-- Works regardless of which columns already exist in the live reports table.
 
--- Add missing columns (safe if they already exist)
+-- Core columns that may be missing
 alter table public.reports
-  add column if not exists status text not null default 'pending';
-
+  add column if not exists status        text    not null default 'pending';
+alter table public.reports
+  add column if not exists content_type  text;
+alter table public.reports
+  add column if not exists content_id    uuid;
+alter table public.reports
+  add column if not exists reported_id   uuid;
+alter table public.reports
+  add column if not exists details       text;
 alter table public.reports
   add column if not exists content_snapshot text;
-
 alter table public.reports
   add column if not exists reporter_name text;
 
--- Allow admins (role='admin') to read all reports
+-- Admin SELECT policy
 drop policy if exists "Admins can view all reports" on public.reports;
 create policy "Admins can view all reports"
   on public.reports for select
@@ -30,22 +29,25 @@ create policy "Admins can view all reports"
     )
   );
 
--- Convenience view for the Supabase dashboard / admin queries
--- Shows all report info joined with reporter and target profile names
+-- Admin convenience view — uses coalesce so it works whether the table
+-- uses content_id (post/comment reports) or reported_id (user reports)
 create or replace view public.reports_admin_view as
 select
   r.id,
   r.created_at,
   r.status,
-  r.content_type,
-  r.content_id,
   r.reason,
   r.details,
   r.content_snapshot,
-  rp.name  as reporter_name,
-  r.reporter_id
+  r.content_type,
+  r.content_id,
+  r.reported_id,
+  r.reporter_id,
+  r.reporter_name,
+  rp.name  as reporter_display_name,
+  tp.name  as reported_user_name
 from public.reports r
-left join public.profiles rp on rp.id = r.reporter_id;
+left join public.profiles rp on rp.id = r.reporter_id
+left join public.profiles tp on tp.id = r.reported_id;
 
--- Grant admin access to the view
 grant select on public.reports_admin_view to authenticated;
