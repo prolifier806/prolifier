@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import {
   Search, Send, ArrowLeft, Image, Video, Paperclip,
   X, Play, Pause, PenSquare, Mic, StopCircle, RefreshCw, Check, CheckCheck,
-  BellOff, Bell, Flag, Trash2,
+  BellOff, Bell, Flag, Trash2, Reply,
 } from "lucide-react";
 import Layout from "@/components/Layout";
 import { toast } from "@/hooks/use-toast";
@@ -33,6 +33,8 @@ type Message = {
   media_type: string | null;
   created_at: string;
   read: boolean;
+  reply_to_id: string | null;
+  reply_to_text: string | null;
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -201,6 +203,8 @@ export default function Messages() {
   // Delete chat confirmation
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingChat, setDeletingChat] = useState(false);
+  // Reply-to state
+  const [replyTo, setReplyTo] = useState<{ id: string; text: string } | null>(null);
 
   // Load both block directions + mutes on mount
   useEffect(() => {
@@ -260,9 +264,13 @@ export default function Messages() {
     if (!selectedId) return;
     setDeletingChat(true);
     try {
-      // Delete all messages where current user is sender OR receiver
+      // Delete messages where I am the sender (RLS allows this)
       await (supabase as any).from("messages").delete()
-        .or(`and(sender_id.eq.${user.id},receiver_id.eq.${selectedId}),and(sender_id.eq.${selectedId},receiver_id.eq.${user.id})`);
+        .eq("sender_id", user.id).eq("receiver_id", selectedId);
+      // Record the hidden conversation so fetchConversations filters it out on refresh
+      // even if the other person's messages still exist in the DB
+      await (supabase as any).from("hidden_conversations")
+        .upsert({ user_id: user.id, other_id: selectedId }, { onConflict: "user_id,other_id" });
       // Remove from conversations list and clear chat view
       setConversations(prev => prev.filter(c => c.id !== selectedId));
       setMessages([]);
@@ -367,7 +375,18 @@ export default function Messages() {
           c.color = "bg-muted";
         }
       });
-      setConversations(convList);
+
+      // Filter out conversations the user has hidden (deleted)
+      let hiddenIds = new Set<string>();
+      try {
+        const { data: hiddenData } = await (supabase as any)
+          .from("hidden_conversations")
+          .select("other_id")
+          .eq("user_id", user.id);
+        hiddenIds = new Set((hiddenData || []).map((h: any) => h.other_id));
+      } catch { /* table may not exist yet — show all */ }
+
+      setConversations(convList.filter(c => !hiddenIds.has(c.id)));
 
       if (withId) {
         // If not in list yet, add a placeholder so it can be selected
@@ -388,7 +407,7 @@ export default function Messages() {
         setLoadingMsgs(true);
         const { data: msgs } = await (supabase as any)
           .from("messages")
-          .select("id, sender_id, text, media_url, media_type, created_at, read")
+          .select("id, sender_id, text, media_url, media_type, created_at, read, reply_to_id, reply_to_text")
           .or(`and(sender_id.eq.${user.id},receiver_id.eq.${withId}),and(sender_id.eq.${withId},receiver_id.eq.${user.id})`)
           .order("created_at", { ascending: false })
           .limit(MSG_PAGE);
@@ -427,7 +446,7 @@ export default function Messages() {
       // Fetch the 50 most recent messages — descending then reverse in state
       const { data, error } = await (supabase as any)
         .from("messages")
-        .select("id, sender_id, text, media_url, media_type, created_at, read")
+        .select("id, sender_id, text, media_url, media_type, created_at, read, reply_to_id, reply_to_text")
         .or(`and(sender_id.eq.${user.id},receiver_id.eq.${otherId}),and(sender_id.eq.${otherId},receiver_id.eq.${user.id})`)
         .order("created_at", { ascending: false })
         .limit(MSG_PAGE);
@@ -480,7 +499,7 @@ export default function Messages() {
     try {
       const { data, error } = await (supabase as any)
         .from("messages")
-        .select("id, sender_id, text, media_url, media_type, created_at, read")
+        .select("id, sender_id, text, media_url, media_type, created_at, read, reply_to_id, reply_to_text")
         .or(`and(sender_id.eq.${user.id},receiver_id.eq.${otherId}),and(sender_id.eq.${otherId},receiver_id.eq.${user.id})`)
         .lt("created_at", oldestMsgCursorRef.current)
         .order("created_at", { ascending: false })
@@ -516,12 +535,18 @@ export default function Messages() {
         // Drop realtime messages if I have blocked the sender
         if (blockedByMeRef.current.has(row.sender_id)) return;
         const senderMuted = mutedByMeRef.current.has(row.sender_id);
+        // If I had hidden this conversation, remove the hidden record so it reappears
+        (supabase as any).from("hidden_conversations")
+          .delete().eq("user_id", user.id).eq("other_id", row.sender_id)
+          .then(() => {});
         if (row.sender_id === selectedIdRef.current) {
           scrollBehaviorRef.current = "smooth";
           setMessages(prev => [...prev, {
             id: row.id, sender_id: row.sender_id, text: row.text,
             media_url: row.media_url, media_type: row.media_type,
             created_at: row.created_at, read: false,
+            reply_to_id: row.reply_to_id || null,
+            reply_to_text: row.reply_to_text || null,
           }]);
           await (supabase as any).from("messages").update({ read: true }).eq("id", row.id);
         } else {
@@ -557,6 +582,7 @@ export default function Messages() {
   const selectConvo = (otherId: string) => {
     setSelectedId(otherId);
     setShowMobileChat(true);
+    setReplyTo(null);
     fetchMessages(otherId);
     setTimeout(() => inputRef.current?.focus(), 150);
   };
@@ -565,6 +591,7 @@ export default function Messages() {
   const sendMessage = async (text?: string, mediaUrl?: string, mediaType?: string) => {
     const trimmed = text?.trim();
     if ((!trimmed && !mediaUrl) || !selectedId || sending) return;
+    const replySnapshot = replyTo ? { reply_to_id: replyTo.id, reply_to_text: replyTo.text } : {};
     // Don't allow sending when any block is active (either direction)
     if (blockedByMe.has(selectedId) || blockedByThem.has(selectedId)) return;
     setSending(true);
@@ -598,10 +625,13 @@ export default function Messages() {
       id: tempId, sender_id: user.id, text: trimmed || null,
       media_url: mediaUrl || null, media_type: mediaType || null,
       created_at: new Date().toISOString(), read: false,
+      reply_to_id: replyTo?.id || null,
+      reply_to_text: replyTo?.text || null,
     };
     scrollBehaviorRef.current = "smooth";
     setMessages(prev => [...prev, optimistic]);
     setMsg("");
+    setReplyTo(null);
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
 
     const { data, error } = await (supabase as any).from("messages").insert({
@@ -610,6 +640,7 @@ export default function Messages() {
       text: trimmed || null,
       media_url: mediaUrl || null,
       media_type: mediaType || null,
+      ...replySnapshot,
     }).select().single();
 
     if (error) {
@@ -712,6 +743,16 @@ export default function Messages() {
     (!newConvoSearch || u.name.toLowerCase().includes(newConvoSearch.toLowerCase()))
   );
 
+  // Get a short label for quoting a message
+  const quoteLabel = (m: Message): string => {
+    if (m.media_type === "image") return "📷 Image";
+    if (m.media_type === "video") return "🎥 Video";
+    if (m.media_type === "audio") return "🎤 Voice message";
+    if (m.media_type === "file") return `📎 ${m.text || "File"}`;
+    if (m.media_type === "shared_post") return "📌 Shared post";
+    return m.text?.slice(0, 80) || "";
+  };
+
   const downloadFile = async (url: string, filename: string) => {
     try {
       const res = await fetch(url);
@@ -775,8 +816,25 @@ export default function Messages() {
     }
 
     return (
-      <div key={m.id} className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
+      <div key={m.id} className={`group flex items-end gap-1.5 ${isMe ? "justify-end" : "justify-start"}`}>
+        {/* Reply button — other person's messages, left side */}
+        {!isMe && (
+          <button
+            onClick={() => { setReplyTo({ id: m.id, text: quoteLabel(m) }); setTimeout(() => inputRef.current?.focus(), 50); }}
+            className="h-6 w-6 rounded-full flex items-center justify-center text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-muted transition-all shrink-0 mb-5"
+          >
+            <Reply className="h-3.5 w-3.5" />
+          </button>
+        )}
+
         <div className="flex flex-col gap-0.5 max-w-[75%]">
+          {/* Quoted reply bubble */}
+          {m.reply_to_text && (
+            <div className={`px-3 py-1.5 rounded-xl text-xs border-l-2 mb-0.5 ${isMe ? "bg-primary/20 border-primary/60 text-primary-foreground/80" : "bg-muted border-border text-muted-foreground"}`}>
+              <p className="truncate">{m.reply_to_text}</p>
+            </div>
+          )}
+
           {m.text && !m.media_type && (
             <div className={`px-4 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap break-words ${isMe ? "bg-primary text-primary-foreground rounded-br-md" : "bg-secondary text-secondary-foreground rounded-bl-md"}`}>
               {renderTextWithLinks(m.text, isMe)}
@@ -808,6 +866,16 @@ export default function Messages() {
             )}
           </div>
         </div>
+
+        {/* Reply button — my messages, right side */}
+        {isMe && (
+          <button
+            onClick={() => { setReplyTo({ id: m.id, text: quoteLabel(m) }); setTimeout(() => inputRef.current?.focus(), 50); }}
+            className="h-6 w-6 rounded-full flex items-center justify-center text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-muted transition-all shrink-0 mb-5"
+          >
+            <Reply className="h-3.5 w-3.5 scale-x-[-1]" />
+          </button>
+        )}
       </div>
     );
   };
@@ -1026,6 +1094,19 @@ export default function Messages() {
               {theyBlockedMe && (
                 <div className="p-4 border-t border-border shrink-0 flex items-center justify-center bg-muted/40">
                   <p className="text-sm text-muted-foreground">You can't reply to this conversation.</p>
+                </div>
+              )}
+
+              {/* Reply preview bar */}
+              {replyTo && !isBlocked && (
+                <div className="px-4 py-2 border-t border-border bg-muted/40 flex items-center gap-2 shrink-0">
+                  <Reply className="h-3.5 w-3.5 text-primary shrink-0" />
+                  <p className="flex-1 text-xs text-muted-foreground truncate">
+                    <span className="font-medium text-foreground">Replying: </span>{replyTo.text}
+                  </p>
+                  <button onClick={() => setReplyTo(null)} className="h-5 w-5 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0">
+                    <X className="h-3 w-3" />
+                  </button>
                 </div>
               )}
 
