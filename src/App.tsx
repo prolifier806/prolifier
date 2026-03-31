@@ -59,12 +59,44 @@ const PageLoader = () => (
   </div>
 );
 
+const SuspendedScreen = () => {
+  const { signOut } = useUser();
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-background px-4">
+      <div className="max-w-sm w-full text-center space-y-4">
+        <div className="h-16 w-16 rounded-full bg-destructive/10 flex items-center justify-center mx-auto">
+          <svg className="h-8 w-8 text-destructive" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+          </svg>
+        </div>
+        <h1 className="text-xl font-bold text-foreground">Account Suspended</h1>
+        <p className="text-sm text-muted-foreground leading-relaxed">
+          Your account has been suspended. Please contact customer support for assistance.
+        </p>
+        <a
+          href="mailto:prolifiersupport@gmail.com"
+          className="inline-block w-full py-2.5 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition-opacity"
+        >
+          Contact Support
+        </a>
+        <button
+          onClick={async () => { await signOut(); }}
+          className="block w-full text-xs text-muted-foreground hover:text-foreground transition-colors pt-1"
+        >
+          Sign out
+        </button>
+      </div>
+    </div>
+  );
+};
+
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { session, loading, user } = useUser();
   // Also hold the loader while session is set but user data hasn't populated yet
   if (loading || (session && !user.id)) return <PageLoader />;
   if (!session) return <Navigate to="/" replace />;
   if (user.deletedAt) return <Navigate to="/recover" replace />;
+  if (user.accountStatus === "banned") return <SuspendedScreen />;
   return <>{children}</>;
 }
 
@@ -90,8 +122,9 @@ function SetupRoute({ children }: { children: React.ReactNode }) {
 
 // Redirects already-authenticated users away from auth pages
 function AuthRoute({ children }: { children: React.ReactNode }) {
-  const { session, loading, profileComplete } = useUser();
+  const { session, loading, profileComplete, user } = useUser();
   if (loading) return <PageLoader />;
+  if (session && user.id && user.accountStatus === "banned") return <SuspendedScreen />;
   if (session) return <Navigate to={profileComplete ? "/feed" : "/setup"} replace />;
   return <>{children}</>;
 }

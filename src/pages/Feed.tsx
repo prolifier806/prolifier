@@ -2022,11 +2022,12 @@ export default function Feed() {
         avatarUrl: user.avatarUrl || undefined,
         avatarColor: user.color, location: user.location,
         authorSkills: user.skills?.slice(0, 3) || [],
-        authorDeleted: false,
+        authorDeleted: false, authorRole: user.role,
         tag: postDialog.tag, time: "Just now",
         content: postDialog.content, images: postDialog.images, video: postDialog.video,
         likes: 0, commentCount: 0, isOwn: true, comments: [],
       }, ...p]);
+      setActiveTab("feed");
       setPostDialog({ open: false, content: "", tag: "General", images: [], video: undefined, uploading: false, publishing: false });
       toast({ title: "Post published! 🎉" });
     } finally {
@@ -2158,11 +2159,12 @@ export default function Feed() {
         avatarUrl: user.avatarUrl || undefined,
         avatarColor: user.color, location: user.location,
         authorSkills: user.skills?.slice(0, 3) || [],
-        authorDeleted: false,
+        authorDeleted: false, authorRole: user.role,
         title: collabDialog.title,
         looking: collabDialog.looking, description: collabDialog.desc, skills: collabDialog.skills,
         image: collabDialog.image, video: collabDialog.video, isOwn: true,
       }, ...p]);
+      setActiveTab("collabs");
       setCollabDialog({ open: false, title: "", looking: "", desc: "", skills: [], image: undefined, video: undefined, uploading: false, publishing: false, customSkillInput: "" });
       toast({ title: "Collab posted! 🤝" });
     } finally {

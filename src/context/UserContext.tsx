@@ -22,6 +22,7 @@ export type CurrentUser = {
   lookingFor: string[];
   roles: string[];
   role: string;
+  accountStatus: string;
   github: string;
   website: string;
   twitter: string;
@@ -47,6 +48,7 @@ const DEFAULT_USER: CurrentUser = {
   lookingFor: [],
   roles: [],
   role: "user",
+  accountStatus: "active",
   github: "",
   website: "",
   twitter: "",
@@ -139,6 +141,7 @@ function profileFromRow(userId: string, email: string, row: any): CurrentUser {
     lookingFor: row.looking_for || [],
     roles: row.roles || [],
     role: row.role || "user",
+    accountStatus: row.account_status || "active",
     github: row.github || "",
     website: row.website || "",
     twitter: row.twitter || "",
@@ -408,7 +411,9 @@ export function UserProvider({ children }: { children: ReactNode }) {
       ...(nameChanged ? { name_changed_at: now } : {}),
     };
     profileData.avatar_url = next.avatarUrl || null;
-    await (supabase.from("profiles") as any).upsert(profileData);
+    // Use update (not upsert) so admin-set columns like role/account_status
+    // are never accidentally overwritten with default values.
+    await (supabase.from("profiles") as any).update(profileData).eq("id", authUser.id);
   };
 
   const completeProfileSetup = async () => {

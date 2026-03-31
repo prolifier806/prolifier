@@ -868,6 +868,14 @@ export default function Profile() {
               <h2 className="text-sm font-semibold text-foreground">Account</h2>
             </div>
             <div className="px-5 py-4 space-y-3">
+              {/* Account status badge */}
+              <div className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-secondary/50 border border-border">
+                <div>
+                  <p className="text-xs text-muted-foreground">Account Status</p>
+                  <p className="text-sm font-medium text-foreground capitalize">{user.accountStatus}</p>
+                </div>
+                <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${user.accountStatus === "banned" ? "bg-destructive" : "bg-emerald-500"}`} />
+              </div>
               {user.email && (
                 <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-secondary/50 border border-border">
                   <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
