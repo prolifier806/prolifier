@@ -842,8 +842,15 @@ export default function Messages() {
         <div className="flex flex-col gap-0.5 max-w-[75%]">
           {/* Quoted reply bubble */}
           {m.reply_to_text && (
-            <div className={`px-3 py-1.5 rounded-xl text-xs border-l-2 mb-0.5 ${isMe ? "bg-primary/20 border-primary/60 text-primary-foreground/80" : "bg-muted border-border text-muted-foreground"}`}>
-              <p className="truncate">{m.reply_to_text}</p>
+            <div className={`px-3 py-2 rounded-lg border-l-[3px] mb-1 ${
+              isMe
+                ? "bg-white/20 border-white text-white"
+                : "bg-secondary border-primary text-foreground"
+            }`}>
+              <p className="text-[10px] font-bold uppercase tracking-wide opacity-60 mb-0.5">
+                {isMe ? "You replied" : "Reply"}
+              </p>
+              <p className="text-xs font-medium truncate leading-snug">{m.reply_to_text}</p>
             </div>
           )}
 
