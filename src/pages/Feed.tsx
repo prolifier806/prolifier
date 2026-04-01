@@ -775,10 +775,9 @@ function ShareDialog({ onClose, link, content }: {
 }
 
 // ── Report Dialog ──────────────────────────────────────────────────────────
-function ReportDialog({ open, onClose, target, targetType, targetId, contentSnapshot }: {
+function ReportDialog({ open, onClose, target, targetType, targetId }: {
   open: boolean; onClose: () => void; target: string;
   targetType: "post" | "collab" | "comment"; targetId: string;
-  contentSnapshot?: string;
 }) {
   const { user } = useUser();
   const [reason, setReason] = useState("");
@@ -791,12 +790,9 @@ function ReportDialog({ open, onClose, target, targetType, targetId, contentSnap
     setSubmitting(true);
     await (supabase as any).from("reports").insert({
       reporter_id: user.id,
-      reporter_name: user.name || null,
-      content_type: targetType,
-      content_id: targetId,
+      reported_id: targetId,
       reason,
       details: details.trim() || null,
-      content_snapshot: contentSnapshot || null,
     });
     setSubmitting(false);
     setSubmitted(true);
@@ -1499,7 +1495,7 @@ export default function Feed() {
   const [commentingPost, setCommentingPost] = useState<Post|null>(null);
   const [editingPost, setEditingPost] = useState<Post|null>(null);
   const [shareTarget, setShareTarget] = useState<{type:"post"|"collab";id:string;content?:{text:string;authorName:string;type:"post"|"collab";postId?:string;imageUrl?:string;collabTitle?:string}}|null>(null);
-  const [reportTarget, setReportTarget] = useState<{type:"post"|"collab"|"comment";id:string;snapshot?:string}|null>(null);
+  const [reportTarget, setReportTarget] = useState<{type:"post"|"collab"|"comment";id:string}|null>(null);
   const [interestedCollabs, setInterestedCollabs] = useState<Set<string>>(new Set());
   const [savedCollabs, setSavedCollabs] = useState<Set<string>>(new Set());
   const [editingCollab, setEditingCollab] = useState<Collab|null>(null);
@@ -1693,38 +1689,8 @@ export default function Feed() {
       const allBlocked = new Set<string>([...myBlocked, ...blockedBy]);
       setBlockedUserIds(allBlocked);
 
-      // ── Feed algorithm — score + sort ─────────────────────────────────
-      // Fetch accepted connections so we can boost their posts
-      const [connSent, connRecv] = await Promise.all([
-        (supabase as any).from("connections").select("receiver_id").eq("requester_id", user.id).eq("status", "accepted"),
-        (supabase as any).from("connections").select("requester_id").eq("receiver_id", user.id).eq("status", "accepted"),
-      ]);
-      const connectedIds = new Set<string>([
-        ...((connSent.data || []).map((r: any) => r.receiver_id)),
-        ...((connRecv.data || []).map((r: any) => r.requester_id)),
-      ]);
-
-      const scoreItem = (userId: string, createdAt: string, likes: number) => {
-        const ageHours = (Date.now() - new Date(createdAt).getTime()) / 3_600_000;
-        const recency  = Math.max(0, 100 - ageHours * 1.5); // decays over ~67 hrs
-        const engagement = Math.min(likes * 2, 40);          // max 40 pts from likes
-        const connection = connectedIds.has(userId) ? 50 : 0; // strong connection boost
-        const own        = userId === user.id ? 10 : 0;       // slight self-boost so your posts appear
-        return recency + engagement + connection + own;
-      };
-
-      const rankedPosts = mappedPosts
-        .filter(p => !allBlocked.has(p.user_id))
-        .map(p => ({ ...p, _score: scoreItem(p.user_id, p.createdAt, p.likes) }))
-        .sort((a, b) => b._score - a._score);
-
-      const rankedCollabs = mappedCollabs
-        .filter(c => !allBlocked.has(c.user_id))
-        .map(c => ({ ...c, _score: scoreItem(c.user_id, new Date().toISOString(), 0) + (connectedIds.has(c.user_id) ? 50 : 0) }))
-        .sort((a, b) => b._score - a._score);
-
-      setPosts(rankedPosts);
-      setCollabs(rankedCollabs);
+      setPosts(mappedPosts.filter(p => !allBlocked.has(p.user_id)));
+      setCollabs(mappedCollabs.filter(c => !allBlocked.has(c.user_id)));
       // comment_count comes from the DB column — no extra query needed
       setLoading(false);
       logger.info("feed.load.done", { postCount: mappedPosts.length, collabCount: mappedCollabs.length });
@@ -1979,7 +1945,7 @@ export default function Feed() {
 
   const handleReportComment = useCallback((commentId: string) => {
     const c = commentingPost?.comments.find(x => x.id === commentId);
-    setReportTarget({ type: "comment", id: commentId, snapshot: c ? `${c.author}: ${c.text.slice(0, 200)}` : undefined });
+    setReportTarget({ type: "comment", id: commentId });
   }, []);
 
   const handleEditComment = useCallback(async (commentId: string, postId: string, newText: string) => {
@@ -2375,7 +2341,7 @@ export default function Feed() {
                   highlighted={highlightedPostId === post.id}
                   onLike={handleLike} onSave={handleSavePost} onComment={handleOpenComments}
                   onDelete={handleDeletePost} onEdit={setEditingPost} onHide={handleHidePost}
-                  onReport={id => { const p = posts.find(x=>x.id===id); setReportTarget({type:"post",id,snapshot:p?`${p.author}: ${p.content.slice(0,200)}`:undefined}); }}
+                  onReport={id => setReportTarget({type:"post",id})}
                   onShare={id => openShareWithContent("post", id)}
                 />
               ))}
@@ -2532,7 +2498,7 @@ export default function Feed() {
                     onInterest={handleInterest} onMessage={() => navigate("/messages")}
                     onSave={handleSaveCollab} onDelete={handleDeleteCollab} onEdit={setEditingCollab}
                     onHide={handleHideCollab}
-                    onReport={id => { const c = collabs.find(x=>x.id===id); setReportTarget({type:"collab",id,snapshot:c?`${c.author}: ${c.title} — ${c.description.slice(0,200)}`:undefined}); }}
+                    onReport={id => setReportTarget({type:"collab",id})}
                     onShare={id => openShareWithContent("collab", id)}
                   />
                 ))}
@@ -2555,7 +2521,7 @@ export default function Feed() {
       {editingPost && <EditPostDialog post={editingPost} open={!!editingPost} onClose={() => setEditingPost(null)} onSave={handleEditPost} userId={user.id}/>}
       {editingCollab && <EditCollabDialog collab={editingCollab} open={!!editingCollab} onClose={() => setEditingCollab(null)} onSave={handleEditCollab}/>}
       {shareTarget && <ShareDialog onClose={() => setShareTarget(null)} link={shareLink} content={shareTarget.content}/>}
-      {reportTarget && <ReportDialog open={!!reportTarget} onClose={() => setReportTarget(null)} target={reportTarget.type==="post"?"this post":reportTarget.type==="collab"?"this collab":"this comment"} targetType={reportTarget.type} targetId={reportTarget.id} contentSnapshot={reportTarget.snapshot}/>}
+      {reportTarget && <ReportDialog open={!!reportTarget} onClose={() => setReportTarget(null)} target={reportTarget.type==="post"?"this post":reportTarget.type==="collab"?"this collab":"this comment"} targetType={reportTarget.type} targetId={reportTarget.id}/>}
 
     </Layout>
   );
