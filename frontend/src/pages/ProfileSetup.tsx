@@ -8,7 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { X, Plus, Camera, MapPin } from "lucide-react";
 import { useUser } from "@/context/UserContext";
 import { toast } from "@/hooks/use-toast";
-import { supabase } from "@/lib/supabase";
+import { uploadAvatar, removeAvatar } from "@/api/uploads";
 import { SKILL_CATEGORIES } from "@/lib/skills";
 import { LOCATIONS } from "@/lib/locations";
 
@@ -76,24 +76,21 @@ export default function ProfileSetup() {
       return;
     }
     setUploadingAvatar(true);
-    const path = `${user.id}/avatar`;
-    const { error } = await (supabase as any).storage.from("avatars").upload(path, file, { upsert: true, contentType: file.type });
-    if (error) {
-      toast({ title: "Upload failed", description: error.message, variant: "destructive" });
+    try {
+      const url = await uploadAvatar(file);
+      setAvatarUrl(url + "?t=" + Date.now());
+    } catch (err: any) {
+      toast({ title: "Upload failed", description: err.message, variant: "destructive" });
+    } finally {
       setUploadingAvatar(false);
-      return;
     }
-    const { data } = (supabase as any).storage.from("avatars").getPublicUrl(path);
-    setAvatarUrl(data.publicUrl + "?t=" + Date.now());
-    setUploadingAvatar(false);
   };
 
   const handleRemoveAvatar = async () => {
     setUploadingAvatar(true);
-    const { data: files } = await (supabase as any).storage.from("avatars").list(user.id);
-    if (files?.length > 0) {
-      await (supabase as any).storage.from("avatars").remove(files.map((f: any) => `${user.id}/${f.name}`));
-    }
+    try {
+      await removeAvatar();
+    } catch { /* ignore */ }
     setAvatarUrl("");
     setUploadingAvatar(false);
   };

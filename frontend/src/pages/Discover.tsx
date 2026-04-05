@@ -5,15 +5,28 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, MapPin, UserPlus, Check, X, UserCheck, ShieldOff, BadgeCheck } from "lucide-react";
+import { Search, MapPin, UserPlus, Check, X, UserCheck, ShieldOff } from "lucide-react";
 import Layout from "@/components/Layout";
 import { toast } from "@/hooks/use-toast";
 import { useUser } from "@/context/UserContext";
 import { supabase } from "@/lib/supabase";
-import { createNotification } from "@/lib/notifications";
-import { traceParallel, traceQuery } from "@/lib/logger";
+import { createNotification } from "@/api/notifications";
 import { useRealtimeChannel } from "@/hooks/useRealtimeChannel";
-
+import {
+  discoverProfiles,
+  getProfile,
+  blockUser,
+  unblockUser,
+} from "@/api/users";
+import {
+  getConnections,
+  getPendingRequests,
+  sendRequest,
+  acceptRequest,
+  declineRequest,
+  removeConnection,
+  markRequestsRead,
+} from "@/api/connections";
 
 type Profile = {
   id: string;
@@ -79,7 +92,6 @@ export default function Discover() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState("discover");
 
-  // ── Discover tab state ───────────────────────────────────────────────────
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [connected, setConnected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
@@ -91,19 +103,15 @@ export default function Discover() {
   const cursorRef = useRef<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
-  // Pending sent requests (so we show "Pending" instead of "Connected" before acceptance)
   const [pending, setPending] = useState<Set<string>>(new Set());
-  // Set of user IDs that the current user has blocked (for "Blocked" label in cards)
   const [blockedByMe, setBlockedByMe] = useState<Set<string>>(new Set());
 
-  // ── Requests tab state ───────────────────────────────────────────────────
   const [requests, setRequests] = useState<Request[]>([]);
   const [requestsLoading, setRequestsLoading] = useState(false);
   const [requestCount, setRequestCount] = useState(0);
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
   const [decliningId, setDecliningId] = useState<string | null>(null);
 
-  // Debounce search
   useEffect(() => {
     clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => setDebouncedSearch(search), 300);
@@ -114,49 +122,14 @@ export default function Discover() {
     if (!user.id) return;
     cursor ? setLoadingMore(true) : setLoading(true);
     try {
-      let query = (supabase as any)
-        .from("profiles")
-        .select("id, name, avatar, avatar_url, color, location, bio, project, skills, open_to_collab, created_at, role")
-        .neq("id", user.id)
-        .is("deleted_at", null)
-        .eq("profile_complete", true)
-        .order("created_at", { ascending: false })
-        .limit(PAGE_SIZE);
+      const params: Record<string, string> = {};
+      if (cursor) params.cursor = cursor;
+      if (debouncedSearch) params.search = debouncedSearch;
+      if (collabOnly) params.collabOnly = "true";
 
-      if (debouncedSearch) {
-        const q = `%${debouncedSearch}%`;
-        query = query.or(
-          `name.ilike.${q},bio.ilike.${q},project.ilike.${q},location.ilike.${q}`
-        );
-      }
-      if (collabOnly) query = query.eq("open_to_collab", true);
-      if (cursor) query = query.lt("created_at", cursor);
+      const data = await discoverProfiles(params);
 
-      // Run profiles + connections + blocks in parallel on initial load
-      const [{ data, error }, connsRes, myBlocksRes, blockedByRes] = await traceParallel([
-        ["discover.profiles", () => query],
-        ["discover.connections", () => !cursor
-          ? (supabase as any).from("connections")
-              .select("requester_id, receiver_id, status")
-              .or(`requester_id.eq.${user.id},receiver_id.eq.${user.id}`)
-          : Promise.resolve({ data: null, error: null })],
-        ["discover.blocks.mine", () => !cursor
-          ? (supabase as any).from("blocks").select("blocked_id").eq("blocker_id", user.id)
-          : Promise.resolve({ data: null, error: null })],
-        ["discover.blocks.them", () => !cursor
-          ? (supabase as any).from("blocks").select("blocker_id").eq("blocked_id", user.id)
-          : Promise.resolve({ data: null, error: null })],
-      ]);
-      if (error) throw error;
-
-      // Asymmetric block logic:
-      // - myBlocked: users I have blocked → I still see them (as "Blocked")
-      // - blockedBy: users who blocked me → I do NOT see them at all
-      const myBlockedSet = new Set<string>((myBlocksRes.data || []).map((b: any) => b.blocked_id));
-      const blockedBySet = new Set<string>((blockedByRes.data || []).map((b: any) => b.blocker_id));
-      if (!cursor) setBlockedByMe(new Set(myBlockedSet));
-
-      let mapped: Profile[] = (data || []).map((p: any) => ({
+      const mapped: Profile[] = data.map((p: any) => ({
         id: p.id,
         name: p.name || "Unknown",
         avatar: p.avatar || "?",
@@ -170,24 +143,27 @@ export default function Discover() {
         role: p.role || "user",
       }));
 
-      // Only hide users who have blocked ME — I should still see people I blocked
-      mapped = mapped.filter(p => !blockedBySet.has(p.id));
-
       cursor ? setProfiles(prev => [...prev, ...mapped]) : setProfiles(mapped);
-      setHasMore((data || []).length === PAGE_SIZE);
-      if ((data || []).length > 0) cursorRef.current = data[data.length - 1].created_at;
-      if (connsRes.data) {
-        // Build connected/pending from both directions
+      setHasMore(data.length === PAGE_SIZE);
+      if (data.length > 0) cursorRef.current = data[data.length - 1].created_at;
+
+      // On initial load, also fetch connections
+      if (!cursor) {
+        const conns = await getConnections();
         const acceptedIds = new Set<string>();
         const pendingIds = new Set<string>();
-        for (const c of connsRes.data) {
+        for (const c of conns) {
           const otherId = c.requester_id === user.id ? c.receiver_id : c.requester_id;
           if (c.status === "accepted") acceptedIds.add(otherId);
-          // Only "pending" label if I was the one who sent
           else if (c.status === "pending" && c.requester_id === user.id) pendingIds.add(c.receiver_id);
         }
         setConnected(acceptedIds);
         setPending(pendingIds);
+
+        // Get blocks (mine only — users I blocked show as "Blocked" card)
+        const { data: myBlocks } = await (supabase as any)
+          .from("blocks").select("blocked_id").eq("blocker_id", user.id);
+        setBlockedByMe(new Set((myBlocks || []).map((b: any) => b.blocked_id)));
       }
     } catch (err: any) {
       toast({ title: "Failed to load profiles", description: err.message, variant: "destructive" });
@@ -206,16 +182,8 @@ export default function Discover() {
     if (!user.id) return;
     setRequestsLoading(true);
     try {
-      const { data, error } = await traceQuery("discover.requests", () =>
-        (supabase as any)
-          .from("connections")
-          .select("requester_id, created_at, profiles:requester_id (id, name, avatar, avatar_url, color, bio, project, location)")
-          .eq("receiver_id", user.id)
-          .eq("status", "pending")
-          .order("created_at", { ascending: false })
-      );
-      if (error) throw error;
-      const mapped: Request[] = (data || []).map((r: any) => ({
+      const data = await getPendingRequests();
+      const mapped: Request[] = data.map((r: any) => ({
         requesterId: r.requester_id,
         name: r.profiles?.name || "Unknown",
         avatar: r.profiles?.avatar || "?",
@@ -237,19 +205,13 @@ export default function Discover() {
   useEffect(() => {
     if (activeTab === "requests" && user.id) {
       fetchRequests();
-      // Mark all as read whenever requests tab is active
       setRequestCount(0);
       window.dispatchEvent(new Event("prolifier:requests-opened"));
-      (supabase as any)
-        .from("connections")
-        .update({ read: true })
-        .eq("receiver_id", user.id)
-        .eq("status", "pending")
-        .eq("read", false);
+      markRequestsRead().catch(() => {});
     }
   }, [activeTab, user.id, fetchRequests]);
 
-  // Fetch unread request count on mount — only pending + unread rows
+  // Fetch unread request count on mount
   useEffect(() => {
     if (!user.id) return;
     (supabase as any)
@@ -261,33 +223,21 @@ export default function Discover() {
       .then(({ count }: any) => setRequestCount(count ?? 0));
   }, [user.id]);
 
-  // ── Realtime: live connection status updates in People tab ───────────────
-  // When User B accepts our pending request, or sends/cancels a request,
-  // update connected/pending sets immediately without a full refetch.
+  // Realtime: live connection status updates
   useRealtimeChannel(
     user.id ? `discover-conns-${user.id}` : null,
     ch => ch
-      .on("postgres_changes", {
-        event: "UPDATE",
-        schema: "public",
-        table: "connections",
-      }, (payload) => {
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "connections" }, (payload) => {
         const row = payload.new as any;
-        // Only care about rows that involve the current user
         const involvesMe = row.requester_id === user.id || row.receiver_id === user.id;
         if (!involvesMe) return;
         const otherId = row.requester_id === user.id ? row.receiver_id : row.requester_id;
         if (row.status === "accepted") {
-          // Move to connected, remove from pending
           setConnected(prev => new Set([...prev, otherId]));
           setPending(prev => { const n = new Set(prev); n.delete(otherId); return n; });
         }
       })
-      .on("postgres_changes", {
-        event: "DELETE",
-        schema: "public",
-        table: "connections",
-      }, (payload) => {
+      .on("postgres_changes", { event: "DELETE", schema: "public", table: "connections" }, (payload) => {
         const row = payload.old as any;
         const involvesMe = row.requester_id === user.id || row.receiver_id === user.id;
         if (!involvesMe) return;
@@ -298,9 +248,13 @@ export default function Discover() {
   );
 
   const handleUnblock = async (id: string, name: string) => {
-    await (supabase as any).from("blocks").delete().eq("blocker_id", user.id).eq("blocked_id", id);
-    setBlockedByMe(prev => { const next = new Set(prev); next.delete(id); return next; });
-    toast({ title: `${name} unblocked` });
+    try {
+      await unblockUser(id);
+      setBlockedByMe(prev => { const next = new Set(prev); next.delete(id); return next; });
+      toast({ title: `${name} unblocked` });
+    } catch (err: any) {
+      toast({ title: "Failed to unblock", description: err.message, variant: "destructive" });
+    }
   };
 
   const handleConnect = async (id: string, name: string) => {
@@ -309,27 +263,32 @@ export default function Discover() {
 
     if (isConnected) {
       setConnected(prev => { const n = new Set(prev); n.delete(id); return n; });
-      // Delete in both directions — the row could be A→B or B→A depending on who requested
-      await (supabase as any).from("connections").delete()
-        .or(`and(requester_id.eq.${user.id},receiver_id.eq.${id}),and(requester_id.eq.${id},receiver_id.eq.${user.id})`);
-      toast({ title: "Connection removed", description: `You disconnected from ${name}.` });
+      try {
+        await removeConnection(id);
+        toast({ title: "Connection removed", description: `You disconnected from ${name}.` });
+      } catch (err: any) {
+        setConnected(prev => new Set([...prev, id]));
+        toast({ title: "Failed to remove connection", description: err.message, variant: "destructive" });
+      }
       return;
     }
 
     if (isPending) {
-      // Cancel pending request
       setPending(prev => { const n = new Set(prev); n.delete(id); return n; });
-      await (supabase as any).from("connections").delete()
-        .or(`and(requester_id.eq.${user.id},receiver_id.eq.${id}),and(requester_id.eq.${id},receiver_id.eq.${user.id})`);
-      toast({ title: "Request cancelled" });
+      try {
+        await removeConnection(id);
+        toast({ title: "Request cancelled" });
+      } catch (err: any) {
+        setPending(prev => new Set([...prev, id]));
+        toast({ title: "Failed to cancel request", description: err.message, variant: "destructive" });
+      }
       return;
     }
 
-    // Send new request
     setPending(prev => new Set(prev).add(id));
-    await (supabase as any).from("connections").insert({ requester_id: user.id, receiver_id: id, status: "pending" });
-    toast({ title: "Connection request sent! 🤝", description: `${name} will be notified.` });
-    {
+    try {
+      await sendRequest(id);
+      toast({ title: "Connection request sent! 🤝", description: `${name} will be notified.` });
       createNotification({
         userId: id,
         type: "match",
@@ -338,18 +297,18 @@ export default function Discover() {
         action: `profile:${user.id}`,
         actorId: user.id,
       });
+    } catch (err: any) {
+      setPending(prev => { const n = new Set(prev); n.delete(id); return n; });
+      toast({ title: "Failed to send request", description: err.message, variant: "destructive" });
     }
   };
 
   const handleAccept = async (requesterId: string, name: string) => {
     setAcceptingId(requesterId);
     try {
-      await (supabase as any).from("connections")
-        .update({ status: "accepted" })
-        .eq("requester_id", requesterId).eq("receiver_id", user.id);
+      await acceptRequest(requesterId);
       setRequests(prev => prev.filter(r => r.requesterId !== requesterId));
       setRequestCount(prev => Math.max(0, prev - 1));
-      // Sync People tab — move requester from pending→connected so card shows "Connected"
       setConnected(prev => new Set([...prev, requesterId]));
       setPending(prev => { const n = new Set(prev); n.delete(requesterId); return n; });
       toast({ title: `Connected with ${name}! 🎉` });
@@ -370,9 +329,7 @@ export default function Discover() {
   const handleDecline = async (requesterId: string, name: string) => {
     setDecliningId(requesterId);
     try {
-      await (supabase as any).from("connections")
-        .delete()
-        .eq("requester_id", requesterId).eq("receiver_id", user.id);
+      await declineRequest(requesterId);
       setRequests(prev => prev.filter(r => r.requesterId !== requesterId));
       setRequestCount(prev => Math.max(0, prev - 1));
       toast({ title: `Request from ${name} declined` });
@@ -448,7 +405,7 @@ export default function Discover() {
               </div>
             ) : (
               <div className="grid gap-4 sm:grid-cols-2">
-                {filtered.map((p, i) => {
+                {filtered.map((p) => {
                   const isConnected = connected.has(p.id);
                   const isPending = pending.has(p.id);
                   const isBlockedByMe = blockedByMe.has(p.id);
@@ -457,7 +414,6 @@ export default function Discover() {
                       key={p.id}
                       className="p-5 rounded-xl border border-border bg-card hover:shadow-md transition-shadow flex flex-col animate-in fade-in slide-in-from-bottom-2 duration-300"
                     >
-                      {/* Header */}
                       <div className="flex items-start gap-3 mb-3">
                         <button
                           onClick={() => navigate(`/profile/${p.id}`)}
@@ -497,7 +453,6 @@ export default function Discover() {
                         </div>
                       </div>
 
-                      {/* Body — flex-grow so buttons always go to bottom */}
                       <div className="flex-1">
                         {p.bio && <p className="text-sm text-foreground mb-2 leading-relaxed line-clamp-2">{p.bio}</p>}
                         {p.project && (
@@ -517,10 +472,8 @@ export default function Discover() {
                         )}
                       </div>
 
-                      {/* Actions — always at bottom */}
                       <div className="flex items-center gap-2 mt-3 pt-3 border-t border-border/50">
                         {isBlockedByMe ? (
-                          // Blocked user card: show blocked badge + unblock only
                           <>
                             <span className="flex-1 text-xs text-muted-foreground font-medium flex items-center gap-1.5">
                               <ShieldOff className="h-3.5 w-3.5" /> Blocked
@@ -596,7 +549,7 @@ export default function Discover() {
             ) : (
               <div className="space-y-3">
                 <p className="text-xs text-muted-foreground mb-2">{requests.length} pending request{requests.length !== 1 ? "s" : ""}</p>
-                {requests.map((r, i) => (
+                {requests.map((r) => (
                   <div
                     key={r.requesterId}
                     className="flex items-center gap-4 p-4 rounded-xl border border-border bg-card animate-in fade-in duration-200"

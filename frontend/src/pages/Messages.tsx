@@ -178,7 +178,12 @@ function useVoiceRecorder(onStop: (blob: Blob) => void) {
   return { recording, seconds, start, stop, cancel };
 }
 
-import { createNotification } from "@/lib/notifications";
+import { createNotification } from "@/api/notifications";
+import { createReport } from "@/api/reports";
+import { sendMessage as apiSendMessage, hideConversation } from "@/api/messages";
+import { uploadPostImage, uploadVideo as apiUploadVideo } from "@/api/uploads";
+import { unblockUser } from "@/api/users";
+import { apiPost, apiUpload } from "@/api/client";
 
 // ══════════════════════════════════════════════════════════════════════════
 export default function Messages() {
@@ -263,7 +268,7 @@ export default function Messages() {
   const handleUnblockHere = async () => {
     if (!selectedId) return;
     try {
-      await (supabase as any).from("blocks").delete().eq("blocker_id", user.id).eq("blocked_id", selectedId);
+      await unblockUser(selectedId);
       setBlockedByMe(prev => { const n = new Set(prev); n.delete(selectedId); return n; });
       toast({ title: "User unblocked" });
     } catch { /* ignore */ }
@@ -273,11 +278,11 @@ export default function Messages() {
     if (!selectedId) return;
     try {
       if (isMuted) {
-        await (supabase as any).from("mutes").delete().eq("muter_id", user.id).eq("muted_id", selectedId);
+        await apiPost(`/api/users/me/mute/${selectedId}/remove`).catch(() => {});
         setMutedByMe(prev => { const n = new Set(prev); n.delete(selectedId); return n; });
         toast({ title: "Unmuted" });
       } else {
-        await (supabase as any).from("mutes").insert({ muter_id: user.id, muted_id: selectedId });
+        await apiPost(`/api/users/me/mute/${selectedId}`).catch(() => {});
         setMutedByMe(prev => new Set([...prev, selectedId]));
         toast({ title: "Muted — you won't get message notifications from this user" });
       }
@@ -287,7 +292,7 @@ export default function Messages() {
   const handleReport = async () => {
     if (!selectedId) return;
     try {
-      await (supabase as any).from("reports").insert({ reporter_id: user.id, reported_id: selectedId, reason: reportReason });
+      await createReport({ targetId: selectedId, targetType: "user", reason: reportReason });
       setShowReportModal(false);
       toast({ title: "Report submitted", description: "Thank you — our team will review it." });
     } catch {
@@ -320,10 +325,8 @@ export default function Messages() {
       // from the DB (the other person should still see everything).
       // Persist hidden state in localStorage — survives refresh without DB table
       addHiddenId(selectedId);
-      // Also try DB table if it exists (best-effort)
-      (supabase as any).from("hidden_conversations")
-        .upsert({ user_id: user.id, other_id: selectedId }, { onConflict: "user_id,other_id" })
-        .then(() => {});
+      // Also persist via API (best-effort)
+      hideConversation(selectedId).catch(() => {});
       // Remove from conversations list and clear chat view
       setConversations(prev => prev.filter(c => c.id !== selectedId));
       setMessages([]);
@@ -615,7 +618,7 @@ export default function Messages() {
             reply_to_id: row.reply_to_id || null,
             reply_to_text: row.reply_to_text || null,
           }]);
-          await (supabase as any).from("messages").update({ read: true }).eq("id", row.id);
+          apiPost(`/api/messages/${row.id}/read`).catch(() => {});
         } else {
           setConversations(prev => prev.map(c =>
             c.id === row.sender_id
@@ -744,16 +747,21 @@ export default function Messages() {
     setReplyTo(null);
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
 
-    const { data, error } = await (supabase as any).from("messages").insert({
-      sender_id: user.id,
-      receiver_id: selectedId,
-      text: trimmed || null,
-      media_url: mediaUrl || null,
-      media_type: mediaType || null,
-      ...replySnapshot,
-    }).select().single();
+    let data: any = null;
+    let error: any = null;
+    try {
+      // apiSendMessage guards against empty content; for media-only messages
+      // pass a single space so the guard passes — backend stores null for blank text.
+      data = await apiSendMessage(trimmed || (mediaUrl ? " " : ""), selectedId, {
+        mediaUrl: mediaUrl || undefined,
+        mediaType: mediaType || undefined,
+        replyToId: (replySnapshot as any).reply_to_id,
+      });
+    } catch (err) {
+      error = err;
+    }
 
-    if (error) {
+    if (error || !data) {
       console.error("Send failed:", error);
       setMessages(prev => prev.filter(m => m.id !== tempId));
       setMsg(trimmed || "");
@@ -792,68 +800,21 @@ export default function Messages() {
     setUploading(true);
     try {
       if (type === "image") {
-        // Validate + compress + convert to WebP
-        const { processImage } = await import("@/lib/imageProcessor");
-        const processed = await processImage(file, "chat");
-        const path = `dm/${user.id}/${processed.filename}`;
-        const { error } = await supabase.storage.from("messages").upload(path, processed.blob, { contentType: "image/webp" });
-        if (error) throw error;
-        const { data: urlData } = supabase.storage.from("messages").getPublicUrl(path);
-        await sendMessage(undefined, urlData.publicUrl, "image");
+        const { url } = await uploadPostImage(file, "chat");
+        await sendMessage(undefined, url, "image");
       } else if (type === "video") {
         // Validate format/size/duration, upload with progress, trigger processing
-        const { validateVideo, uploadVideoXHR, sanitizeVideoFilename } = await import("@/lib/videoProcessor");
+        const { validateVideo, uploadVideoXHR, sanitizeVideoFilename } = await import("@/processing/videoProcessor");
         const meta = await validateVideo(file, "chat");
         const filename = sanitizeVideoFilename(file.name);
-        const path = `dm/${user.id}/${filename}`;
-
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) throw new Error("Not authenticated");
-
-        await uploadVideoXHR({
-          file,
-          bucket: "messages",
-          path,
-          supabaseUrl: import.meta.env.VITE_SUPABASE_URL,
-          anonKey: import.meta.env.VITE_SUPABASE_ANON_KEY,
-          accessToken: session.access_token,
-          onProgress: () => {}, // uploading spinner already shown
-        });
-
-        const { data: urlData } = supabase.storage.from("messages").getPublicUrl(path);
-        const fallbackUrl = urlData.publicUrl;
-
-        // Create videos row + trigger processing (non-blocking)
-        const { data: videoRow } = await (supabase as any)
-          .from("videos")
-          .insert({
-            user_id: user.id,
-            context: "chat",
-            status: "uploading",
-            fallback_url: fallbackUrl,
-            raw_path: path,
-            duration_secs: meta.duration,
-            width: meta.width,
-            height: meta.height,
-            size_bytes: file.size,
-          })
-          .select("id")
-          .single();
-
-        if (videoRow?.id) {
-          supabase.functions.invoke("process-video", { body: { video_id: videoRow.id } })
-            .catch(() => {});
-        }
-
-        await sendMessage(undefined, fallbackUrl, "video");
+        const result = await apiUploadVideo(file, "chat", () => {});
+        await sendMessage(undefined, result.fallbackUrl, "video");
       } else {
-        // File — upload as-is
-        const safeName = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
-        const path = `dm/${user.id}/${safeName}`;
-        const { error } = await supabase.storage.from("messages").upload(path, file);
-        if (error) throw error;
-        const { data: urlData } = supabase.storage.from("messages").getPublicUrl(path);
-        await sendMessage(file.name, urlData.publicUrl, type);
+        // File — upload via backend
+        const form = new FormData();
+        form.append("file", file);
+        const data = await apiUpload<{ url: string }>("/api/uploads/file", form);
+        await sendMessage(file.name, data.url, type);
       }
     } catch (err: any) {
       toast({ title: err.message || "Upload failed, try again.", variant: "destructive" });
@@ -869,11 +830,10 @@ export default function Messages() {
       if (!selectedId) return;
       setUploading(true);
       try {
-        const path = `dm/${user.id}/${Date.now()}.webm`;
-        const { error } = await supabase.storage.from("messages").upload(path, blob);
-        if (error) throw error;
-        const { data: urlData } = supabase.storage.from("messages").getPublicUrl(path);
-        await sendMessage(undefined, urlData.publicUrl, "audio");
+        const form = new FormData();
+        form.append("file", new File([blob], `voice-${Date.now()}.webm`, { type: "audio/webm" }));
+        const data = await apiUpload<{ url: string }>("/api/uploads/file", form);
+        await sendMessage(undefined, data.url, "audio");
       } catch {
         toast({ title: "Voice upload failed", variant: "destructive" });
       } finally {

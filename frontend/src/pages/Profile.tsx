@@ -22,6 +22,10 @@ import { toast } from "@/hooks/use-toast";
 import { useTheme } from "@/context/ThemeContext";
 import { useUser } from "@/context/UserContext";
 import { supabase } from "@/lib/supabase";
+import { uploadAvatar, removeAvatar } from "@/api/uploads";
+import { deleteMyAccount, unblockUser } from "@/api/users";
+import { updatePost, deletePost } from "@/api/posts";
+import { getConnections } from "@/api/connections";
 import { SKILL_CATEGORIES } from "@/lib/skills";
 import { LOCATIONS } from "@/lib/locations";
 
@@ -209,20 +213,14 @@ export default function Profile() {
   const loadAnalytics = useCallback(async () => {
     if (!user.id) return;
     try {
-      const [postsRes, connsReq, connsRec, savedRes] = await Promise.all([
+      const [postsRes, connectionsData, savedRes] = await Promise.all([
         (supabase as any).from("posts").select("id", { count: "exact", head: true }).eq("user_id", user.id),
-        (supabase as any).from("connections").select("receiver_id").eq("requester_id", user.id).eq("status", "accepted"),
-        (supabase as any).from("connections").select("requester_id").eq("receiver_id", user.id).eq("status", "accepted"),
+        getConnections(),
         (supabase as any).from("saved_posts").select("post_id", { count: "exact", head: true }).eq("user_id", user.id),
-      ]);
-      // Deduplicate by connected user ID — handles any duplicate rows in DB
-      const uniqueConnected = new Set([
-        ...(connsReq.data || []).map((r: any) => r.receiver_id),
-        ...(connsRec.data || []).map((r: any) => r.requester_id),
       ]);
       setAnalytics({
         postCount: postsRes.count || 0,
-        connectionCount: uniqueConnected.size,
+        connectionCount: (connectionsData || []).length,
         savedCount: savedRes.count || 0,
       });
     } catch { /* silent */ }
@@ -375,27 +373,22 @@ export default function Profile() {
       return;
     }
     setAvatarUploading(true);
-    const path = `${user.id}/avatar`;
-    const { error } = await (supabase as any).storage.from("avatars").upload(path, file, { upsert: true, contentType: file.type });
-    if (error) {
-      toast({ title: "Upload failed", description: error.message, variant: "destructive" });
+    try {
+      const rawUrl = await uploadAvatar(file);
+      const url = rawUrl + "?t=" + Date.now();
+      setAvatarUrl(url);
+      await updateUser({ avatarUrl: url });
+      toast({ title: "Profile photo updated! 📸" });
+    } catch (err: any) {
+      toast({ title: "Upload failed", description: err.message, variant: "destructive" });
+    } finally {
       setAvatarUploading(false);
-      return;
     }
-    const { data } = (supabase as any).storage.from("avatars").getPublicUrl(path);
-    const url = data.publicUrl + "?t=" + Date.now();
-    setAvatarUrl(url);
-    await updateUser({ avatarUrl: url });
-    setAvatarUploading(false);
-    toast({ title: "Profile photo updated! 📸" });
   };
 
   const handleRemoveAvatar = async () => {
     setAvatarUploading(true);
-    const { data: files } = await (supabase as any).storage.from("avatars").list(user.id);
-    if (files?.length > 0) {
-      await (supabase as any).storage.from("avatars").remove(files.map((f: any) => `${user.id}/${f.name}`));
-    }
+    try { await removeAvatar(); } catch { /* ignore */ }
     setAvatarUrl(null);
     await updateUser({ avatarUrl: "" });
     setAvatarUploading(false);
@@ -427,7 +420,7 @@ export default function Profile() {
     if (deleteConfirm !== "delete" || !deleteReason) return;
     setDeleteLoading(true);
     try {
-      await (supabase as any).from("profiles").update({ deleted_at: new Date().toISOString() }).eq("id", user.id);
+      await deleteMyAccount();
       await signOut();
       navigate("/");
       toast({ title: "Account scheduled for deletion", description: "You can recover it within 7 days by logging back in." });
@@ -439,20 +432,20 @@ export default function Profile() {
 
   const handleUnblock = async (userId: string) => {
     setBlockedList(prev => prev.filter(u => u.id !== userId));
-    await (supabase as any).from("blocks").delete().eq("blocker_id", user.id).eq("blocked_id", userId);
+    await unblockUser(userId);
     toast({ title: "User unblocked" });
   };
 
   const handleEditPostSave = async () => {
     if (!editingPost || !editContent.trim()) return;
-    await (supabase as any).from("posts").update({ content: editContent.trim(), tag: editTag }).eq("id", editingPost.id).eq("user_id", user.id);
+    await updatePost(editingPost.id, { content: editContent.trim(), tag: editTag });
     setUserPosts(prev => prev.map(p => p.id === editingPost.id ? { ...p, content: editContent.trim(), tag: editTag } : p));
     setEditingPost(null);
     toast({ title: "Post updated!" });
   };
 
   const handleDeletePost = async (postId: string) => {
-    await (supabase as any).from("posts").delete().eq("id", postId).eq("user_id", user.id);
+    await deletePost(postId);
     setUserPosts(prev => prev.filter(p => p.id !== postId));
     setAnalytics(prev => ({ ...prev, postCount: Math.max(0, prev.postCount - 1) }));
     setDeletePostId(null);

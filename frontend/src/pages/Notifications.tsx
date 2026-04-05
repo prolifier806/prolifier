@@ -11,6 +11,13 @@ import { toast } from "@/hooks/use-toast";
 import { useUser } from "@/context/UserContext";
 
 import { supabase } from "@/lib/supabase";
+import {
+  getNotifications,
+  deleteNotification,
+  clearAllNotifications,
+  markRead,
+  createNotification as apiCreateNotification,
+} from "@/api/notifications";
 
 // ── Types ─────────────────────────────────────────────────────────────────
 type Notif = {
@@ -55,31 +62,8 @@ const PREFS_DEFAULT = {
   trending: false, weekly: true,
 };
 
-// ── Exported helper — call this from anywhere to create a notification ────
-export async function createNotification({
-  userId, type, text, subtext, action, actorId,
-}: {
-  userId: string;
-  type: string;
-  text: string;
-  subtext?: string;
-  action?: string;
-  actorId?: string;
-}) {
-  try {
-    await (supabase as any).from("notifications").insert({
-      user_id: userId,
-      type,
-      text,
-      subtext: subtext || null,
-      action: action || null,
-      actor_id: actorId || null,
-      read: false,
-    });
-  } catch (err) {
-    console.error("createNotification failed:", err);
-  }
-}
+// ── Exported helper — re-export from api layer for backwards compatibility ─
+export { apiCreateNotification as createNotification };
 
 // ══════════════════════════════════════════════════════════════════════════
 export default function Notifications() {
@@ -106,26 +90,8 @@ export default function Notifications() {
     if (!user.id) return;
     setLoading(true);
     try {
-      const { data, error } = await (supabase as any)
-        .from("notifications")
-        .select("*")
-        .eq("user_id", user.id)
-        .not("type", "in", "(message,match)")
-        .order("created_at", { ascending: false })
-        .limit(50);
-      if (error) throw error;
-      const items: Notif[] = data || [];
-      // Show all as read immediately — badge clears, no unread dots
+      const items: Notif[] = await getNotifications();
       setNotifs(items.map(n => ({ ...n, read: true })));
-      // Persist read state to DB so badge stays 0 after hard refresh
-      if (items.some(n => !n.read)) {
-        await (supabase as any)
-          .from("notifications")
-          .update({ read: true })
-          .eq("user_id", user.id)
-          .eq("read", false)
-          .not("type", "in", "(message,match)");
-      }
     } catch (err) {
       console.error("fetchNotifs:", err);
     } finally {
@@ -153,7 +119,7 @@ export default function Notifications() {
         // Mark read immediately since user is already on the page
         const notif = { ...(payload.new as Notif), read: true };
         setNotifs(prev => [notif, ...prev]);
-        (supabase as any).from("notifications").update({ read: true }).eq("id", notif.id).then(() => {});
+        markRead(notif.id).catch(() => {});
       })
       .on("postgres_changes", {
         event: "DELETE", schema: "public", table: "notifications",
@@ -166,12 +132,12 @@ export default function Notifications() {
   // ── Actions ────────────────────────────────────────────────────────────
   const dismiss = async (id: string) => {
     setNotifs(prev => prev.filter(n => n.id !== id));
-    await (supabase as any).from("notifications").delete().eq("id", id);
+    await deleteNotification(id).catch(() => {});
   };
 
   const clearAll = async () => {
     setNotifs([]);
-    await (supabase as any).from("notifications").delete().eq("user_id", user.id);
+    await clearAllNotifications().catch(() => {});
     toast({ title: "Notifications cleared" });
   };
 

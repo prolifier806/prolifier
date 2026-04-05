@@ -8,7 +8,9 @@ import { toast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
 import { useUser } from "@/context/UserContext";
 import { supabase } from "@/lib/supabase";
-import { createNotification } from "@/lib/notifications";
+import { createNotification } from "@/api/notifications";
+import { blockUser, unblockUser } from "@/api/users";
+import { sendRequest, removeConnection } from "@/api/connections";
 
 
 type ProfileData = {
@@ -233,11 +235,11 @@ export default function UserProfile() {
     if (!profile) return;
     try {
       if (isBlocked) {
-        await (supabase as any).from("blocks").delete().eq("blocker_id", user.id).eq("blocked_id", profile.id);
+        await unblockUser(profile.id);
         setIsBlocked(false);
         toast({ title: "User unblocked" });
       } else {
-        await (supabase as any).from("blocks").upsert({ blocker_id: user.id, blocked_id: profile.id });
+        await blockUser(profile.id);
         setIsBlocked(true);
         // Clear connection so they no longer appear in connections list
         setConnected(false);
@@ -252,13 +254,11 @@ export default function UserProfile() {
     setConnectionLoading(true);
 
     if (connected) {
-      await (supabase as any).from("connections").delete()
-        .or(`and(requester_id.eq.${user.id},receiver_id.eq.${profile.id}),and(requester_id.eq.${profile.id},receiver_id.eq.${user.id})`);
+      await removeConnection(profile.id);
       setConnected(false);
       toast({ title: "Connection removed" });
     } else {
-      await (supabase as any).from("connections")
-        .insert({ requester_id: user.id, receiver_id: profile.id, status: "pending" });
+      await sendRequest(profile.id);
       setConnected(true);
       toast({ title: "Connection request sent! 🤝" });
       createNotification({

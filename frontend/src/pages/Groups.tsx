@@ -16,7 +16,17 @@ import { toast } from "@/hooks/use-toast";
 import { useUser } from "@/context/UserContext";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
-import { createNotification } from "@/lib/notifications";
+import { createNotification } from "@/api/notifications";
+import {
+  joinGroup as apiJoinGroup,
+  leaveGroup as apiLeaveGroup,
+  removeMember as apiRemoveMember,
+  deleteGroup as apiDeleteGroup,
+  updateGroup as apiUpdateGroup,
+  createGroup as apiCreateGroup,
+  sendGroupMessage as apiSendGroupMessage,
+} from "@/api/groups";
+import { uploadPostImage } from "@/api/uploads";
 
 
 // ── Types ─────────────────────────────────────────────────────────────────
@@ -414,17 +424,14 @@ export default function Groups() {
     }
     try {
       if (isCurrentlyJoined) {
-        await supabase.from("group_members").delete().eq("group_id", groupId).eq("user_id", user.id);
-        // Re-count and sync
-        const { count } = await (supabase as any).from("group_members").select("*", { count: "exact", head: true }).eq("group_id", groupId);
-        await (supabase as any).from("groups").update({ member_count: count ?? 0 }).eq("id", groupId);
-        setGroups(prev => prev.map(x => x.id === groupId ? { ...x, member_count: count ?? 0 } : x));
+        const result = await apiLeaveGroup(groupId) as any;
+        const count = result?.member_count ?? 0;
+        setGroups(prev => prev.map(x => x.id === groupId ? { ...x, member_count: count } : x));
         toast({ title: `Left ${g.name}` });
       } else {
-        await (supabase as any).from("group_members").insert({ group_id: groupId, user_id: user.id, role: "member" });
-        const { count } = await (supabase as any).from("group_members").select("*", { count: "exact", head: true }).eq("group_id", groupId);
-        await (supabase as any).from("groups").update({ member_count: count ?? 1 }).eq("id", groupId);
-        setGroups(prev => prev.map(x => x.id === groupId ? { ...x, member_count: count ?? x.member_count } : x));
+        const result = await apiJoinGroup(groupId) as any;
+        const count = result?.member_count ?? (g.member_count + 1);
+        setGroups(prev => prev.map(x => x.id === groupId ? { ...x, member_count: count } : x));
         toast({ title: `Joined ${g.name}! 🎉` });
         // Notify group owner
         if (g.owner_id !== user.id) {
@@ -471,21 +478,16 @@ export default function Groups() {
     inputRef.current?.focus();
 
     // Fire insert in background — no await, no spinner
-    (supabase as any).from("group_messages").insert({
-      group_id: activeGroup.id,
-      user_id: user.id,
-      text: trimmed || null,
+    apiSendGroupMessage(activeGroup.id, {
+      text: trimmed || "",
       media_url: mediaUrl || null,
-      media_type: mediaType || null,
-    }).then(({ error }: any) => {
-      if (error) {
-        console.error("Send failed:", error);
-        // Remove the optimistic message
-        setMessages(prev => prev.filter(m => m.id !== tempId));
-        setChatInput(trimmed || "");
-        toast({ title: "Failed to send", variant: "destructive" });
-      }
-      // Realtime INSERT event will replace tempId with real id automatically
+      media_type: mediaType || undefined,
+    }).catch((err: any) => {
+      console.error("Send failed:", err);
+      // Remove the optimistic message
+      setMessages(prev => prev.filter(m => m.id !== tempId));
+      setChatInput(trimmed || "");
+      toast({ title: "Failed to send", variant: "destructive" });
     });
   };
 
@@ -494,11 +496,8 @@ export default function Groups() {
     const file = e.target.files?.[0];
     if (!file || !activeGroup) return;
     try {
-      const path = `group-media/${activeGroup.id}/${Date.now()}-${file.name}`;
-      const { error: upErr } = await supabase.storage.from("media").upload(path, file);
-      if (upErr) throw upErr;
-      const { data: urlData } = supabase.storage.from("media").getPublicUrl(path);
-      await sendMessage(undefined, urlData.publicUrl, type);
+      const uploaded = await uploadPostImage(file, "chat");
+      sendMessage(undefined, uploaded.url, type);
     } catch {
       toast({ title: "Upload failed", variant: "destructive" });
     }
@@ -561,12 +560,10 @@ export default function Groups() {
     if (!activeGroup) return;
     setMembers(prev => prev.filter(m => m.id !== memberId));
     try {
-      await supabase.from("group_members").delete().eq("group_id", activeGroup.id).eq("user_id", memberId);
-      // Re-count
-      const { count } = await (supabase as any).from("group_members").select("*", { count: "exact", head: true }).eq("group_id", activeGroup.id);
-      await (supabase as any).from("groups").update({ member_count: count ?? 0 }).eq("id", activeGroup.id);
-      setActiveGroup(prev => prev ? { ...prev, member_count: count ?? 0 } : prev);
-      setGroups(prev => prev.map(g => g.id === activeGroup.id ? { ...g, member_count: count ?? 0 } : g));
+      const result = await apiRemoveMember(activeGroup.id, memberId) as any;
+      const count = result?.member_count ?? 0;
+      setActiveGroup(prev => prev ? { ...prev, member_count: count } : prev);
+      setGroups(prev => prev.map(g => g.id === activeGroup.id ? { ...g, member_count: count } : g));
       toast({ title: `${memberName} removed` });
     } catch {
       fetchMembers(activeGroup.id); // revert
@@ -579,15 +576,9 @@ export default function Groups() {
     if (!activeGroup) return;
     setMembers(prev => prev.filter(m => m.id !== memberId));
     try {
-      const { error } = await (supabase as any).from("group_members")
-        .update({ banned: true }).eq("group_id", activeGroup.id).eq("user_id", memberId);
-      if (error) {
-        // Column may not exist yet — just remove
-        await supabase.from("group_members").delete().eq("group_id", activeGroup.id).eq("user_id", memberId);
-      }
-      const { count } = await (supabase as any).from("group_members").select("*", { count: "exact", head: true }).eq("group_id", activeGroup.id);
-      await (supabase as any).from("groups").update({ member_count: count ?? 0 }).eq("id", activeGroup.id);
-      setActiveGroup(prev => prev ? { ...prev, member_count: count ?? 0 } : prev);
+      const result = await apiRemoveMember(activeGroup.id, memberId) as any;
+      const count = result?.member_count ?? 0;
+      setActiveGroup(prev => prev ? { ...prev, member_count: count } : prev);
       toast({ title: `${memberName} banned` });
     } catch {
       fetchMembers(activeGroup.id);
@@ -600,11 +591,7 @@ export default function Groups() {
     if (!activeGroup) return;
     if (!window.confirm(`Delete "${activeGroup.name}"? This cannot be undone.`)) return;
     try {
-      await Promise.all([
-        (supabase as any).from("group_messages").delete().eq("group_id", activeGroup.id),
-        supabase.from("group_members").delete().eq("group_id", activeGroup.id),
-      ]);
-      await (supabase as any).from("groups").delete().eq("id", activeGroup.id);
+      await apiDeleteGroup(activeGroup.id);
       setGroups(prev => prev.filter(g => g.id !== activeGroup.id));
       setJoinedIds(prev => { const s = new Set(prev); s.delete(activeGroup.id); return s; });
       setView("list");
@@ -623,7 +610,7 @@ export default function Groups() {
     setGroups(prev => prev.map(g => g.id === activeGroup.id ? { ...g, description: editDesc, bio: editBio } : g));
     setEditingGroup(false);
     try {
-      await (supabase as any).from("groups").update({ description: editDesc, bio: editBio }).eq("id", activeGroup.id);
+      await apiUpdateGroup(activeGroup.id, { description: editDesc, bio: editBio });
       toast({ title: "Community updated ✓" });
     } catch {
       setActiveGroup(activeGroup);
@@ -636,21 +623,15 @@ export default function Groups() {
     if (!newName.trim() || creating) return;
     setCreating(true);
     try {
-      const { data, error } = await (supabase as any).from("groups").insert({
+      const data = await apiCreateGroup({
         name: newName.trim(),
         description: newDesc.trim() || "A new community.",
         bio: newBio.trim() || "Welcome to our group!",
-        emoji: newEmoji,
-        topic: newTopic,
-        visibility: newPrivate ? "private" : "public",
-        owner_id: user.id,
-        member_count: 1,
-      }).select().single();
-      if (error) throw error;
-      await (supabase as any).from("group_members").insert({ group_id: data.id, user_id: user.id, role: "owner" });
+        is_private: newPrivate,
+      });
       setGroups(prev => [data, ...prev]);
       setJoinedIds(prev => new Set([...prev, data.id]));
-      toast({ title: `${data.emoji} ${data.name} created!` });
+      toast({ title: `${data.emoji ?? newEmoji} ${data.name} created!` });
       setNewName(""); setNewDesc(""); setNewBio(""); setNewTopic("General"); setNewEmoji("🚀"); setNewPrivate(false);
       openGroup(data);
     } catch (err) {
