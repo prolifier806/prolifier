@@ -24,7 +24,7 @@ export async function getPendingRequests(req: AuthRequest, res: Response): Promi
 
   const { data, error } = await supabaseAdmin
     .from("connections")
-    .select("requester_id, created_at, profiles:requester_id (id, name, avatar, color)")
+    .select("requester_id, created_at, profiles:requester_id (id, name, avatar, color, avatar_url)")
     .eq("receiver_id", userId)
     .eq("status", "pending")
     .order("created_at", { ascending: false });
