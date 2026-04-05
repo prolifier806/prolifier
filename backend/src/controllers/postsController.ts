@@ -58,7 +58,7 @@ export async function getFeed(req: AuthRequest, res: Response): Promise<void> {
     .select(`
       id, user_id, content, tag, image_url, video_url,
       created_at, likes,
-      profiles:user_id (id, name, avatar, color, avatar_url, skills, role)
+      profiles:user_id (id, name, avatar, color, avatar_url, location, skills, role)
     `)
     .order("created_at", { ascending: false })
     .limit(PAGE_SIZE);
@@ -69,7 +69,7 @@ export async function getFeed(req: AuthRequest, res: Response): Promise<void> {
     .from("collabs")
     .select(`
       id, user_id, title, description, looking, skills, image_url, video_url, created_at,
-      profiles:user_id (id, name, avatar, color, avatar_url, skills, role)
+      profiles:user_id (id, name, avatar, color, avatar_url, location, skills, role)
     `)
     .order("created_at", { ascending: false })
     .limit(PAGE_SIZE);

@@ -27,7 +27,7 @@ export async function getProfile(req: AuthRequest, res: Response): Promise<void>
 
   const { data, error } = await supabaseAdmin
     .from("profiles")
-    .select("id, name, avatar, color, location, bio, project, skills, open_to_collab, created_at, role, profile_complete")
+    .select("id, name, avatar, color, avatar_url, location, bio, project, skills, open_to_collab, created_at, role, profile_complete")
     .eq("id", id)
     .single();
 
@@ -117,7 +117,7 @@ export async function discoverProfiles(req: AuthRequest, res: Response): Promise
 
   let query = supabaseAdmin
     .from("profiles")
-    .select("id, name, avatar, color, location, bio, project, skills, open_to_collab, created_at, role")
+    .select("id, name, avatar, color, avatar_url, location, bio, project, skills, open_to_collab, created_at, role")
     .eq("profile_complete", true)
     .order("created_at", { ascending: false })
     .limit(PAGE_SIZE);
@@ -127,7 +127,7 @@ export async function discoverProfiles(req: AuthRequest, res: Response): Promise
   if (skills) query = query.overlaps("skills", skills.split(","));
   if (search) {
     const q = `%${search}%`;
-    query = (query as any).or(`name.ilike.${q},bio.ilike.${q},project.ilike.${q},location.ilike.${q}`);
+    query = query.or(`name.ilike.${q},bio.ilike.${q},location.ilike.${q}`);
   }
 
   const { data, error } = await query;
