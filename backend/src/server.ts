@@ -68,9 +68,14 @@ app.use((req, res) => {
 });
 
 // ── Global error handler ──────────────────────────────────────────────────────
-app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+app.use((err: Error, req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error("[error]", err.message);
-  res.status(500).json({ success: false, error: "Internal server error" });
+  const origin = req.headers.origin as string;
+  if (allowedOrigins.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+  }
+  res.status(500).json({ success: false, error: err.message ?? "Internal server error" });
 });
 
 app.listen(Number(PORT), "0.0.0.0", () => {
