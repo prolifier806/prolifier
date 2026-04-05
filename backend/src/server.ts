@@ -20,10 +20,23 @@ const PORT = process.env.PORT ?? 3001;
 // ── Security headers ──────────────────────────────────────────────────────────
 app.use(helmet());
 
-// ── CORS — only allow the configured frontend origin ─────────────────────────
+// ── CORS — allow configured frontend origin + www variant ────────────────────
+const allowedOrigins = [
+  process.env.FRONTEND_URL ?? "http://localhost:5173",
+  "http://localhost:5173",
+  "https://prolifier.com",
+  "https://www.prolifier.com",
+];
+
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL ?? "http://localhost:5173",
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error(`CORS blocked: ${origin}`));
+      }
+    },
     credentials: true,
     methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
