@@ -56,7 +56,7 @@ export async function processAndUploadImage(
     webpBuffer = await processed.webp({ quality }).toBuffer();
   }
 
-  const filename = `${folder}/${Date.now()}-${Math.random().toString(36).slice(2)}.webp`;
+  const filename = `${folder}/${Date.now()}-${crypto.randomUUID().replace(/-/g, "")}.webp`;
 
   const { error } = await supabaseAdmin.storage
     .from(bucket)

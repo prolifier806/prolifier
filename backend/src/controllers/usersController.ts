@@ -156,7 +156,9 @@ export async function blockUser(req: AuthRequest, res: Response): Promise<void> 
       .from("connections")
       .delete()
       .or(`and(requester_id.eq.${userId},receiver_id.eq.${blockedId}),and(requester_id.eq.${blockedId},receiver_id.eq.${userId})`);
-  } catch {}
+  } catch (connErr) {
+    console.warn("[users] Failed to remove connection on block:", connErr);
+  }
 
   res.json({ success: true, data: null });
 }

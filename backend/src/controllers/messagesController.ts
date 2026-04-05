@@ -12,6 +12,14 @@ export const sendMessageSchema = z.object({
   replyToId: z.string().uuid().optional().nullable(),
 });
 
+function extractOtherId(userId: string, chatId: string): string | null {
+  const UUID_LEN = 36;
+  const otherId = chatId.slice(0, UUID_LEN) === userId
+    ? chatId.slice(UUID_LEN + 1)
+    : chatId.slice(0, UUID_LEN);
+  return otherId?.length === UUID_LEN ? otherId : null;
+}
+
 export async function sendMessage(req: AuthRequest, res: Response): Promise<void> {
   const userId = req.user.id;
   const body = req.body as z.infer<typeof sendMessageSchema>;
@@ -25,13 +33,8 @@ export async function sendMessage(req: AuthRequest, res: Response): Promise<void
     }
   }
 
-  // chatId format: "uuid1_uuid2" — UUIDs are 36 chars each
-  const uuidLen = 36;
-  const receiverId = body.chatId.slice(0, uuidLen) === userId
-    ? body.chatId.slice(uuidLen + 1)
-    : body.chatId.slice(0, uuidLen);
-
-  if (!receiverId || receiverId.length !== uuidLen) {
+  const receiverId = extractOtherId(userId, body.chatId);
+  if (!receiverId) {
     res.status(400).json({ success: false, error: "Invalid chatId" });
     return;
   }
@@ -57,12 +60,8 @@ export async function getMessages(req: AuthRequest, res: Response): Promise<void
   const { chatId } = req.params;
   const cursor = req.query.cursor as string | undefined;
 
-  const uuidLen = 36;
-  const otherId = chatId.slice(0, uuidLen) === userId
-    ? chatId.slice(uuidLen + 1)
-    : chatId.slice(0, uuidLen);
-
-  if (!otherId || otherId.length !== uuidLen) {
+  const otherId = extractOtherId(userId, chatId);
+  if (!otherId) {
     res.status(400).json({ success: false, error: "Invalid chatId" });
     return;
   }
@@ -87,12 +86,8 @@ export async function hideConversation(req: AuthRequest, res: Response): Promise
   const userId = req.user.id;
   const { chatId } = req.params;
 
-  const uuidLen = 36;
-  const otherId = chatId.slice(0, uuidLen) === userId
-    ? chatId.slice(uuidLen + 1)
-    : chatId.slice(0, uuidLen);
-
-  if (!otherId || otherId.length !== uuidLen) {
+  const otherId = extractOtherId(userId, chatId);
+  if (!otherId) {
     res.status(400).json({ success: false, error: "Invalid chatId" });
     return;
   }

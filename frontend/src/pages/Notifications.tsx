@@ -93,7 +93,7 @@ export default function Notifications() {
       const items: Notif[] = await getNotifications();
       setNotifs(items.map(n => ({ ...n, read: true })));
     } catch (err) {
-      console.error("fetchNotifs:", err);
+      if (import.meta.env.DEV) console.error("fetchNotifs:", err);
     } finally {
       setLoading(false);
     }

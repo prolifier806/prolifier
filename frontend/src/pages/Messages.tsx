@@ -481,7 +481,7 @@ export default function Messages() {
 
       }
     } catch (err) {
-      console.error("fetchConversations:", err);
+      if (import.meta.env.DEV) console.error("fetchConversations:", err);
     } finally {
       setLoadingConvos(false);
     }
@@ -555,7 +555,7 @@ export default function Messages() {
         window.dispatchEvent(new Event("prolifier:messages-all-read"));
       }
     } catch (err) {
-      console.error("fetchMessages:", err);
+      if (import.meta.env.DEV) console.error("fetchMessages:", err);
     } finally {
       setLoadingMsgs(false);
     }
@@ -585,7 +585,7 @@ export default function Messages() {
         oldestMsgCursorRef.current = null;
       }
     } catch (err) {
-      console.error("fetchOlderMessages:", err);
+      if (import.meta.env.DEV) console.error("fetchOlderMessages:", err);
     } finally {
       setLoadingOlderMsgs(false);
     }
@@ -768,7 +768,7 @@ export default function Messages() {
     }
 
     if (error || !data) {
-      console.error("Send failed:", error);
+      if (import.meta.env.DEV) console.error("Send failed:", error);
       setMessages(prev => prev.filter(m => m.id !== tempId));
       setMsg(trimmed || "");
       toast({ title: "Failed to send", variant: "destructive" });

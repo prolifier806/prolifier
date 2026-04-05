@@ -244,7 +244,9 @@ export async function likePost(req: AuthRequest, res: Response): Promise<void> {
         action: `/feed?post=${id}`,
         read: false,
       });
-    } catch {}
+    } catch (notifErr) {
+      console.warn("[posts] Failed to create like notification:", notifErr);
+    }
   }
 
   res.json({ success: true, data: null });
@@ -328,7 +330,9 @@ export async function addComment(req: AuthRequest, res: Response): Promise<void>
         action: `/feed?post=${postId}`,
         read: false,
       });
-    } catch {}
+    } catch (notifErr) {
+      console.warn("[posts] Failed to create comment notification:", notifErr);
+    }
   }
 
   res.status(201).json({ success: true, data });
@@ -441,7 +445,9 @@ export async function expressInterest(req: AuthRequest, res: Response): Promise<
         action: `/feed?collab=${id}`,
         read: false,
       });
-    } catch {}
+    } catch (notifErr) {
+      console.warn("[posts] Failed to create collab interest notification:", notifErr);
+    }
   }
 
   res.json({ success: true, data: null });

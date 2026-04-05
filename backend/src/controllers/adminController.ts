@@ -73,7 +73,9 @@ export async function updateUserStatus(req: AuthRequest, res: Response): Promise
       action: body.status,
       reason: body.reason ?? null,
     });
-  } catch {}
+  } catch (logErr) {
+    console.warn("[admin] Failed to log admin action:", logErr);
+  }
 
   res.json({ success: true, data });
 }

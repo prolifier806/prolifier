@@ -192,7 +192,7 @@ export default function ForgotPassword() {
 
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        console.error("updateUser error:", res.status, body);
+        if (import.meta.env.DEV) console.error("updateUser error:", res.status, body);
         const msg: string = body?.msg ?? body?.message ?? "";
         if (msg.toLowerCase().includes("same") || msg.toLowerCase().includes("different")) {
           setError("New password must be different from your current password.");

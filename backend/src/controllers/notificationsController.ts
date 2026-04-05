@@ -33,7 +33,9 @@ export async function getNotifications(req: AuthRequest, res: Response): Promise
       .eq("user_id", userId)
       .eq("read", false)
       .not("type", "in", "(message,match)");
-  } catch {}
+  } catch (markErr) {
+    console.warn("[notifications] Failed to mark notifications read:", markErr);
+  }
 
   res.json({ success: true, data });
 }

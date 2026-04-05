@@ -72,21 +72,6 @@ export async function removeMember(req: AuthRequest, res: Response): Promise<voi
   res.json({ success: true, data: { member_count: count } });
 }
 
-// Promote/demote member (owner only)
-export async function updateMemberRole(req: AuthRequest, res: Response): Promise<void> {
-  const { id: groupId, memberId } = req.params;
-  const userId = req.user.id;
-  const { role } = req.body as { role: string };
-
-  const { data: group } = await supabaseAdmin.from("groups").select("owner_id").eq("id", groupId).single();
-  if (!group || group.owner_id !== userId) {
-    res.status(403).json({ success: false, error: "Only the group owner can change roles" }); return;
-  }
-
-  // role column does not exist in group_members; no-op for now
-  res.json({ success: true, data: null });
-}
-
 // Update group info (owner only)
 export async function updateGroup(req: AuthRequest, res: Response): Promise<void> {
   const { id } = req.params;

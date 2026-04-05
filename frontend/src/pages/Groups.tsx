@@ -229,12 +229,12 @@ export default function Groups() {
           .eq("user_id", user.id);
         setJoinedIds(new Set((memberData || []).map((r: any) => r.group_id)));
       } catch (memberErr) {
-        console.error("fetchGroups memberships:", memberErr);
+        if (import.meta.env.DEV) console.error("fetchGroups memberships:", memberErr);
         // Still show groups even if membership fetch fails
         setJoinedIds(new Set());
       }
     } catch (err) {
-      console.error("fetchGroups:", err);
+      if (import.meta.env.DEV) console.error("fetchGroups:", err);
       toast({ title: "Failed to load communities", variant: "destructive" });
     } finally {
       setLoadingGroups(false);
@@ -281,7 +281,7 @@ export default function Groups() {
         author_color: profileMap[row.user_id]?.color || "bg-primary",
       })));
     } catch (err) {
-      console.error("fetchMessages:", err);
+      if (import.meta.env.DEV) console.error("fetchMessages:", err);
     } finally {
       setLoadingMessages(false);
     }
@@ -313,7 +313,7 @@ export default function Groups() {
       // Sync the count in DB if it's wrong
       await (supabase as any).from("groups").update({ member_count: realCount }).eq("id", groupId);
     } catch (err) {
-      console.error("fetchMembers:", err);
+      if (import.meta.env.DEV) console.error("fetchMembers:", err);
     } finally {
       setLoadingMembers(false);
     }
@@ -369,7 +369,7 @@ export default function Groups() {
       if (status === "SUBSCRIBED") setWsStatus("connected");
       else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
         setWsStatus("error");
-        console.error("Realtime channel error:", err);
+        if (import.meta.env.DEV) console.error("Realtime channel error:", err);
       }
     },
   );
@@ -445,7 +445,7 @@ export default function Groups() {
         }
       }
     } catch (err) {
-      console.error(err);
+      if (import.meta.env.DEV) console.error(err);
       // Revert optimistic update
       fetchGroups();
       toast({ title: "Action failed", variant: "destructive" });
@@ -483,7 +483,7 @@ export default function Groups() {
       media_url: mediaUrl || null,
       media_type: mediaType || undefined,
     }).catch((err: any) => {
-      console.error("Send failed:", err);
+      if (import.meta.env.DEV) console.error("Send failed:", err);
       // Remove the optimistic message
       setMessages(prev => prev.filter(m => m.id !== tempId));
       setChatInput(trimmed || "");
@@ -547,7 +547,7 @@ export default function Groups() {
       .select();
 
     if (error || !data || data.length === 0) {
-      console.error("Unsend failed:", error);
+      if (import.meta.env.DEV) console.error("Unsend failed:", error);
       // Revert
       setMessages(prev => prev.map(m => m.id === msgId ? { ...m, unsent: false } : m));
       if (activeGroup) fetchMessages(activeGroup.id);
@@ -635,7 +635,7 @@ export default function Groups() {
       setNewName(""); setNewDesc(""); setNewBio(""); setNewTopic("General"); setNewEmoji("🚀"); setNewPrivate(false);
       openGroup(data);
     } catch (err) {
-      console.error(err);
+      if (import.meta.env.DEV) console.error(err);
       toast({ title: "Failed to create community", variant: "destructive" });
     } finally {
       setCreating(false);

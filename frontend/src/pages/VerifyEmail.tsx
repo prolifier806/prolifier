@@ -139,7 +139,7 @@ export default function VerifyEmail() {
       toast({ title: "New code sent to your email." });
       setCooldownSecs(60);
     } catch (err: any) {
-      console.error("[Resend OTP]", err);
+      if (import.meta.env.DEV) console.error("[Resend OTP]", err);
       toast({ title: err?.message ?? "Could not resend code. Please try again.", variant: "destructive" });
     } finally {
       setResending(false);

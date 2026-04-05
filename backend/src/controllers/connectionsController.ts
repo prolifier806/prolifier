@@ -77,7 +77,9 @@ export async function sendRequest(req: AuthRequest, res: Response): Promise<void
       action: "/discover",
       read: false,
     });
-  } catch {}
+  } catch (notifErr) {
+    console.warn("[connections] Failed to create connection request notification:", notifErr);
+  }
 
   res.status(201).json({ success: true, data });
 }
@@ -106,7 +108,9 @@ export async function acceptRequest(req: AuthRequest, res: Response): Promise<vo
       action: "/discover",
       read: false,
     });
-  } catch {}
+  } catch (notifErr) {
+    console.warn("[connections] Failed to create accept notification:", notifErr);
+  }
 
   res.json({ success: true, data });
 }

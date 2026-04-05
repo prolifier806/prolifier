@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 
 import postsRouter from "./routes/posts";
 import connectionsRouter from "./routes/connections";
@@ -53,6 +54,26 @@ app.options("*", cors({
   methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
 }));
+
+// ── Rate limiting ─────────────────────────────────────────────────────────────
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 300,                  // max 300 requests per window per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: "Too many requests, please try again later." },
+});
+
+const uploadLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 50,                   // max 50 uploads per hour per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: "Upload limit reached, please try again later." },
+});
+
+app.use("/api/", apiLimiter);
+app.use("/api/uploads", uploadLimiter);
 
 // ── Body parsing ──────────────────────────────────────────────────────────────
 app.use(express.json({ limit: "1mb" }));
