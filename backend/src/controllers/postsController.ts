@@ -58,9 +58,8 @@ export async function getFeed(req: AuthRequest, res: Response): Promise<void> {
     .select(`
       id, user_id, content, tag, image_url, video_url,
       created_at, likes,
-      profiles:user_id (id, name, avatar, color, skills, deleted_at, role)
+      profiles:user_id (id, name, avatar, color, skills, role)
     `)
-    .is("deleted_at", null)
     .order("created_at", { ascending: false })
     .limit(PAGE_SIZE);
 
@@ -70,9 +69,8 @@ export async function getFeed(req: AuthRequest, res: Response): Promise<void> {
     .from("collabs")
     .select(`
       id, user_id, title, description, looking, skills, image_url, video_url, created_at,
-      profiles:user_id (id, name, avatar, color, skills, deleted_at, role)
+      profiles:user_id (id, name, avatar, color, skills, role)
     `)
-    .is("deleted_at", null)
     .order("created_at", { ascending: false })
     .limit(PAGE_SIZE);
 
@@ -194,10 +192,10 @@ export async function deletePost(req: AuthRequest, res: Response): Promise<void>
     return;
   }
 
-  // Soft delete
+  // Hard delete
   const { error } = await supabaseAdmin
     .from("posts")
-    .update({ deleted_at: new Date().toISOString() })
+    .delete()
     .eq("id", id);
 
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
@@ -243,7 +241,6 @@ export async function likePost(req: AuthRequest, res: Response): Promise<void> {
         user_id: post.user_id,
         type: "like",
         text: "liked your post",
-        actor_id: userId,
         action: `/feed?post=${id}`,
         read: false,
       });
@@ -293,7 +290,6 @@ export async function getComments(req: AuthRequest, res: Response): Promise<void
     .from("comments")
     .select("id, user_id, text, created_at, profiles:user_id (name, avatar, color, role)")
     .eq("post_id", id)
-    .is("deleted_at", null)
     .order("created_at", { ascending: true });
 
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
@@ -329,7 +325,6 @@ export async function addComment(req: AuthRequest, res: Response): Promise<void>
         type: "comment",
         text: "commented on your post",
         subtext: body.text.slice(0, 80),
-        actor_id: userId,
         action: `/feed?post=${postId}`,
         read: false,
       });
@@ -354,7 +349,7 @@ export async function deleteComment(req: AuthRequest, res: Response): Promise<vo
 
   const { error } = await supabaseAdmin
     .from("comments")
-    .update({ deleted_at: new Date().toISOString() })
+    .delete()
     .eq("id", commentId);
 
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
@@ -416,7 +411,7 @@ export async function deleteCollab(req: AuthRequest, res: Response): Promise<voi
 
   const { error } = await supabaseAdmin
     .from("collabs")
-    .update({ deleted_at: new Date().toISOString() })
+    .delete()
     .eq("id", id);
 
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
@@ -443,7 +438,6 @@ export async function expressInterest(req: AuthRequest, res: Response): Promise<
         user_id: collab.user_id,
         type: "collab_interest",
         text: "is interested in your collab",
-        actor_id: userId,
         action: `/feed?collab=${id}`,
         read: false,
       });
