@@ -73,8 +73,8 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
   res.status(500).json({ success: false, error: "Internal server error" });
 });
 
-app.listen(PORT, () => {
-  console.log(`[server] Prolifier API running on http://localhost:${PORT}`);
+app.listen(Number(PORT), "0.0.0.0", () => {
+  console.log(`[server] Prolifier API running on http://0.0.0.0:${PORT}`);
 });
 
 export default app;
