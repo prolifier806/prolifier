@@ -11,7 +11,6 @@ const PAGE_SIZE = 20;
 export const createPostSchema = z.object({
   content: z.string().min(1).max(2000),
   tag: z.string().min(1).max(50),
-  location: z.string().max(100).optional(),
   images: z.array(z.string().url()).max(4).optional(),
   video: z.string().url().optional(),
   link: z.string().url().optional(),
@@ -58,7 +57,7 @@ export async function getFeed(req: AuthRequest, res: Response): Promise<void> {
   let postsQuery = supabaseAdmin
     .from("posts")
     .select(`
-      id, user_id, content, tag, location, images, video, link,
+      id, user_id, content, tag, images, video, link,
       created_at, likes_count, comment_count,
       profiles:user_id (id, name, avatar, color, avatar_url, skills, deleted_at, role)
     `)
@@ -139,7 +138,6 @@ export async function createPost(req: AuthRequest, res: Response): Promise<void>
       user_id: userId,
       content: body.content,
       tag: body.tag,
-      location: body.location ?? null,
       images: body.images ?? [],
       video: body.video ?? null,
       link: body.link ?? null,
