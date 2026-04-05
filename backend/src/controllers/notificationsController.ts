@@ -47,7 +47,6 @@ export async function createNotification(req: AuthRequest, res: Response): Promi
     text: body.text,
     subtext: body.subtext ?? null,
     action: body.action ?? null,
-    actor_id: body.actorId ?? null,
     read: false,
   });
 

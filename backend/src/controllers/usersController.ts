@@ -27,12 +27,11 @@ export async function getProfile(req: AuthRequest, res: Response): Promise<void>
 
   const { data, error } = await supabaseAdmin
     .from("profiles")
-    .select("id, name, avatar, avatar_url, color, location, bio, project, skills, open_to_collab, created_at, role, profile_complete, deleted_at")
+    .select("id, name, avatar, color, location, bio, project, skills, open_to_collab, created_at, role, profile_complete")
     .eq("id", id)
     .single();
 
   if (error) { res.status(404).json({ success: false, error: "Profile not found" }); return; }
-  if (data.deleted_at) { res.status(410).json({ success: false, error: "This account has been deleted" }); return; }
 
   res.json({ success: true, data });
 }
@@ -118,8 +117,7 @@ export async function discoverProfiles(req: AuthRequest, res: Response): Promise
 
   let query = supabaseAdmin
     .from("profiles")
-    .select("id, name, avatar, avatar_url, color, location, bio, project, skills, open_to_collab, created_at, role")
-    .is("deleted_at", null)
+    .select("id, name, avatar, color, location, bio, project, skills, open_to_collab, created_at, role")
     .eq("profile_complete", true)
     .order("created_at", { ascending: false })
     .limit(PAGE_SIZE);
@@ -180,16 +178,12 @@ export async function unblockUser(req: AuthRequest, res: Response): Promise<void
 export async function deleteMyAccount(req: AuthRequest, res: Response): Promise<void> {
   const userId = req.user.id;
 
-  // Soft delete
-  const { error } = await supabaseAdmin
-    .from("profiles")
-    .update({ deleted_at: new Date().toISOString() })
-    .eq("id", userId);
-
-  if (error) { res.status(500).json({ success: false, error: error.message }); return; }
-
   // Disable the auth account
-  await supabaseAdmin.auth.admin.updateUserById(userId, { ban_duration: "876600h" }).catch(() => {});
+  const { error } = await supabaseAdmin.auth.admin.updateUserById(userId, { ban_duration: "876600h" })
+    .then((r) => r)
+    .catch((e) => ({ error: e })) as { error: any };
+
+  if (error) { res.status(500).json({ success: false, error: "Failed to disable account" }); return; }
 
   res.json({ success: true, data: null });
 }

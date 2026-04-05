@@ -191,6 +191,6 @@ export async function deleteGroupMessage(req: AuthRequest, res: Response): Promi
   }
 
   await supabaseAdmin.from("group_messages")
-    .update({ deleted_at: new Date().toISOString() }).eq("id", messageId);
+    .delete().eq("id", messageId);
   res.json({ success: true, data: null });
 }

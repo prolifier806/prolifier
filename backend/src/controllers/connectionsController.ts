@@ -24,7 +24,7 @@ export async function getPendingRequests(req: AuthRequest, res: Response): Promi
 
   const { data, error } = await supabaseAdmin
     .from("connections")
-    .select("requester_id, created_at, profiles:requester_id (id, name, avatar, color, avatar_url)")
+    .select("requester_id, created_at, profiles:requester_id (id, name, avatar, color)")
     .eq("receiver_id", userId)
     .eq("status", "pending")
     .order("created_at", { ascending: false });
@@ -47,7 +47,6 @@ export async function sendRequest(req: AuthRequest, res: Response): Promise<void
     .from("profiles")
     .select("id, name")
     .eq("id", receiverId)
-    .is("deleted_at", null)
     .single();
 
   if (!receiver) { res.status(404).json({ success: false, error: "User not found" }); return; }
@@ -75,7 +74,6 @@ export async function sendRequest(req: AuthRequest, res: Response): Promise<void
       user_id: receiverId,
       type: "match",
       text: "wants to connect with you",
-      actor_id: userId,
       action: "/discover",
       read: false,
     });
@@ -105,7 +103,6 @@ export async function acceptRequest(req: AuthRequest, res: Response): Promise<vo
       user_id: requesterId,
       type: "match",
       text: "accepted your connection request",
-      actor_id: userId,
       action: "/discover",
       read: false,
     });
