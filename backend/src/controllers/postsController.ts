@@ -242,14 +242,16 @@ export async function likePost(req: AuthRequest, res: Response): Promise<void> {
 
   // Create notification for post owner (not self-like)
   if (post.user_id !== userId) {
-    await supabaseAdmin.from("notifications").insert({
-      user_id: post.user_id,
-      type: "like",
-      text: "liked your post",
-      actor_id: userId,
-      action: `/feed?post=${id}`,
-      read: false,
-    }).catch(() => {});
+    try {
+      await supabaseAdmin.from("notifications").insert({
+        user_id: post.user_id,
+        type: "like",
+        text: "liked your post",
+        actor_id: userId,
+        action: `/feed?post=${id}`,
+        read: false,
+      });
+    } catch {}
   }
 
   res.json({ success: true, data: null });
@@ -325,15 +327,17 @@ export async function addComment(req: AuthRequest, res: Response): Promise<void>
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
 
   if (post.user_id !== userId) {
-    await supabaseAdmin.from("notifications").insert({
-      user_id: post.user_id,
-      type: "comment",
-      text: "commented on your post",
-      subtext: body.text.slice(0, 80),
-      actor_id: userId,
-      action: `/feed?post=${postId}`,
-      read: false,
-    }).catch(() => {});
+    try {
+      await supabaseAdmin.from("notifications").insert({
+        user_id: post.user_id,
+        type: "comment",
+        text: "commented on your post",
+        subtext: body.text.slice(0, 80),
+        actor_id: userId,
+        action: `/feed?post=${postId}`,
+        read: false,
+      });
+    } catch {}
   }
 
   res.status(201).json({ success: true, data });
@@ -438,14 +442,16 @@ export async function expressInterest(req: AuthRequest, res: Response): Promise<
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
 
   if (collab.user_id !== userId) {
-    await supabaseAdmin.from("notifications").insert({
-      user_id: collab.user_id,
-      type: "collab_interest",
-      text: "is interested in your collab",
-      actor_id: userId,
-      action: `/feed?collab=${id}`,
-      read: false,
-    }).catch(() => {});
+    try {
+      await supabaseAdmin.from("notifications").insert({
+        user_id: collab.user_id,
+        type: "collab_interest",
+        text: "is interested in your collab",
+        actor_id: userId,
+        action: `/feed?collab=${id}`,
+        read: false,
+      });
+    } catch {}
   }
 
   res.json({ success: true, data: null });

@@ -26,13 +26,14 @@ export async function getNotifications(req: AuthRequest, res: Response): Promise
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
 
   // Mark all as read
-  await supabaseAdmin
-    .from("notifications")
-    .update({ read: true })
-    .eq("user_id", userId)
-    .eq("read", false)
-    .not("type", "in", "(message,match)")
-    .catch(() => {});
+  try {
+    await supabaseAdmin
+      .from("notifications")
+      .update({ read: true })
+      .eq("user_id", userId)
+      .eq("read", false)
+      .not("type", "in", "(message,match)");
+  } catch {}
 
   res.json({ success: true, data });
 }

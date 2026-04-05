@@ -153,11 +153,12 @@ export async function blockUser(req: AuthRequest, res: Response): Promise<void> 
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
 
   // Remove any existing connection
-  await supabaseAdmin
-    .from("connections")
-    .delete()
-    .or(`and(requester_id.eq.${userId},receiver_id.eq.${blockedId}),and(requester_id.eq.${blockedId},receiver_id.eq.${userId})`)
-    .catch(() => {});
+  try {
+    await supabaseAdmin
+      .from("connections")
+      .delete()
+      .or(`and(requester_id.eq.${userId},receiver_id.eq.${blockedId}),and(requester_id.eq.${blockedId},receiver_id.eq.${userId})`);
+  } catch {}
 
   res.json({ success: true, data: null });
 }

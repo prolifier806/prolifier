@@ -70,14 +70,16 @@ export async function sendRequest(req: AuthRequest, res: Response): Promise<void
   if (error?.code === "23505") { res.status(409).json({ success: false, error: "Request already sent" }); return; }
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
 
-  await supabaseAdmin.from("notifications").insert({
-    user_id: receiverId,
-    type: "match",
-    text: "wants to connect with you",
-    actor_id: userId,
-    action: "/discover",
-    read: false,
-  }).catch(() => {});
+  try {
+    await supabaseAdmin.from("notifications").insert({
+      user_id: receiverId,
+      type: "match",
+      text: "wants to connect with you",
+      actor_id: userId,
+      action: "/discover",
+      read: false,
+    });
+  } catch {}
 
   res.status(201).json({ success: true, data });
 }
@@ -98,14 +100,16 @@ export async function acceptRequest(req: AuthRequest, res: Response): Promise<vo
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
   if (!data) { res.status(404).json({ success: false, error: "Pending request not found" }); return; }
 
-  await supabaseAdmin.from("notifications").insert({
-    user_id: requesterId,
-    type: "match",
-    text: "accepted your connection request",
-    actor_id: userId,
-    action: "/discover",
-    read: false,
-  }).catch(() => {});
+  try {
+    await supabaseAdmin.from("notifications").insert({
+      user_id: requesterId,
+      type: "match",
+      text: "accepted your connection request",
+      actor_id: userId,
+      action: "/discover",
+      read: false,
+    });
+  } catch {}
 
   res.json({ success: true, data });
 }

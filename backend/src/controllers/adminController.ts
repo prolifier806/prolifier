@@ -66,12 +66,14 @@ export async function updateUserStatus(req: AuthRequest, res: Response): Promise
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
 
   // Log the action
-  await supabaseAdmin.from("admin_actions").insert({
-    admin_id: req.user.id,
-    target_id: targetId,
-    action: body.status,
-    reason: body.reason ?? null,
-  }).catch(() => {});
+  try {
+    await supabaseAdmin.from("admin_actions").insert({
+      admin_id: req.user.id,
+      target_id: targetId,
+      action: body.status,
+      reason: body.reason ?? null,
+    });
+  } catch {}
 
   res.json({ success: true, data });
 }
