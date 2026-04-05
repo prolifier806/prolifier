@@ -752,7 +752,7 @@ export default function Messages() {
     try {
       // apiSendMessage guards against empty content; for media-only messages
       // pass a single space so the guard passes — backend stores null for blank text.
-      data = await apiSendMessage(trimmed || (mediaUrl ? " " : ""), selectedId, {
+      data = await apiSendMessage(trimmed || "", selectedId, {
         mediaUrl: mediaUrl || undefined,
         mediaType: mediaType || undefined,
         replyToId: (replySnapshot as any).reply_to_id,

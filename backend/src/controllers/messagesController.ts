@@ -5,7 +5,7 @@ import { AuthRequest } from "../lib/types";
 import { checkContent } from "../services/moderation";
 
 export const sendMessageSchema = z.object({
-  text: z.string().min(1).max(5000),
+  text: z.string().max(5000).optional().default(""),
   chatId: z.string(),
   mediaType: z.enum(["text", "image", "video", "audio", "file", "shared_post"]).optional(),
   mediaUrl: z.string().url().optional(),
@@ -25,10 +25,13 @@ export async function sendMessage(req: AuthRequest, res: Response): Promise<void
     }
   }
 
-  // Parse chatId ("uuid1_uuid2") to derive receiverId
-  const parts = body.chatId.split("_");
-  const receiverId = parts.find((p) => p !== userId);
-  if (!receiverId) {
+  // chatId format: "uuid1_uuid2" — UUIDs are 36 chars each
+  const uuidLen = 36;
+  const receiverId = body.chatId.slice(0, uuidLen) === userId
+    ? body.chatId.slice(uuidLen + 1)
+    : body.chatId.slice(0, uuidLen);
+
+  if (!receiverId || receiverId.length !== uuidLen) {
     res.status(400).json({ success: false, error: "Invalid chatId" });
     return;
   }
@@ -38,10 +41,9 @@ export async function sendMessage(req: AuthRequest, res: Response): Promise<void
     .insert({
       sender_id: userId,
       receiver_id: receiverId,
-      text: body.text,
+      text: body.text || null,
       media_type: body.mediaType ?? "text",
       media_url: body.mediaUrl ?? null,
-      reply_to_id: body.replyToId ?? null,
     })
     .select()
     .single();
@@ -55,10 +57,12 @@ export async function getMessages(req: AuthRequest, res: Response): Promise<void
   const { chatId } = req.params;
   const cursor = req.query.cursor as string | undefined;
 
-  // Parse chatId ("uuid1_uuid2") to derive otherId
-  const parts = chatId.split("_");
-  const otherId = parts.find((p) => p !== userId);
-  if (!otherId) {
+  const uuidLen = 36;
+  const otherId = chatId.slice(0, uuidLen) === userId
+    ? chatId.slice(uuidLen + 1)
+    : chatId.slice(0, uuidLen);
+
+  if (!otherId || otherId.length !== uuidLen) {
     res.status(400).json({ success: false, error: "Invalid chatId" });
     return;
   }
@@ -83,10 +87,12 @@ export async function hideConversation(req: AuthRequest, res: Response): Promise
   const userId = req.user.id;
   const { chatId } = req.params;
 
-  // Parse chatId ("uuid1_uuid2") to derive otherId
-  const parts = chatId.split("_");
-  const otherId = parts.find((p) => p !== userId);
-  if (!otherId) {
+  const uuidLen = 36;
+  const otherId = chatId.slice(0, uuidLen) === userId
+    ? chatId.slice(uuidLen + 1)
+    : chatId.slice(0, uuidLen);
+
+  if (!otherId || otherId.length !== uuidLen) {
     res.status(400).json({ success: false, error: "Invalid chatId" });
     return;
   }

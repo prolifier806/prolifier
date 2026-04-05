@@ -158,25 +158,10 @@ export async function uploadVideo(
 
   const { data: urlData } = supabaseAdmin.storage.from(bucket).getPublicUrl(path);
 
-  // Create a videos table record so the edge function can pick it up for HLS processing
-  const { data: videoRecord, error: insertErr } = await supabaseAdmin
-    .from("videos")
-    .insert({
-      user_id: userId,
-      bucket,
-      storage_path: path,
-      fallback_url: urlData.publicUrl,
-      status: "pending",
-    })
-    .select("id")
-    .single();
-
-  if (insertErr) throw new Error(`Video record creation failed: ${insertErr.message}`);
-
   return {
     storagePath: path,
     bucket,
     fallbackUrl: urlData.publicUrl,
-    videoId: videoRecord.id,
+    videoId: path,
   };
 }
