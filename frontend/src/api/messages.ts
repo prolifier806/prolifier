@@ -4,13 +4,13 @@
  */
 import { apiPost, apiGet } from "./client";
 
-export const sendMessage = (content: string, chatId: string, opts?: {
+export const sendMessage = (text: string, chatId: string, opts?: {
   mediaType?: string;
   mediaUrl?: string;
   replyToId?: string;
 }) => {
-  if (!content.trim()) return Promise.resolve(null);
-  return apiPost<any>("/api/messages", { content, chatId, ...opts });
+  if (!text.trim()) return Promise.resolve(null);
+  return apiPost<any>("/api/messages", { text, chatId, ...opts });
 };
 
 export const getMessages = (chatId: string, cursor?: string) =>

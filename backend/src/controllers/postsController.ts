@@ -89,10 +89,10 @@ export async function getFeed(req: AuthRequest, res: Response): Promise<void> {
   const collabIds = collabs.map((c: any) => c.id);
 
   const [likesRes, savedPostsRes, savedCollabsRes, collabInterestsRes] = await Promise.all([
-    postIds.length ? supabaseAdmin.from("post_likes").select("post_id").eq("user_id", userId).in("post_id", postIds) : { data: [] },
-    postIds.length ? supabaseAdmin.from("saved_posts").select("post_id").eq("user_id", userId).in("post_id", postIds) : { data: [] },
-    collabIds.length ? supabaseAdmin.from("saved_collabs").select("collab_id").eq("user_id", userId).in("collab_id", collabIds) : { data: [] },
-    collabIds.length ? supabaseAdmin.from("collab_interests").select("collab_id").eq("user_id", userId).in("collab_id", collabIds) : { data: [] },
+    postIds.length ? supabaseAdmin.from("post_likes").select("post_id").eq("user_id", userId).in("post_id", postIds) : { data: [], error: null },
+    postIds.length ? supabaseAdmin.from("saved_posts").select("post_id").eq("user_id", userId).in("post_id", postIds).then(r => ({ data: r.error ? [] : r.data })) : { data: [] },
+    collabIds.length ? supabaseAdmin.from("saved_collabs").select("collab_id").eq("user_id", userId).in("collab_id", collabIds).then(r => ({ data: r.error ? [] : r.data })) : { data: [] },
+    collabIds.length ? supabaseAdmin.from("collab_interests").select("collab_id").eq("user_id", userId).in("collab_id", collabIds).then(r => ({ data: r.error ? [] : r.data })) : { data: [] },
   ]);
 
   const likedSet = new Set((likesRes.data ?? []).map((r: any) => r.post_id));

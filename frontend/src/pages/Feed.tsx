@@ -1905,8 +1905,8 @@ export default function Feed() {
         data = await createPost({
           content: postDialog.content,
           tag: postDialog.tag,
-          images: postDialog.images.length > 0 ? postDialog.images : undefined,
-          video: postDialog.video || undefined,
+          image_url: postDialog.images.length > 0 ? postDialog.images[0] : undefined,
+          video_url: postDialog.video || undefined,
         });
       } catch (err: any) {
         const modMsg = parseModerationError(err);

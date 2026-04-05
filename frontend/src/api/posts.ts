@@ -14,10 +14,8 @@ export const getFeed = (cursor?: string) =>
 export const createPost = (body: {
   content: string;
   tag: string;
-  location?: string;
-  images?: string[];
-  video?: string;
-  link?: string;
+  image_url?: string;
+  video_url?: string;
 }) => apiPost<any>("/api/feed/posts", body);
 
 export const updatePost = (id: string, body: { content?: string; tag?: string }) =>
@@ -53,8 +51,8 @@ export const createCollab = (body: {
   description: string;
   looking: string;
   skills: string[];
-  image?: string;
-  video?: string;
+  image_url?: string;
+  video_url?: string;
 }) => apiPost<any>("/api/feed/collabs", body);
 
 export const updateCollab = (id: string, body: Partial<Parameters<typeof createCollab>[0]>) =>
