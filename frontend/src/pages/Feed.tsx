@@ -1975,16 +1975,17 @@ export default function Feed() {
           const sorted = [user.id, collab.user_id].sort();
           const chatId = `${sorted[0]}_${sorted[1]}`;
           sendMessage(sharePayload, chatId, { mediaType: "shared_post" }).then(() => {
-          // Fire a message notification so the receiver's badge increments
-          createNotification({
-            userId: collab.user_id,
-            type: "message",
-            text: `${user.name} sent you a message`,
-            subtext: `Interested in your collab "${collab.title}"`,
-            action: `message:${user.id}`,
-            actorId: user.id,
+            // Fire a message notification so the receiver's badge increments
+            createNotification({
+              userId: collab.user_id,
+              type: "message",
+              text: `${user.name} sent you a message`,
+              subtext: `Interested in your collab "${collab.title}"`,
+              action: `message:${user.id}`,
+              actorId: user.id,
+            });
           });
-        });
+        })();
       }
       toast({ title: `Interest sent to ${name}! 🤝` });
     }
