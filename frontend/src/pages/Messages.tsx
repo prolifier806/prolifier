@@ -464,7 +464,7 @@ export default function Messages() {
         setLoadingMsgs(true);
         const { data: msgs } = await (supabase as any)
           .from("messages")
-          .select("id, sender_id, text, media_url, media_type, created_at, read, reply_to_id")
+          .select("id, sender_id, text, media_url, media_type, created_at, read")
           .or(`and(sender_id.eq.${user.id},receiver_id.eq.${withId}),and(sender_id.eq.${withId},receiver_id.eq.${user.id})`)
           .order("created_at", { ascending: false })
           .limit(MSG_PAGE);
@@ -515,7 +515,7 @@ export default function Messages() {
       // Fetch the 50 most recent messages — descending then reverse in state
       const { data, error } = await (supabase as any)
         .from("messages")
-        .select("id, sender_id, text, media_url, media_type, created_at, read, reply_to_id")
+        .select("id, sender_id, text, media_url, media_type, created_at, read")
         .or(`and(sender_id.eq.${user.id},receiver_id.eq.${otherId}),and(sender_id.eq.${otherId},receiver_id.eq.${user.id})`)
         .order("created_at", { ascending: false })
         .limit(MSG_PAGE);
@@ -568,7 +568,7 @@ export default function Messages() {
     try {
       const { data, error } = await (supabase as any)
         .from("messages")
-        .select("id, sender_id, text, media_url, media_type, created_at, read, reply_to_id")
+        .select("id, sender_id, text, media_url, media_type, created_at, read")
         .or(`and(sender_id.eq.${user.id},receiver_id.eq.${otherId}),and(sender_id.eq.${otherId},receiver_id.eq.${user.id})`)
         .lt("created_at", oldestMsgCursorRef.current)
         .order("created_at", { ascending: false })
