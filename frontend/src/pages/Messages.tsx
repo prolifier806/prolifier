@@ -950,7 +950,7 @@ export default function Messages() {
             </div>
           )}
 
-          {m.text && !m.media_type && (
+          {m.text && (!m.media_type || m.media_type === "text") && (
             <div className={`px-4 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap break-words ${isMe ? "bg-primary text-primary-foreground rounded-br-md" : "bg-secondary text-secondary-foreground rounded-bl-md"}`}>
               {renderTextWithLinks(m.text, isMe)}
             </div>
