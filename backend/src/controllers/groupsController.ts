@@ -29,7 +29,7 @@ export async function joinGroup(req: AuthRequest, res: Response): Promise<void> 
   const userId = req.user.id;
 
   const { error } = await supabaseAdmin.from("group_members")
-    .insert({ group_id: id, user_id: userId, role: "member" });
+    .insert({ group_id: id, user_id: userId });
   if (error?.code === "23505") { res.json({ success: true, data: null }); return; }
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
 
@@ -83,15 +83,7 @@ export async function updateMemberRole(req: AuthRequest, res: Response): Promise
     res.status(403).json({ success: false, error: "Only the group owner can change roles" }); return;
   }
 
-  const { error } = await supabaseAdmin.from("group_members")
-    .update({ role }).eq("group_id", groupId).eq("user_id", memberId);
-  if (error) { res.status(500).json({ success: false, error: error.message }); return; }
-
-  // Demote also removes if not found
-  if (role === "member") {
-    await supabaseAdmin.from("group_members").delete().eq("group_id", groupId).eq("user_id", memberId);
-  }
-
+  // role column does not exist in group_members; no-op for now
   res.json({ success: true, data: null });
 }
 
@@ -150,7 +142,7 @@ export async function createGroup(req: AuthRequest, res: Response): Promise<void
     .insert({ ...body, owner_id: userId, member_count: 1 }).select().single();
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
 
-  await supabaseAdmin.from("group_members").insert({ group_id: data.id, user_id: userId, role: "owner" });
+  await supabaseAdmin.from("group_members").insert({ group_id: data.id, user_id: userId });
 
   res.status(201).json({ success: true, data });
 }
@@ -169,7 +161,7 @@ export async function sendGroupMessage(req: AuthRequest, res: Response): Promise
   const { data, error } = await supabaseAdmin.from("group_messages")
     .insert({
       group_id: groupId,
-      sender_id: userId,
+      user_id: userId,
       text: body.text,
       media_url: body.media_url ?? null,
       media_type: body.media_type ?? "text",
@@ -186,7 +178,7 @@ export async function deleteGroupMessage(req: AuthRequest, res: Response): Promi
   const userId = req.user.id;
 
   const { data: msg } = await supabaseAdmin.from("group_messages")
-    .select("sender_id").eq("id", messageId).single();
+    .select("user_id").eq("id", messageId).single();
   if (!msg) { res.status(404).json({ success: false, error: "Message not found" }); return; }
 
   const { data: group } = await supabaseAdmin.from("groups")
@@ -194,7 +186,7 @@ export async function deleteGroupMessage(req: AuthRequest, res: Response): Promi
   const isOwner = group?.owner_id === userId;
   const isAdmin = ["admin", "moderator"].includes((req.user as any).role ?? "");
 
-  if (msg.sender_id !== userId && !isOwner && !isAdmin) {
+  if (msg.user_id !== userId && !isOwner && !isAdmin) {
     res.status(403).json({ success: false, error: "Not authorized to delete this message" }); return;
   }
 

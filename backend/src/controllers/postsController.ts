@@ -13,7 +13,6 @@ export const createPostSchema = z.object({
   tag: z.string().min(1).max(50),
   images: z.array(z.string().url()).max(4).optional(),
   video: z.string().url().optional(),
-  link: z.string().url().optional(),
 });
 
 export const updatePostSchema = z.object({
@@ -26,8 +25,8 @@ export const createCollabSchema = z.object({
   description: z.string().min(1).max(2000),
   looking: z.string().min(1).max(200),
   skills: z.array(z.string()).min(1).max(10),
-  image: z.string().url().optional(),
-  video: z.string().url().optional(),
+  image_url: z.string().url().optional(),
+  video_url: z.string().url().optional(),
 });
 
 export const updateCollabSchema = createCollabSchema.partial();
@@ -57,9 +56,9 @@ export async function getFeed(req: AuthRequest, res: Response): Promise<void> {
   let postsQuery = supabaseAdmin
     .from("posts")
     .select(`
-      id, user_id, content, tag, images, video, link,
-      created_at, likes_count, comment_count,
-      profiles:user_id (id, name, avatar, color, avatar_url, skills, deleted_at, role)
+      id, user_id, content, tag, images, video,
+      created_at, likes, comment_count,
+      profiles:user_id (id, name, avatar, color, skills, deleted_at, role)
     `)
     .is("deleted_at", null)
     .order("created_at", { ascending: false })
@@ -70,8 +69,8 @@ export async function getFeed(req: AuthRequest, res: Response): Promise<void> {
   let collabsQuery = supabaseAdmin
     .from("collabs")
     .select(`
-      id, user_id, title, description, looking, skills, image, video, created_at,
-      profiles:user_id (id, name, avatar, color, avatar_url, skills, deleted_at, role)
+      id, user_id, title, description, looking, skills, image_url, video_url, created_at,
+      profiles:user_id (id, name, avatar, color, skills, deleted_at, role)
     `)
     .is("deleted_at", null)
     .order("created_at", { ascending: false })
@@ -140,7 +139,6 @@ export async function createPost(req: AuthRequest, res: Response): Promise<void>
       tag: body.tag,
       images: body.images ?? [],
       video: body.video ?? null,
-      link: body.link ?? null,
     })
     .select()
     .single();
@@ -165,7 +163,7 @@ export async function updatePost(req: AuthRequest, res: Response): Promise<void>
 
   const { data, error } = await supabaseAdmin
     .from("posts")
-    .update({ ...body, updated_at: new Date().toISOString() })
+    .update({ ...body })
     .eq("id", id)
     .eq("user_id", userId) // enforce ownership
     .select()
@@ -293,7 +291,7 @@ export async function getComments(req: AuthRequest, res: Response): Promise<void
 
   const { data, error } = await supabaseAdmin
     .from("comments")
-    .select("id, user_id, text, parent_id, created_at, profiles:user_id (name, avatar, color, avatar_url, role)")
+    .select("id, user_id, text, created_at, profiles:user_id (name, avatar, color, role)")
     .eq("post_id", id)
     .is("deleted_at", null)
     .order("created_at", { ascending: true });
@@ -318,7 +316,7 @@ export async function addComment(req: AuthRequest, res: Response): Promise<void>
 
   const { data, error } = await supabaseAdmin
     .from("comments")
-    .insert({ user_id: userId, post_id: postId, text: body.text, parent_id: body.parentId ?? null })
+    .insert({ user_id: userId, post_id: postId, text: body.text })
     .select()
     .single();
 
@@ -396,7 +394,7 @@ export async function updateCollab(req: AuthRequest, res: Response): Promise<voi
 
   const { data, error } = await supabaseAdmin
     .from("collabs")
-    .update({ ...body, updated_at: new Date().toISOString() })
+    .update({ ...body })
     .eq("id", id)
     .eq("user_id", userId)
     .select()
