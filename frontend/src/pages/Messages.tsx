@@ -776,25 +776,7 @@ export default function Messages() {
       // Record real ID so the realtime sender INSERT handler skips it
       sentMsgIdsRef.current.add(data.id);
       setMessages(prev => prev.map(m => m.id === tempId ? { ...optimistic, id: data.id, created_at: data.created_at } : m));
-      setConversations(prev => {
-        const exists = prev.some(c => c.id === selectedId);
-        if (exists) {
-          return prev.map(c => c.id === selectedId
-            ? { ...c, lastMsg: previewText(trimmed || null, mediaType || null), lastTime: "now" } : c
-          );
-        }
-        // New conversation — add it to the top using selectedConvo info
-        return [{
-          id: selectedId,
-          name: selectedConvo?.name || "Unknown",
-          avatar: selectedConvo?.avatar || "?",
-          color: selectedConvo?.color || "bg-primary",
-          avatarUrl: selectedConvo?.avatarUrl,
-          lastMsg: previewText(trimmed || null, mediaType || null),
-          lastTime: "now",
-          unread: 0,
-        }, ...prev];
-      });
+      fetchConversations();
       // Notify recipient — skip if they have muted me
       const { data: muteCheck } = await (supabase as any)
         .from("mutes")
