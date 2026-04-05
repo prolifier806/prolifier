@@ -750,13 +750,19 @@ export default function Messages() {
     let data: any = null;
     let error: any = null;
     try {
-      // apiSendMessage guards against empty content; for media-only messages
-      // pass a single space so the guard passes — backend stores null for blank text.
-      data = await apiSendMessage(trimmed || "", selectedId, {
-        mediaUrl: mediaUrl || undefined,
-        mediaType: mediaType || undefined,
-        replyToId: (replySnapshot as any).reply_to_id,
-      });
+      const { data: inserted, error: insertErr } = await (supabase as any)
+        .from("messages")
+        .insert({
+          sender_id: user.id,
+          receiver_id: selectedId,
+          text: trimmed || null,
+          media_url: mediaUrl || null,
+          media_type: mediaType || "text",
+        })
+        .select()
+        .single();
+      data = inserted;
+      error = insertErr;
     } catch (err) {
       error = err;
     }
