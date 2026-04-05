@@ -39,7 +39,7 @@ export interface LogEntry {
 
 let _traceId: string = generateTraceId();
 let _userId: string | undefined;
-let _minLevel: LogLevel = import.meta.env.DEV ? "debug" : "info";
+let _minLevel: LogLevel = import.meta.env.DEV ? "debug" : "warn";
 
 const LEVEL_ORDER: Record<LogLevel, number> = {
   debug: 0,

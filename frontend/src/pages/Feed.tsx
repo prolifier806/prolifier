@@ -1588,7 +1588,7 @@ export default function Feed() {
       setPosts(mappedPosts);
       setCollabs(mappedCollabs);
       setLoading(false);
-      logger.info("feed.load.done", { postCount: mappedPosts.length, collabCount: mappedCollabs.length });
+      logger.info("feed.load.done", { userId: user.id, postCount: mappedPosts.length, collabCount: mappedCollabs.length });
     } catch (err: any) {
       logger.error("feed.load.error", { error: err.message });
       toast({ title: "Failed to load feed", description: err.message, variant: "destructive" });
