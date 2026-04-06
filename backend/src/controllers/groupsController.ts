@@ -8,7 +8,7 @@ export const createGroupSchema = z.object({
   name: z.string().min(1).max(100),
   description: z.string().max(500).optional(),
   bio: z.string().max(300).optional(),
-  is_private: z.boolean().optional(),
+  is_private: z.boolean().optional(), // mapped to visibility below
   emoji: z.string().max(10).optional(),
   topic: z.string().max(50).optional(),
 });
@@ -125,8 +125,14 @@ export async function createGroup(req: AuthRequest, res: Response): Promise<void
     if (!mod.allowed) { res.status(422).json({ success: false, error: "Content violates guidelines" }); return; }
   }
 
+  const { is_private, ...rest } = body;
   const { data, error } = await supabaseAdmin.from("groups")
-    .insert({ ...body, owner_id: userId, member_count: 1 }).select().single();
+    .insert({
+      ...rest,
+      visibility: is_private ? "private" : "public",
+      owner_id: userId,
+      member_count: 1,
+    }).select().single();
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
 
   await supabaseAdmin.from("group_members").insert({ group_id: data.id, user_id: userId });
