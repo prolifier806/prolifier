@@ -14,11 +14,11 @@ export const getFeed = (cursor?: string) =>
 export const createPost = (body: {
   content: string;
   tag: string;
-  image_url?: string;
+  image_urls?: string[];
   video_url?: string;
 }) => apiPost<any>("/api/feed/posts", body);
 
-export const updatePost = (id: string, body: { content?: string; tag?: string }) =>
+export const updatePost = (id: string, body: { content?: string; tag?: string; image_urls?: string[] }) =>
   apiPatch<any>(`/api/feed/posts/${id}`, body);
 
 export const deletePost = (id: string) => apiDelete(`/api/feed/posts/${id}`);

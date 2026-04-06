@@ -1879,7 +1879,7 @@ export default function Feed() {
     const pre = checkContent(content);
     if (!pre.allowed) { toast({ title: pre.message!, variant: "destructive" }); return; }
     try {
-      await updatePost(id, { content, tag });
+      await updatePost(id, { content, tag, image_urls: images });
     } catch (err: any) {
       const modMsg = parseModerationError(err);
       toast({ title: modMsg ?? "Failed to update post", variant: "destructive" });
@@ -1905,7 +1905,7 @@ export default function Feed() {
         data = await createPost({
           content: postDialog.content,
           tag: postDialog.tag,
-          image_url: postDialog.images.length > 0 ? postDialog.images[0] : undefined,
+          image_urls: postDialog.images.length > 0 ? postDialog.images : undefined,
           video_url: postDialog.video || undefined,
         });
       } catch (err: any) {

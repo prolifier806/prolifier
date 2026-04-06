@@ -11,13 +11,14 @@ const PAGE_SIZE = 20;
 export const createPostSchema = z.object({
   content: z.string().min(1).max(2000),
   tag: z.string().min(1).max(50),
-  image_url: z.string().url().optional(),
+  image_urls: z.array(z.string().url()).max(4).optional(),
   video_url: z.string().url().optional(),
 });
 
 export const updatePostSchema = z.object({
   content: z.string().min(1).max(2000).optional(),
   tag: z.string().max(50).optional(),
+  image_urls: z.array(z.string().url()).max(4).optional(),
 });
 
 export const createCollabSchema = z.object({
@@ -56,7 +57,7 @@ export async function getFeed(req: AuthRequest, res: Response): Promise<void> {
   let postsQuery = supabaseAdmin
     .from("posts")
     .select(`
-      id, user_id, content, tag, image_url, video_url,
+      id, user_id, content, tag, image_urls, video_url,
       created_at, likes,
       profiles:user_id (id, name, avatar, color, avatar_url, location, skills, role)
     `)
@@ -135,7 +136,7 @@ export async function createPost(req: AuthRequest, res: Response): Promise<void>
       user_id: userId,
       content: body.content,
       tag: body.tag,
-      image_url: body.image_url ?? null,
+      image_urls: body.image_urls ?? [],
       video_url: body.video_url ?? null,
     })
     .select()
