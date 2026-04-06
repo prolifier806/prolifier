@@ -140,7 +140,7 @@ const ShareLinkModal = memo(({ group, onClose }: { group: Group; onClose: () => 
           </div>
           <button onClick={onClose} className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted"><X className="h-4 w-4" /></button>
         </div>
-        <p className="text-sm text-muted-foreground mb-3">Share this link to invite people to the group.</p>
+        <p className="text-sm text-muted-foreground mb-3">Share this link to invite people to the community.</p>
         <div className="flex items-center gap-2 p-3 bg-muted rounded-xl mb-4">
           <Link2 className="h-4 w-4 text-muted-foreground shrink-0" />
           <span className="text-xs text-foreground flex-1 truncate font-mono">{link}</span>
@@ -438,7 +438,7 @@ export default function Groups() {
           createNotification({
             userId: g.owner_id,
             type: "group",
-            text: `${user.name} joined your group "${g.name}"`,
+            text: `${user.name} joined your community "${g.name}"`,
             action: `group:${groupId}`,
             actorId: user.id,
           });
@@ -626,8 +626,10 @@ export default function Groups() {
       const data = await apiCreateGroup({
         name: newName.trim(),
         description: newDesc.trim() || "A new community.",
-        bio: newBio.trim() || "Welcome to our group!",
+        bio: newBio.trim() || "Welcome to our community!",
         is_private: newPrivate,
+        emoji: newEmoji,
+        topic: newTopic,
       });
       setGroups(prev => [data, ...prev]);
       setJoinedIds(prev => new Set([...prev, data.id]));
@@ -795,11 +797,11 @@ export default function Groups() {
             </div>
             <div>
               <label className="text-sm font-medium block mb-1.5">Short description</label>
-              <Input value={newDesc} onChange={e => setNewDesc(e.target.value)} placeholder="One line about your group" className="h-11" />
+              <Input value={newDesc} onChange={e => setNewDesc(e.target.value)} placeholder="One line about your community" className="h-11" />
             </div>
             <div>
               <label className="text-sm font-medium block mb-1.5">Bio</label>
-              <Textarea value={newBio} onChange={e => setNewBio(e.target.value)} placeholder="Tell people what this group is about…" rows={3} />
+              <Textarea value={newBio} onChange={e => setNewBio(e.target.value)} placeholder="Tell people what this community is about…" rows={3} />
             </div>
             <div>
               <label className="text-sm font-medium block mb-2">Topic</label>
@@ -880,7 +882,7 @@ export default function Groups() {
                   {isOwner && (
                     <Button size="sm" variant="outline" className="gap-1.5 text-xs h-8"
                       onClick={() => { setEditDesc(activeGroup.description); setEditBio(activeGroup.bio); setEditingGroup(true); }}>
-                      <Edit3 className="h-3.5 w-3.5" /> Edit group info
+                      <Edit3 className="h-3.5 w-3.5" /> Edit community info
                     </Button>
                   )}
                 </>
@@ -947,12 +949,12 @@ export default function Groups() {
 
             {isOwner ? (
               <Button variant="outline" className="w-full gap-2 text-destructive border-destructive/30 hover:bg-destructive/5" onClick={deleteGroup}>
-                <Trash2 className="h-4 w-4" /> Delete group
+                <Trash2 className="h-4 w-4" /> Delete community
               </Button>
             ) : (
               <button onClick={() => { toggleJoin(activeGroup.id, true); setView("list"); setActiveGroup(null); }}
                 className="w-full h-10 rounded-xl border border-destructive/30 text-sm text-destructive hover:bg-destructive/5 transition-colors flex items-center justify-center gap-2">
-                <LogOut className="h-4 w-4" /> Leave group
+                <LogOut className="h-4 w-4" /> Leave community
               </button>
             )}
           </div>
@@ -1015,8 +1017,8 @@ export default function Groups() {
           <div className="flex-1 overflow-y-auto p-4">
             {!isJoined && (
               <div className="text-center py-10">
-                <p className="text-sm text-muted-foreground mb-3">Join this group to participate in conversations.</p>
-                <Button size="sm" onClick={() => toggleJoin(activeGroup.id, false)}>Join Group</Button>
+                <p className="text-sm text-muted-foreground mb-3">Join this community to participate in conversations.</p>
+                <Button size="sm" onClick={() => toggleJoin(activeGroup.id, false)}>Join Community</Button>
               </div>
             )}
             {isJoined && loadingMessages && (
@@ -1126,9 +1128,9 @@ export default function Groups() {
         ) : filtered.length === 0 ? (
           <div className="text-center py-14 text-muted-foreground">
             <Users className="h-8 w-8 mx-auto mb-2 opacity-30" />
-            <p className="text-sm font-medium mb-1">No groups found</p>
-            <p className="text-xs mb-3">{filter === "joined" ? "You haven't joined any groups yet." : "Try a different search or create one."}</p>
-            {filter === "joined" && <button className="text-xs text-primary hover:underline" onClick={() => setFilter("all")}>Browse all groups</button>}
+            <p className="text-sm font-medium mb-1">No communities found</p>
+            <p className="text-xs mb-3">{filter === "joined" ? "You haven't joined any communities yet." : "Try a different search or create one."}</p>
+            {filter === "joined" && <button className="text-xs text-primary hover:underline" onClick={() => setFilter("all")}>Browse all communities</button>}
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">

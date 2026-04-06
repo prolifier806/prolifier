@@ -9,6 +9,8 @@ export const createGroupSchema = z.object({
   description: z.string().max(500).optional(),
   bio: z.string().max(300).optional(),
   is_private: z.boolean().optional(),
+  emoji: z.string().max(10).optional(),
+  topic: z.string().max(50).optional(),
 });
 
 export const updateGroupSchema = z.object({

@@ -1,6 +1,6 @@
 import { apiPost, apiPatch, apiDelete } from "./client";
 
-export const createGroup = (body: { name: string; description?: string; bio?: string; is_private?: boolean }) =>
+export const createGroup = (body: { name: string; description?: string; bio?: string; is_private?: boolean; emoji?: string; topic?: string }) =>
   apiPost<any>("/api/groups", body);
 
 export const updateGroup = (id: string, body: { description?: string; bio?: string }) =>
