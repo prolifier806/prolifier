@@ -43,17 +43,6 @@ export async function getFeed(req: AuthRequest, res: Response): Promise<void> {
   const userId = req.user.id;
   const cursor = req.query.cursor as string | undefined;
 
-  // Get blocks in parallel
-  const [blockedRes, blockerRes] = await Promise.all([
-    supabaseAdmin.from("blocks").select("blocked_id").eq("blocker_id", userId),
-    supabaseAdmin.from("blocks").select("blocker_id").eq("blocked_id", userId),
-  ]);
-
-  const blockedIds = new Set([
-    ...(blockedRes.data ?? []).map((r: any) => r.blocked_id),
-    ...(blockerRes.data ?? []).map((r: any) => r.blocker_id),
-  ]);
-
   let postsQuery = supabaseAdmin
     .from("posts")
     .select(`
@@ -77,7 +66,18 @@ export async function getFeed(req: AuthRequest, res: Response): Promise<void> {
 
   if (cursor) collabsQuery = collabsQuery.lt("created_at", cursor);
 
-  const [postsRes, collabsRes] = await Promise.all([postsQuery, collabsQuery]);
+  // Fire all queries in parallel — don't wait for blocks before fetching posts
+  const [blockedRes, blockerRes, postsRes, collabsRes] = await Promise.all([
+    supabaseAdmin.from("blocks").select("blocked_id").eq("blocker_id", userId),
+    supabaseAdmin.from("blocks").select("blocker_id").eq("blocked_id", userId),
+    postsQuery,
+    collabsQuery,
+  ]);
+
+  const blockedIds = new Set([
+    ...(blockedRes.data ?? []).map((r: any) => r.blocked_id),
+    ...(blockerRes.data ?? []).map((r: any) => r.blocker_id),
+  ]);
 
   if (postsRes.error) { res.status(500).json({ success: false, error: postsRes.error.message }); return; }
   if (collabsRes.error) { res.status(500).json({ success: false, error: collabsRes.error.message }); return; }
@@ -115,6 +115,7 @@ export async function getFeed(req: AuthRequest, res: Response): Promise<void> {
     isOwn: c.user_id === userId,
   }));
 
+  res.setHeader("Cache-Control", "private, max-age=30, stale-while-revalidate=60");
   res.json({ success: true, data: { posts: enrichedPosts, collabs: enrichedCollabs } });
 }
 

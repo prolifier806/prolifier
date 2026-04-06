@@ -104,17 +104,6 @@ export async function discoverProfiles(req: AuthRequest, res: Response): Promise
   const location = req.query.location as string | undefined;
   const search = req.query.search as string | undefined;
 
-  const [blockedRes, blockerRes] = await Promise.all([
-    supabaseAdmin.from("blocks").select("blocked_id").eq("blocker_id", userId),
-    supabaseAdmin.from("blocks").select("blocker_id").eq("blocked_id", userId),
-  ]);
-
-  const hiddenIds = new Set([
-    userId,
-    ...(blockedRes.data ?? []).map((r: any) => r.blocked_id),
-    ...(blockerRes.data ?? []).map((r: any) => r.blocker_id),
-  ]);
-
   let query = supabaseAdmin
     .from("profiles")
     .select("id, name, avatar, color, avatar_url, location, bio, project, skills, open_to_collab, created_at, role")
@@ -130,8 +119,20 @@ export async function discoverProfiles(req: AuthRequest, res: Response): Promise
     query = query.or(`name.ilike.${q},bio.ilike.${q},location.ilike.${q}`);
   }
 
-  const { data, error } = await query;
+  // Fire blocks and profiles queries in parallel
+  const [blockedRes, blockerRes, { data, error }] = await Promise.all([
+    supabaseAdmin.from("blocks").select("blocked_id").eq("blocker_id", userId),
+    supabaseAdmin.from("blocks").select("blocker_id").eq("blocked_id", userId),
+    query,
+  ]);
+
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
+
+  const hiddenIds = new Set([
+    userId,
+    ...(blockedRes.data ?? []).map((r: any) => r.blocked_id),
+    ...(blockerRes.data ?? []).map((r: any) => r.blocker_id),
+  ]);
 
   const filtered = (data ?? []).filter((p: any) => !hiddenIds.has(p.id));
   res.json({ success: true, data: filtered });
