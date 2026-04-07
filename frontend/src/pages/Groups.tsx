@@ -83,24 +83,28 @@ type Group = {
 const TOPICS = ["General", "AI", "Design", "Marketing", "Tech"];
 
 function renderTextWithLinks(text: string) {
-  const URL_RE = /(https?:\/\/[^\s]+)/g;
-  const parts = text.split(URL_RE);
-  return parts.map((part, i) =>
-    URL_RE.test(part) ? (
-      <a
-        key={i}
-        href={part}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="underline text-primary hover:opacity-80 break-all"
-        onClick={e => e.stopPropagation()}
-      >
-        {part}
-      </a>
-    ) : (
-      <span key={i}>{part}</span>
-    )
-  );
+  const TOKEN_RE = /(https?:\/\/[^\s]+|@\w+)/g;
+  const parts = text.split(TOKEN_RE);
+  return parts.map((part, i) => {
+    if (/^https?:\/\//.test(part)) {
+      return (
+        <a
+          key={i}
+          href={part}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline text-primary hover:opacity-80 break-all"
+          onClick={e => e.stopPropagation()}
+        >
+          {part}
+        </a>
+      );
+    }
+    if (/^@\w+/.test(part)) {
+      return <span key={i} className="text-emerald-500 font-medium">{part}</span>;
+    }
+    return <span key={i}>{part}</span>;
+  });
 }
 const EMOJIS = ["🤖", "🎨", "📈", "💡", "🚀", "🎵", "📚", "🌱", "⚡", "🔥", "🌍", "🎮"];
 

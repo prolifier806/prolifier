@@ -65,7 +65,7 @@ export async function joinGroup(req: AuthRequest, res: Response): Promise<void> 
   if (error?.code === "23505") { res.json({ success: true, data: null }); return; }
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
 
-  await supabaseAdmin.rpc("increment_member_count", { group_id: id });
+  // DB trigger on_group_member_change handles member_count increment
   res.json({ success: true, data: null });
 }
 
@@ -74,7 +74,7 @@ export async function leaveGroup(req: AuthRequest, res: Response): Promise<void>
   const userId = req.user.id;
 
   await supabaseAdmin.from("group_members").delete().eq("group_id", id).eq("user_id", userId);
-  await supabaseAdmin.rpc("decrement_member_count", { group_id: id });
+  // DB trigger on_group_member_change handles member_count decrement
   res.json({ success: true, data: null });
 }
 
@@ -98,7 +98,7 @@ export async function removeMember(req: AuthRequest, res: Response): Promise<voi
   }
 
   await supabaseAdmin.from("group_members").delete().eq("group_id", groupId).eq("user_id", memberId);
-  await supabaseAdmin.rpc("decrement_member_count", { group_id: groupId });
+  // DB trigger handles member_count decrement
   res.json({ success: true, data: null });
 }
 
@@ -121,12 +121,12 @@ export async function banMember(req: AuthRequest, res: Response): Promise<void> 
   }
 
   await supabaseAdmin.from("group_members").delete().eq("group_id", groupId).eq("user_id", memberId);
+  // DB trigger handles member_count decrement
   const { error } = await supabaseAdmin.from("group_bans").insert({ group_id: groupId, user_id: memberId });
   if (error && error.code !== "23505") {
     res.status(500).json({ success: false, error: error.message }); return;
   }
 
-  await supabaseAdmin.rpc("decrement_member_count", { group_id: groupId });
   res.json({ success: true, data: null });
 }
 
@@ -206,7 +206,7 @@ export async function createGroup(req: AuthRequest, res: Response): Promise<void
       ...rest,
       visibility: is_private ? "private" : "public",
       owner_id: userId,
-      member_count: 1,
+      member_count: 0, // DB trigger on group_members insert will increment to 1
     }).select().single();
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
 
