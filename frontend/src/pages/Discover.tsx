@@ -119,38 +119,60 @@ export default function Discover() {
     return () => clearTimeout(debounceRef.current);
   }, [search]);
 
+  const DISCOVER_CACHE_KEY = `prolifier:discover:${user.id}`;
+  const DISCOVER_CACHE_TTL = 3 * 60 * 1000; // 3 minutes
+
+  const mapProfiles = (data: any[]): Profile[] => data.map((p: any) => ({
+    id: p.id,
+    name: p.name || "Unknown",
+    avatar: p.avatar || "?",
+    avatarUrl: p.avatar_url || undefined,
+    color: p.color || "bg-primary",
+    location: p.location || "",
+    bio: p.bio || "",
+    project: p.project || "",
+    skills: p.skills || [],
+    openToCollab: p.open_to_collab ?? true,
+    role: p.role || "user",
+  }));
+
   const fetchProfiles = useCallback(async (cursor?: string) => {
     if (!user.id) return;
-    cursor ? setLoadingMore(true) : setLoading(true);
+
+    // Show stale cache immediately on initial load (no cursor = first page)
+    if (!cursor) {
+      try {
+        const raw = localStorage.getItem(DISCOVER_CACHE_KEY);
+        if (raw) {
+          const { ts, profiles: cp } = JSON.parse(raw);
+          if (Date.now() - ts < DISCOVER_CACHE_TTL) {
+            setProfiles(cp);
+            setLoading(false);
+          }
+        }
+      } catch { /* ignore */ }
+    }
+
+    cursor ? setLoadingMore(true) : setLoading(prev => prev);
     try {
       const params: Record<string, string> = {};
       if (cursor) params.cursor = cursor;
       if (debouncedSearch) params.search = debouncedSearch;
       if (collabOnly) params.collabOnly = "true";
 
-      const data = await discoverProfiles(params);
-
-      const mapped: Profile[] = data.map((p: any) => ({
-        id: p.id,
-        name: p.name || "Unknown",
-        avatar: p.avatar || "?",
-        avatarUrl: p.avatar_url || undefined,
-        color: p.color || "bg-primary",
-        location: p.location || "",
-        bio: p.bio || "",
-        project: p.project || "",
-        skills: p.skills || [],
-        openToCollab: p.open_to_collab ?? true,
-        role: p.role || "user",
-      }));
-
-      cursor ? setProfiles(prev => [...prev, ...mapped]) : setProfiles(mapped);
-      setHasMore(data.length === PAGE_SIZE);
-      if (data.length > 0) cursorRef.current = data[data.length - 1].created_at;
-
-      // On initial load, also fetch connections
+      // On initial load: fire profiles + connections + blocks all in parallel
       if (!cursor) {
-        const conns = await getConnections();
+        const [data, conns, blocksRes] = await Promise.all([
+          discoverProfiles(params),
+          getConnections().catch(() => []),
+          (supabase as any).from("blocks").select("blocked_id").eq("blocker_id", user.id),
+        ]);
+
+        const mapped = mapProfiles(data);
+        setProfiles(mapped);
+        setHasMore(data.length === PAGE_SIZE);
+        if (data.length > 0) cursorRef.current = data[data.length - 1].created_at;
+
         const acceptedIds = new Set<string>();
         const pendingIds = new Set<string>();
         for (const c of conns) {
@@ -160,11 +182,18 @@ export default function Discover() {
         }
         setConnected(acceptedIds);
         setPending(pendingIds);
+        setBlockedByMe(new Set((blocksRes.data || []).map((b: any) => b.blocked_id)));
 
-        // Get blocks (mine only — users I blocked show as "Blocked" card)
-        const { data: myBlocks } = await (supabase as any)
-          .from("blocks").select("blocked_id").eq("blocker_id", user.id);
-        setBlockedByMe(new Set((myBlocks || []).map((b: any) => b.blocked_id)));
+        // Cache for instant display on next visit
+        try {
+          localStorage.setItem(DISCOVER_CACHE_KEY, JSON.stringify({ ts: Date.now(), profiles: data }));
+        } catch { /* quota */ }
+      } else {
+        const data = await discoverProfiles(params);
+        const mapped = mapProfiles(data);
+        setProfiles(prev => [...prev, ...mapped]);
+        setHasMore(data.length === PAGE_SIZE);
+        if (data.length > 0) cursorRef.current = data[data.length - 1].created_at;
       }
     } catch (err: any) {
       if (isAbortError(err)) return;

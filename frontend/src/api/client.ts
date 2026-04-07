@@ -7,6 +7,20 @@ import { supabase } from "@/lib/supabase";
 
 export const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3001";
 
+// ── Keep-alive ping — prevents Render free-tier backend from sleeping ─────────
+// WHY: Render free tier sleeps after 15 min of inactivity. The wake-up takes
+// ~30s and returns a 502, which the browser reports as a CORS error (no headers
+// from our app). Pinging /health every 4 minutes keeps it warm for active users.
+// Only runs in production and stops when the tab is hidden.
+if (typeof window !== "undefined" && import.meta.env.PROD) {
+  const ping = () => {
+    if (document.visibilityState === "visible") {
+      fetch(`${API_URL}/health`, { method: "GET" }).catch(() => {});
+    }
+  };
+  setInterval(ping, 4 * 60 * 1000); // every 4 minutes
+}
+
 // WHY: Without a timeout, fetch can hang indefinitely if the backend is slow/down.
 // 30 s covers Render.com free-tier cold starts (backend sleeps after 15 min inactivity
 // and takes ~30 s to wake). 15 s was too short and caused spurious abort errors.
