@@ -461,11 +461,19 @@ export default function Discover() {
                       <div className="flex items-start gap-3 mb-3">
                         <button
                           onClick={() => navigate(`/profile/${p.id}`)}
-                          className={`h-12 w-12 rounded-full ${p.avatarUrl ? "" : p.color} flex items-center justify-center text-white font-semibold shrink-0 hover:opacity-80 transition-opacity overflow-hidden`}
+                          className={`h-12 w-12 rounded-full ${p.color} flex items-center justify-center text-white font-semibold shrink-0 hover:opacity-80 transition-opacity overflow-hidden relative`}
                         >
-                          {p.avatarUrl
-                            ? <img src={p.avatarUrl} alt={p.avatar} className="w-full h-full object-cover" />
-                            : p.avatar}
+                          {/* Always show initials as background — image fades in on top */}
+                          <span className="absolute inset-0 flex items-center justify-center select-none">{p.avatar}</span>
+                          {p.avatarUrl && (
+                            <img
+                              src={p.avatarUrl}
+                              alt={p.name}
+                              loading="lazy"
+                              decoding="async"
+                              className="absolute inset-0 w-full h-full object-cover"
+                            />
+                          )}
                         </button>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
@@ -600,11 +608,12 @@ export default function Discover() {
                   >
                     <button
                       onClick={() => navigate(`/profile/${r.requesterId}`)}
-                      className={`h-12 w-12 rounded-full ${r.avatarUrl ? "" : r.color} flex items-center justify-center text-white font-semibold shrink-0 hover:opacity-80 transition-opacity overflow-hidden`}
+                      className={`h-12 w-12 rounded-full ${r.color} flex items-center justify-center text-white font-semibold shrink-0 hover:opacity-80 transition-opacity overflow-hidden relative`}
                     >
-                      {r.avatarUrl
-                        ? <img src={r.avatarUrl} alt={r.avatar} className="w-full h-full object-cover" />
-                        : r.avatar}
+                      <span className="absolute inset-0 flex items-center justify-center select-none">{r.avatar}</span>
+                      {r.avatarUrl && (
+                        <img src={r.avatarUrl} alt={r.name} loading="lazy" decoding="async" className="absolute inset-0 w-full h-full object-cover" />
+                      )}
                     </button>
 
                     <div className="flex-1 min-w-0">
