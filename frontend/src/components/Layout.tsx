@@ -56,8 +56,8 @@ function ComingSoonModal({ open, onClose }: { open: boolean; onClose: () => void
         <div className="text-center space-y-2">
           <h2 className="font-display text-2xl font-bold text-foreground">Coming Soon</h2>
           <p className="text-muted-foreground text-sm leading-relaxed">
-            Talk to Expert is currently locked.<br />
-            We're working hard to bring you 1-on-1 expert sessions. Stay tuned!
+            Ask a Mentor is currently locked.<br />
+            We're working hard to bring you 1-on-1 mentor sessions. Stay tuned!
           </p>
         </div>
 
@@ -368,7 +368,7 @@ export default function Layout({ children }: { children: ReactNode }) {
             );
           })}
 
-          {/* Talk to Expert — locked, coming soon */}
+          {/* Ask a Mentor — locked, coming soon */}
           <button
             onClick={() => setShowExpertModal(true)}
             className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium text-muted-foreground hover:bg-secondary hover:text-foreground transition-all duration-150 opacity-60"
@@ -377,7 +377,7 @@ export default function Layout({ children }: { children: ReactNode }) {
               <Headphones className="h-4 w-4" />
               <Lock className="absolute -bottom-1 -right-1.5 h-2.5 w-2.5" />
             </div>
-            Talk to Expert
+            Ask a Mentor
           </button>
         </nav>
 
