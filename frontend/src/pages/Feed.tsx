@@ -1635,7 +1635,7 @@ export default function Feed() {
       } catch { /* quota exceeded — ignore */ }
 
       setLoading(false);
-      logger.info("feed.load.done", { userId: user.id, postCount: mappedPosts.length, collabCount: mappedCollabs.length });
+      logger.info("feed.load.done", { userId: user.id, postCount: rawPosts?.length ?? 0, collabCount: rawCollabs?.length ?? 0 });
     } catch (err: any) {
       if (isAbortError(err)) { setLoading(false); return; }
       logger.error("feed.load.error", { error: err.message });
