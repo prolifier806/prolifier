@@ -8,8 +8,9 @@ import { supabase } from "@/lib/supabase";
 export const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3001";
 
 // WHY: Without a timeout, fetch can hang indefinitely if the backend is slow/down.
-// This causes React components to stay in loading state forever with no error shown.
-const REQUEST_TIMEOUT_MS = 15_000;
+// 30 s covers Render.com free-tier cold starts (backend sleeps after 15 min inactivity
+// and takes ~30 s to wake). 15 s was too short and caused spurious abort errors.
+const REQUEST_TIMEOUT_MS = 30_000;
 
 async function getToken(): Promise<string | null> {
   const { data } = await supabase.auth.getSession();

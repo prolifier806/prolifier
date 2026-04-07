@@ -166,6 +166,9 @@ export default function Discover() {
         setBlockedByMe(new Set((myBlocks || []).map((b: any) => b.blocked_id)));
       }
     } catch (err: any) {
+      // AbortError fires when the user navigates away before the fetch completes,
+      // or when the request timeout fires. Neither case warrants a visible toast.
+      if (err?.name === "AbortError") return;
       toast({ title: "Failed to load profiles", description: err.message, variant: "destructive" });
     } finally {
       cursor ? setLoadingMore(false) : setLoading(false);
