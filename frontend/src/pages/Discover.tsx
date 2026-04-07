@@ -11,6 +11,7 @@ import { toast } from "@/hooks/use-toast";
 import { useUser } from "@/context/UserContext";
 import { supabase } from "@/lib/supabase";
 import { createNotification } from "@/api/notifications";
+import { isAbortError } from "@/api/client";
 import { useRealtimeChannel } from "@/hooks/useRealtimeChannel";
 import {
   discoverProfiles,
@@ -166,9 +167,7 @@ export default function Discover() {
         setBlockedByMe(new Set((myBlocks || []).map((b: any) => b.blocked_id)));
       }
     } catch (err: any) {
-      // AbortError fires when the user navigates away before the fetch completes,
-      // or when the request timeout fires. Neither case warrants a visible toast.
-      if (err?.name === "AbortError") return;
+      if (isAbortError(err)) return;
       toast({ title: "Failed to load profiles", description: err.message, variant: "destructive" });
     } finally {
       cursor ? setLoadingMore(false) : setLoading(false);
@@ -199,6 +198,7 @@ export default function Discover() {
       }));
       setRequests(mapped);
     } catch (err: any) {
+      if (isAbortError(err)) return;
       toast({ title: "Failed to load requests", description: err.message, variant: "destructive" });
     } finally {
       setRequestsLoading(false);
@@ -256,7 +256,7 @@ export default function Discover() {
       setBlockedByMe(prev => { const next = new Set(prev); next.delete(id); return next; });
       toast({ title: `${name} unblocked` });
     } catch (err: any) {
-      toast({ title: "Failed to unblock", description: err.message, variant: "destructive" });
+      if (!isAbortError(err)) toast({ title: "Failed to unblock", description: err.message, variant: "destructive" });
     }
   };
 
@@ -271,7 +271,7 @@ export default function Discover() {
         toast({ title: "Connection removed", description: `You disconnected from ${name}.` });
       } catch (err: any) {
         setConnected(prev => new Set([...prev, id]));
-        toast({ title: "Failed to remove connection", description: err.message, variant: "destructive" });
+        if (!isAbortError(err)) toast({ title: "Failed to remove connection", description: err.message, variant: "destructive" });
       }
       return;
     }
@@ -283,7 +283,7 @@ export default function Discover() {
         toast({ title: "Request cancelled" });
       } catch (err: any) {
         setPending(prev => new Set([...prev, id]));
-        toast({ title: "Failed to cancel request", description: err.message, variant: "destructive" });
+        if (!isAbortError(err)) toast({ title: "Failed to cancel request", description: err.message, variant: "destructive" });
       }
       return;
     }
@@ -302,7 +302,7 @@ export default function Discover() {
       });
     } catch (err: any) {
       setPending(prev => { const n = new Set(prev); n.delete(id); return n; });
-      toast({ title: "Failed to send request", description: err.message, variant: "destructive" });
+      if (!isAbortError(err)) toast({ title: "Failed to send request", description: err.message, variant: "destructive" });
     }
   };
 
@@ -323,7 +323,7 @@ export default function Discover() {
         actorId: user.id,
       });
     } catch (err: any) {
-      toast({ title: "Failed to accept", description: err.message, variant: "destructive" });
+      if (!isAbortError(err)) toast({ title: "Failed to accept", description: err.message, variant: "destructive" });
     } finally {
       setAcceptingId(null);
     }
@@ -337,7 +337,7 @@ export default function Discover() {
       setRequestCount(prev => Math.max(0, prev - 1));
       toast({ title: `Request from ${name} declined` });
     } catch (err: any) {
-      toast({ title: "Failed to decline", description: err.message, variant: "destructive" });
+      if (!isAbortError(err)) toast({ title: "Failed to decline", description: err.message, variant: "destructive" });
     } finally {
       setDecliningId(null);
     }

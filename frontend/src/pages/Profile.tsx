@@ -22,6 +22,7 @@ import { toast } from "@/hooks/use-toast";
 import { useTheme } from "@/context/ThemeContext";
 import { useUser } from "@/context/UserContext";
 import { supabase } from "@/lib/supabase";
+import { isAbortError } from "@/api/client";
 import { uploadAvatar, removeAvatar } from "@/api/uploads";
 import { deleteMyAccount, unblockUser } from "@/api/users";
 import { updatePost, deletePost } from "@/api/posts";
@@ -380,7 +381,7 @@ export default function Profile() {
       await updateUser({ avatarUrl: url });
       toast({ title: "Profile photo updated! 📸" });
     } catch (err: any) {
-      toast({ title: "Upload failed", description: err.message, variant: "destructive" });
+      if (!isAbortError(err)) toast({ title: "Upload failed", description: err.message, variant: "destructive" });
     } finally {
       setAvatarUploading(false);
     }
@@ -425,7 +426,7 @@ export default function Profile() {
       navigate("/");
       toast({ title: "Account scheduled for deletion", description: "You can recover it within 7 days by logging back in." });
     } catch (err: any) {
-      toast({ title: "Failed to delete account", description: err.message, variant: "destructive" });
+      if (!isAbortError(err)) toast({ title: "Failed to delete account", description: err.message, variant: "destructive" });
       setDeleteLoading(false);
     }
   };

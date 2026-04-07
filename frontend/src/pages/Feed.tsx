@@ -38,7 +38,7 @@ import {
 import { uploadPostImage, uploadVideo } from "@/api/uploads";
 import { createReport } from "@/api/reports";
 import { sendMessage } from "@/api/messages";
-import { apiGet } from "@/api/client";
+import { apiGet, isAbortError } from "@/api/client";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 type Comment = { id: string; user_id: string; author: string; avatar: string; avatarUrl?: string; color: string; text: string; time: string; parentId?: string | null; role?: string; };
@@ -1612,6 +1612,7 @@ export default function Feed() {
       setLoading(false);
       logger.info("feed.load.done", { userId: user.id, postCount: mappedPosts.length, collabCount: mappedCollabs.length });
     } catch (err: any) {
+      if (isAbortError(err)) { setLoading(false); return; }
       logger.error("feed.load.error", { error: err.message });
       toast({ title: "Failed to load feed", description: err.message, variant: "destructive" });
       setLoading(false);

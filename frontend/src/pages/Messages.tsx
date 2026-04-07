@@ -183,7 +183,7 @@ import { createReport } from "@/api/reports";
 import { sendMessage as apiSendMessage, hideConversation } from "@/api/messages";
 import { uploadPostImage, uploadVideo as apiUploadVideo } from "@/api/uploads";
 import { unblockUser } from "@/api/users";
-import { apiPost, apiUpload } from "@/api/client";
+import { apiPost, apiUpload, isAbortError } from "@/api/client";
 
 // ══════════════════════════════════════════════════════════════════════════
 export default function Messages() {
@@ -335,7 +335,7 @@ export default function Messages() {
       setShowDeleteConfirm(false);
       toast({ title: "Chat hidden" });
     } catch (err: any) {
-      toast({ title: "Failed to delete chat", description: err.message, variant: "destructive" });
+      if (!isAbortError(err)) toast({ title: "Failed to delete chat", description: err.message, variant: "destructive" });
     } finally {
       setDeletingChat(false);
     }

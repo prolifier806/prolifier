@@ -18,15 +18,34 @@ async function getToken(): Promise<string | null> {
 }
 
 /**
+ * Returns true for AbortErrors — either from our timeout or from navigation-away.
+ * Use this in catch blocks to avoid showing a toast for benign cancellations.
+ * WHY: When the user navigates away mid-request, or our 30s timeout fires,
+ * fetch throws an AbortError with message "signal is aborted without reason".
+ * Showing that message as a toast is confusing noise — it is never a real error.
+ */
+export function isAbortError(err: unknown): boolean {
+  return (err as any)?.name === "AbortError";
+}
+
+/**
  * Fetch wrapper with AbortController timeout.
  * WHY: The browser has no built-in fetch timeout. A single stalled request
- * can block UX indefinitely. 15s covers slow networks while failing fast enough.
+ * can block UX indefinitely. 30s covers Render.com cold starts.
  */
 async function fetchWithTimeout(url: string, options: RequestInit): Promise<Response> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
     return await fetch(url, { ...options, signal: controller.signal });
+  } catch (err: any) {
+    if (err?.name === "AbortError") {
+      // Re-throw a clean AbortError — the default message "signal is aborted
+      // without reason" would show up verbatim in toasts across every page.
+      const clean = new DOMException("Request timed out or was cancelled", "AbortError");
+      throw clean;
+    }
+    throw err;
   } finally {
     clearTimeout(timeoutId);
   }
