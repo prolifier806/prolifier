@@ -39,8 +39,12 @@ export function useRealtimeChannel(
 
     // Tear down any existing channel first — prevents duplicate WAL subscriptions
     // that can occur on React StrictMode double-invoke or rapid re-renders.
+    // WHY .catch(()=>{}): removeChannel returns a Promise. If the channel was still
+    // mid-connection when we remove it, Supabase internally aborts the in-flight
+    // WebSocket upgrade and the rejected AbortError surfaces as an unhandled
+    // rejection. We don't care about the cleanup result, so swallow it.
     if (channelRef.current) {
-      supabase.removeChannel(channelRef.current);
+      supabase.removeChannel(channelRef.current).catch(() => {});
       channelRef.current = null;
     }
 
@@ -55,7 +59,7 @@ export function useRealtimeChannel(
 
     return () => {
       if (channelRef.current) {
-        supabase.removeChannel(channelRef.current);
+        supabase.removeChannel(channelRef.current).catch(() => {});
         channelRef.current = null;
       }
     };
