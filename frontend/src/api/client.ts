@@ -26,23 +26,30 @@ if (typeof window !== "undefined" && import.meta.env.PROD) {
 // and takes ~30 s to wake). 15 s was too short and caused spurious abort errors.
 const REQUEST_TIMEOUT_MS = 30_000;
 
+// WHY: Always force-refresh the token when returning after long inactivity.
+// getSession() returns the cached token without validating expiry against the server.
+// refreshSession() gets a fresh token using the refresh_token (which lasts weeks).
 async function getToken(): Promise<string | null> {
   const { data } = await supabase.auth.getSession();
   const session = data.session;
   if (!session) return null;
 
-  // WHY: getSession() returns the cached token without checking expiry.
-  // After long inactivity (e.g. 6+ hours) the access_token is expired and
-  // the backend returns 401 "invalid or expired token". We proactively refresh
-  // if the token expires within the next 60 seconds.
+  // Proactively refresh if token expires within 5 minutes
   const expiresAt = session.expires_at ?? 0; // unix seconds
   const secsUntilExpiry = expiresAt - Math.floor(Date.now() / 1000);
-  if (secsUntilExpiry < 60) {
-    const { data: refreshed } = await supabase.auth.refreshSession();
-    return refreshed.session?.access_token ?? null;
+  if (secsUntilExpiry < 300) {
+    const { data: refreshed, error } = await supabase.auth.refreshSession();
+    if (!error && refreshed.session) return refreshed.session.access_token;
   }
 
   return session.access_token;
+}
+
+// Force-refresh token once — used for 401 retry
+async function forceRefreshToken(): Promise<string | null> {
+  const { data, error } = await supabase.auth.refreshSession();
+  if (error || !data.session) return null;
+  return data.session.access_token;
 }
 
 /**
@@ -97,12 +104,37 @@ async function handleResponse<T>(res: Response): Promise<T> {
   return json.data as T;
 }
 
+function authHeaders(token: string | null): Record<string, string> {
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+/**
+ * Core request helper with automatic 401 retry.
+ * WHY: After long inactivity the cached token may be expired. If the first
+ * request returns 401 we force-refresh the session and retry once.
+ */
+async function request(url: string, options: RequestInit): Promise<Response> {
+  let res = await fetchWithTimeout(url, options);
+
+  if (res.status === 401) {
+    // Token expired — force refresh and retry once
+    const freshToken = await forceRefreshToken();
+    if (freshToken) {
+      const headers = new Headers(options.headers);
+      headers.set("Authorization", `Bearer ${freshToken}`);
+      res = await fetchWithTimeout(url, { ...options, headers });
+    }
+  }
+
+  return res;
+}
+
 export async function apiGet<T>(path: string): Promise<T> {
   const token = await getToken();
-  const res = await fetchWithTimeout(`${API_URL}${path}`, {
+  const res = await request(`${API_URL}${path}`, {
     headers: {
       "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...authHeaders(token),
     },
   });
   return handleResponse<T>(res);
@@ -110,11 +142,11 @@ export async function apiGet<T>(path: string): Promise<T> {
 
 export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
   const token = await getToken();
-  const res = await fetchWithTimeout(`${API_URL}${path}`, {
+  const res = await request(`${API_URL}${path}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...authHeaders(token),
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
@@ -123,11 +155,11 @@ export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
 
 export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
   const token = await getToken();
-  const res = await fetchWithTimeout(`${API_URL}${path}`, {
+  const res = await request(`${API_URL}${path}`, {
     method: "PATCH",
     headers: {
       "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...authHeaders(token),
     },
     body: JSON.stringify(body),
   });
@@ -136,11 +168,11 @@ export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
 
 export async function apiDelete<T = null>(path: string): Promise<T> {
   const token = await getToken();
-  const res = await fetchWithTimeout(`${API_URL}${path}`, {
+  const res = await request(`${API_URL}${path}`, {
     method: "DELETE",
     headers: {
       "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...authHeaders(token),
     },
   });
   return handleResponse<T>(res);
@@ -152,15 +184,27 @@ export async function apiUpload<T>(path: string, formData: FormData): Promise<T>
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 5 * 60_000); // 5 min for uploads
   try {
-    const res = await fetch(`${API_URL}${path}`, {
+    let res = await fetch(`${API_URL}${path}`, {
       method: "POST",
       headers: {
         // No Content-Type — let the browser set multipart/form-data boundary
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...authHeaders(token),
       },
       body: formData,
       signal: controller.signal,
     });
+    // Retry once on 401 for uploads too
+    if (res.status === 401) {
+      const freshToken = await forceRefreshToken();
+      if (freshToken) {
+        res = await fetch(`${API_URL}${path}`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${freshToken}` },
+          body: formData,
+          signal: controller.signal,
+        });
+      }
+    }
     return handleResponse<T>(res);
   } finally {
     clearTimeout(timeoutId);
