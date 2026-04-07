@@ -102,7 +102,7 @@ const SHARE_PLATFORMS = [
 // ── Helpers ────────────────────────────────────────────────────────────────
 function Avatar({ initials, color, url, size = "md" }: { initials: string; color: string; url?: string; size?: "sm"|"md"|"lg" }) {
   const sz = size==="sm" ? "h-7 w-7 text-xs" : size==="lg" ? "h-14 w-14 text-lg" : "h-10 w-10 text-sm";
-  if (url) return <div className={`${sz} rounded-full overflow-hidden shrink-0`}><img src={url} alt={initials} className="w-full h-full object-cover" /></div>;
+  if (url) return <div className={`${sz} rounded-full overflow-hidden shrink-0`}><img src={url} alt={initials} loading="lazy" className="w-full h-full object-cover" /></div>;
   return <div className={`${sz} ${color} rounded-full flex items-center justify-center text-white font-semibold shrink-0`}>{initials}</div>;
 }
 
@@ -128,6 +128,10 @@ function getStoragePath(url: string): string | null {
 // Storage cleanup is handled server-side by deletePost / deleteCollab API
 async function deleteFromStorage(_url: string) {}
 
+// Module-level cache — shared across all SmartVideo instances.
+// Same URL is never fetched twice even if the component remounts (e.g. feed scroll).
+const videoMetaCache = new Map<string, { hls_url?: string; thumbnail_url?: string } | null>();
+
 // ── Smart Video — HLS-aware, falls back to native MP4 ────────────────────────
 function SmartVideo({ src, className }: { src: string; className?: string }) {
   const [portrait, setPortrait] = useState(false);
@@ -137,9 +141,17 @@ function SmartVideo({ src, className }: { src: string; className?: string }) {
   // Look up processed HLS from videos table (lazy, non-blocking)
   useEffect(() => {
     if (!src) return;
+    // Return cached result immediately — avoids one API call per mount
+    if (videoMetaCache.has(src)) {
+      const cached = videoMetaCache.get(src);
+      if (cached?.hls_url) setHlsSrc(cached.hls_url);
+      if (cached?.thumbnail_url) setPoster(cached.thumbnail_url);
+      return;
+    }
     let mounted = true;
     (async () => {
       const data = await apiGet<any>(`/api/uploads/video/by-url?fallback_url=${encodeURIComponent(src)}`).catch(() => null);
+      videoMetaCache.set(src, data);
       if (!mounted) return;
       if (data?.hls_url) setHlsSrc(data.hls_url);
       if (data?.thumbnail_url) setPoster(data.thumbnail_url);
@@ -329,7 +341,7 @@ function FeedImage({ src, alt, onClick }: { src: string; alt: string; onClick?: 
       <img
         src={src}
         alt={alt}
-        loading="eager"
+        loading="lazy"
         onLoad={() => setLoaded(true)}
         className={`relative w-full h-full object-cover transition-opacity duration-300 ${loaded ? "opacity-100" : "opacity-0"}`}
       />
@@ -348,19 +360,29 @@ function FeedImage({ src, alt, onClick }: { src: string; alt: string; onClick?: 
 // portrait as portrait. Container smoothly adjusts height between slides.
 function ImageCarousel({ images, onClickIndex }: { images: string[]; onClickIndex: (i: number) => void }) {
   const [current, setCurrent] = useState(0);
-  // Detect ratios for all images in parallel using new Image() off-DOM
+  // Detect ratios lazily — only for the current slide and its neighbours
   const [ratios, setRatios] = useState<Record<number, ImgRatio>>({});
   const [slidesLoaded, setSlidesLoaded] = useState<Record<number, boolean>>({});
+  const ratiosRef = useRef<Record<number, ImgRatio>>({});
 
   useEffect(() => {
-    images.forEach((src, i) => {
+    if (images.length === 0) return;
+    // Preload current, next, and previous — not the whole array
+    const toLoad = [...new Set([
+      current,
+      (current + 1) % images.length,
+      (current - 1 + images.length) % images.length,
+    ])];
+    toLoad.forEach(i => {
+      if (ratiosRef.current[i] !== undefined) return; // already known
       const img = new Image();
       img.onload = () => {
-        setRatios(prev => ({ ...prev, [i]: classifyRatio(img.naturalWidth, img.naturalHeight) }));
+        ratiosRef.current[i] = classifyRatio(img.naturalWidth, img.naturalHeight);
+        setRatios({ ...ratiosRef.current });
       };
-      img.src = src;
+      img.src = images[i];
     });
-  }, [images]);
+  }, [current, images]);
 
   const prev = (e: React.MouseEvent) => { e.stopPropagation(); setCurrent(i => (i - 1 + images.length) % images.length); };
   const next = (e: React.MouseEvent) => { e.stopPropagation(); setCurrent(i => (i + 1) % images.length); };
@@ -1873,7 +1895,7 @@ export default function Feed() {
     await deletePost(id).catch(() => {});
     setPosts(p => p.filter(x => x.id !== id));
     toast({ title: "Post deleted" });
-  }, [posts, user.id]);
+  }, []); // functional updater — no need for `posts` in deps
 
   const handleEditPost = useCallback(async (id: string, content: string, tag: string, images: string[], video?: string) => {
     const pre = checkContent(content);
@@ -1887,7 +1909,7 @@ export default function Feed() {
     }
     setPosts(p => p.map(x => x.id === id ? { ...x, content, tag, images, video: video || undefined } : x));
     toast({ title: "Post updated ✓" });
-  }, [posts, user.id]);
+  }, []); // functional updater — no need for `posts` in deps
 
   const handleHidePost = useCallback((id: string) => {
     setPosts(p => p.filter(x => x.id !== id));

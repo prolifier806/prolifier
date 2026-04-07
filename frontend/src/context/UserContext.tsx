@@ -4,7 +4,7 @@
 // 2. Exported blockedIds into context so Discover/Feed don't re-fetch blocks
 // 3. Added CACHE_STALE_MS constant for easy tuning
 
-import { createContext, useContext, useEffect, useState, useRef, ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, useRef, ReactNode, useCallback, useMemo } from "react";
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 
@@ -406,39 +406,41 @@ export function UserProvider({ children }: { children: ReactNode }) {
     return () => { supabase.removeChannel(channel); };
   }, [authUser?.id]);
 
-  const updateUser = async (patch: Partial<CurrentUser>) => {
+  const updateUser = useCallback(async (patch: Partial<CurrentUser>) => {
     if (!authUser) return;
     const now = new Date().toISOString();
-    const nameChanged = patch.name !== undefined && patch.name !== user.name;
-    const next = { ...user, ...patch, updatedAt: now, ...(nameChanged ? { nameChangedAt: now } : {}) };
-    setUser(next);
-    writeCache(next);
-    const profileData: Record<string, any> = {
-      id: authUser.id,
-      name: next.name,
-      avatar: next.avatar,
-      color: next.color,
-      location: next.location,
-      bio: next.bio,
-      project: next.project,
-      skills: next.skills,
-      looking_for: next.lookingFor,
-      roles: next.roles,
-      github: next.github,
-      website: next.website,
-      twitter: next.twitter,
-      primary_lang: next.primaryLang,
-      open_to_collab: next.openToCollab,
-      updated_at: now,
-      ...(nameChanged ? { name_changed_at: now } : {}),
-    };
-    profileData.avatar_url = next.avatarUrl || null;
-    // Use update (not upsert) so admin-set columns like role/account_status
-    // are never accidentally overwritten with default values.
-    await (supabase.from("profiles") as any).update(profileData).eq("id", authUser.id);
-  };
+    setUser(prev => {
+      const nameChanged = patch.name !== undefined && patch.name !== prev.name;
+      const next = { ...prev, ...patch, updatedAt: now, ...(nameChanged ? { nameChangedAt: now } : {}) };
+      writeCache(next);
+      const profileData: Record<string, any> = {
+        id: authUser.id,
+        name: next.name,
+        avatar: next.avatar,
+        color: next.color,
+        location: next.location,
+        bio: next.bio,
+        project: next.project,
+        skills: next.skills,
+        looking_for: next.lookingFor,
+        roles: next.roles,
+        github: next.github,
+        website: next.website,
+        twitter: next.twitter,
+        primary_lang: next.primaryLang,
+        open_to_collab: next.openToCollab,
+        updated_at: now,
+        avatar_url: next.avatarUrl || null,
+        ...(nameChanged ? { name_changed_at: now } : {}),
+      };
+      // Use update (not upsert) so admin-set columns like role/account_status
+      // are never accidentally overwritten with default values.
+      (supabase.from("profiles") as any).update(profileData).eq("id", authUser.id);
+      return next;
+    });
+  }, [authUser]);
 
-  const completeProfileSetup = async () => {
+  const completeProfileSetup = useCallback(async () => {
     if (!authUser) return;
     await (supabase.from("profiles") as any)
       .update({ profile_complete: true, updated_at: new Date().toISOString() })
@@ -448,9 +450,9 @@ export function UserProvider({ children }: { children: ReactNode }) {
       writeCache(next);
       return next;
     });
-  };
+  }, [authUser]);
 
-  const recoverAccount = async () => {
+  const recoverAccount = useCallback(async () => {
     if (!authUser) return;
     await (supabase.from("profiles") as any)
       .update({ deleted_at: null })
@@ -460,30 +462,32 @@ export function UserProvider({ children }: { children: ReactNode }) {
       writeCache(next);
       return next;
     });
-  };
+  }, [authUser]);
 
-  const signOut = async () => {
+  const signOut = useCallback(async () => {
     if (authUser) localStorage.removeItem(cacheKey(authUser.id));
     await supabase.auth.signOut();
     setUser(DEFAULT_USER);
     setSession(null);
     setAuthUser(null);
     setBlockedIds(new Set());
-  };
+  }, [authUser]);
+
+  const contextValue = useMemo(() => ({
+    user,
+    session,
+    authUser,
+    loading,
+    profileComplete: user.profileSetupDone,
+    blockedIds,
+    updateUser,
+    completeProfileSetup,
+    recoverAccount,
+    signOut,
+  }), [user, session, authUser, loading, blockedIds, updateUser, completeProfileSetup, recoverAccount, signOut]);
 
   return (
-    <UserContext.Provider value={{
-      user,
-      session,
-      authUser,
-      loading,
-      profileComplete: user.profileSetupDone,
-      blockedIds,
-      updateUser,
-      completeProfileSetup,
-      recoverAccount,
-      signOut,
-    }}>
+    <UserContext.Provider value={contextValue}>
       {children}
     </UserContext.Provider>
   );

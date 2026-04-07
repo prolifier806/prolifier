@@ -131,7 +131,7 @@ export default function Layout({ children }: { children: ReactNode }) {
           }
         }
       )
-      // Connection accepted/declined → re-fetch pending count (only if not cleared)
+      // Connection accepted/declined → decrement badge (the pending request is now resolved)
       .on(
         "postgres_changes",
         {
@@ -140,19 +140,16 @@ export default function Layout({ children }: { children: ReactNode }) {
           table: "connections",
           filter: `receiver_id=eq.${user.id}`,
         },
-        () => {
-          // Skip refetch if user is on discover or cleared the badge themselves
+        (payload) => {
+          // Skip if user is on discover or cleared the badge themselves
           if (
             window.location.pathname.startsWith("/discover") ||
             sessionClearedRef.current.has("/discover")
           ) return;
-          (supabase as any)
-            .from("connections")
-            .select("id", { count: "exact", head: true })
-            .eq("receiver_id", user.id)
-            .eq("status", "pending")
-            .eq("read", false)
-            .then(({ count }: any) => setDiscoverCount(count ?? 0));
+          // If the status moved away from "pending", one request was resolved
+          if ((payload.old as any)?.status === "pending" && (payload.new as any)?.status !== "pending") {
+            setDiscoverCount(c => Math.max(0, c - 1));
+          }
         }
       )
       .subscribe();
