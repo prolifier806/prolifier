@@ -140,13 +140,18 @@ export default function Discover() {
     if (!user.id) return;
 
     // Show stale cache immediately on initial load (no cursor = first page)
+    // WHY: Cache includes connected/pending/blocked so buttons render correctly
+    // on first paint — no flash of wrong state while API loads.
     if (!cursor) {
       try {
         const raw = localStorage.getItem(DISCOVER_CACHE_KEY);
         if (raw) {
-          const { ts, profiles: cp } = JSON.parse(raw);
+          const { ts, profiles: cp, connected: cc, pending: cp2, blocked: cb } = JSON.parse(raw);
           if (Date.now() - ts < DISCOVER_CACHE_TTL) {
             setProfiles(cp);
+            if (cc) setConnected(new Set(cc));
+            if (cp2) setPending(new Set(cp2));
+            if (cb) setBlockedByMe(new Set(cb));
             setLoading(false);
           }
         }
@@ -180,13 +185,20 @@ export default function Discover() {
           if (c.status === "accepted") acceptedIds.add(otherId);
           else if (c.status === "pending" && c.requester_id === user.id) pendingIds.add(c.receiver_id);
         }
+        const blockedSet = new Set<string>((blocksRes.data || []).map((b: any) => b.blocked_id as string));
         setConnected(acceptedIds);
         setPending(pendingIds);
-        setBlockedByMe(new Set((blocksRes.data || []).map((b: any) => b.blocked_id)));
+        setBlockedByMe(blockedSet);
 
-        // Cache for instant display on next visit
+        // Cache profiles + connection state together so buttons show correctly on next visit
         try {
-          localStorage.setItem(DISCOVER_CACHE_KEY, JSON.stringify({ ts: Date.now(), profiles: data }));
+          localStorage.setItem(DISCOVER_CACHE_KEY, JSON.stringify({
+            ts: Date.now(),
+            profiles: data,
+            connected: [...acceptedIds],
+            pending: [...pendingIds],
+            blocked: [...blockedSet],
+          }));
         } catch { /* quota */ }
       } else {
         const data = await discoverProfiles(params);
