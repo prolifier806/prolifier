@@ -360,12 +360,14 @@ export function UserProvider({ children }: { children: ReactNode }) {
     const id = authUser.id;
 
     const checkDeletion = async () => {
-      const { data } = await (supabase as any)
+      const { data, error } = await (supabase as any)
         .from("profiles")
         .select("deleted_at, permanently_deleted")
         .eq("id", id)
         .maybeSingle();
-      if (!data || data.permanently_deleted) {
+      // Network/auth errors return null data — don't sign out on transient failures
+      if (error || !data) return;
+      if (data.permanently_deleted) {
         localStorage.removeItem(cacheKey(id));
         await supabase.auth.signOut();
       } else if (data.deleted_at) {
