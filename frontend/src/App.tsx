@@ -143,6 +143,7 @@ function AppRoutes() {
         <Route path="/discover"      element={<ProtectedRoute><Discover /></ProtectedRoute>} />
         <Route path="/messages"      element={<ProtectedRoute><Messages /></ProtectedRoute>} />
         <Route path="/groups"        element={<ProtectedRoute><Groups /></ProtectedRoute>} />
+        <Route path="/groups/:id"    element={<ProtectedRoute><Groups /></ProtectedRoute>} />
         <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
         <Route path="/profile"       element={<ProtectedRoute><Profile /></ProtectedRoute>} />
         <Route path="/profile/:id"   element={<ProtectedRoute><UserProfile /></ProtectedRoute>} />

@@ -1,6 +1,10 @@
-# Environment secrets
+# Environment secrets — never commit these
 .env
+.env.local
+.env.*.local
 backend/.env
+frontend/.env
+frontend/.env.local
 
 # Logs
 logs

@@ -11,18 +11,26 @@ export const createGroupSchema = z.object({
   is_private: z.boolean().optional(), // mapped to visibility below
   emoji: z.string().max(10).optional(),
   topic: z.string().max(50).optional(),
+  image_url: z.string().url().max(2048).optional().nullable(),
 });
 
 export const updateGroupSchema = z.object({
   description: z.string().max(500).optional(),
   bio: z.string().max(300).optional(),
+  visibility: z.enum(["public", "private"]).optional(),
+  emoji: z.string().max(10).optional(),
+  topic: z.string().max(50).optional(),
+  image_url: z.string().url().max(2048).optional().nullable(),
 });
 
 export const sendGroupMessageSchema = z.object({
-  text: z.string().min(1).max(5000),
+  text: z.string().max(5000).optional().default(""),
   media_url: z.string().url().optional().nullable(),
   media_type: z.string().optional(),
   reply_to_id: z.string().uuid().optional().nullable(),
+}).refine(d => (d.text?.trim() ?? "") || d.media_url, {
+  message: "Message must have text or media",
+  path: ["text"],
 });
 
 // Join/leave
@@ -30,16 +38,26 @@ export async function joinGroup(req: AuthRequest, res: Response): Promise<void> 
   const { id } = req.params;
   const userId = req.user.id;
 
+  // Check if user is banned from this group
+  const { data: ban } = await supabaseAdmin.from("group_bans")
+    .select("id").eq("group_id", id).eq("user_id", userId).maybeSingle();
+  if (ban) {
+    res.status(403).json({ success: false, error: "You are banned from this community" });
+    return;
+  }
+
   const { error } = await supabaseAdmin.from("group_members")
     .insert({ group_id: id, user_id: userId });
   if (error?.code === "23505") { res.json({ success: true, data: null }); return; }
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
 
-  const { count } = await supabaseAdmin.from("group_members")
-    .select("*", { count: "exact", head: true }).eq("group_id", id);
-  await supabaseAdmin.from("groups").update({ member_count: count ?? 1 }).eq("id", id);
+  // WHY: Replaced COUNT(*) + UPDATE with a single atomic increment via RPC.
+  // Previously: insert → COUNT(*) full scan → UPDATE (3 round-trips, race-prone).
+  // Now: insert → rpc increment (1 extra round-trip, atomic, no race condition).
+  await supabaseAdmin.rpc("increment_member_count", { group_id: id });
 
-  res.json({ success: true, data: { member_count: count } });
+  // Return the current count without an extra query
+  res.json({ success: true, data: null });
 }
 
 export async function leaveGroup(req: AuthRequest, res: Response): Promise<void> {
@@ -48,11 +66,10 @@ export async function leaveGroup(req: AuthRequest, res: Response): Promise<void>
 
   await supabaseAdmin.from("group_members").delete().eq("group_id", id).eq("user_id", userId);
 
-  const { count } = await supabaseAdmin.from("group_members")
-    .select("*", { count: "exact", head: true }).eq("group_id", id);
-  await supabaseAdmin.from("groups").update({ member_count: count ?? 0 }).eq("id", id);
+  // WHY: Same atomic decrement — avoids the COUNT(*) + UPDATE race condition.
+  await supabaseAdmin.rpc("decrement_member_count", { group_id: id });
 
-  res.json({ success: true, data: { member_count: count } });
+  res.json({ success: true, data: null });
 }
 
 // Remove member (owner only)
@@ -67,11 +84,31 @@ export async function removeMember(req: AuthRequest, res: Response): Promise<voi
 
   await supabaseAdmin.from("group_members").delete().eq("group_id", groupId).eq("user_id", memberId);
 
-  const { count } = await supabaseAdmin.from("group_members")
-    .select("*", { count: "exact", head: true }).eq("group_id", groupId);
-  await supabaseAdmin.from("groups").update({ member_count: count ?? 0 }).eq("id", groupId);
+  await supabaseAdmin.rpc("decrement_member_count", { group_id: groupId });
 
-  res.json({ success: true, data: { member_count: count } });
+  res.json({ success: true, data: null });
+}
+
+// Ban member (owner only)
+export async function banMember(req: AuthRequest, res: Response): Promise<void> {
+  const { id: groupId, memberId } = req.params;
+  const userId = req.user.id;
+
+  const { data: group } = await supabaseAdmin.from("groups").select("owner_id").eq("id", groupId).single();
+  if (!group || group.owner_id !== userId) {
+    res.status(403).json({ success: false, error: "Only the group owner can ban members" }); return;
+  }
+
+  // Remove from members and insert into bans atomically
+  await supabaseAdmin.from("group_members").delete().eq("group_id", groupId).eq("user_id", memberId);
+  const { error } = await supabaseAdmin.from("group_bans").insert({ group_id: groupId, user_id: memberId });
+  if (error && error.code !== "23505") {
+    res.status(500).json({ success: false, error: error.message }); return;
+  }
+
+  await supabaseAdmin.rpc("decrement_member_count", { group_id: groupId });
+
+  res.json({ success: true, data: null });
 }
 
 // Update group info (owner only)
@@ -163,6 +200,45 @@ export async function sendGroupMessage(req: AuthRequest, res: Response): Promise
 
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
   res.status(201).json({ success: true, data });
+}
+
+// Get banned users (owner only)
+export async function getBannedUsers(req: AuthRequest, res: Response): Promise<void> {
+  const { id: groupId } = req.params;
+  const requesterId = req.user.id;
+
+  const { data: group } = await supabaseAdmin.from("groups").select("owner_id").eq("id", groupId).single();
+  if (!group || group.owner_id !== requesterId) {
+    res.status(403).json({ success: false, error: "Only the group owner can view banned users" }); return;
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from("group_bans")
+    .select("user_id, profiles:user_id (name, color)")
+    .eq("group_id", groupId);
+
+  if (error) { res.status(500).json({ success: false, error: error.message }); return; }
+  res.json({ success: true, data: data ?? [] });
+}
+
+// Unban a user (owner only)
+export async function unbanMember(req: AuthRequest, res: Response): Promise<void> {
+  const { id: groupId, userId: targetUserId } = req.params;
+  const requesterId = req.user.id;
+
+  const { data: group } = await supabaseAdmin.from("groups").select("owner_id").eq("id", groupId).single();
+  if (!group || group.owner_id !== requesterId) {
+    res.status(403).json({ success: false, error: "Only the group owner can unban users" }); return;
+  }
+
+  const { error } = await supabaseAdmin
+    .from("group_bans")
+    .delete()
+    .eq("group_id", groupId)
+    .eq("user_id", targetUserId);
+
+  if (error) { res.status(500).json({ success: false, error: error.message }); return; }
+  res.json({ success: true, data: null });
 }
 
 // Delete group message

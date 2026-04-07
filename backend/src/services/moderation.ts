@@ -2,7 +2,12 @@
  * Server-side content moderation — authoritative gate.
  * The frontend pre-filter in security/moderation.ts is for UX only.
  * This runs on every content submission regardless of frontend state.
+ *
+ * Severity levels:
+ *  - "block"  — content rejected, request returns 422
+ *  - "flag"   — content allowed but recorded in moderation_flags for admin review
  */
+import { supabaseAdmin } from "../lib/supabase";
 
 export type ModerationSeverity = "block" | "flag";
 
@@ -71,11 +76,41 @@ export function checkContent(text: string): ModerationResult {
   return { allowed: true };
 }
 
-/** Validate multiple text fields at once. Returns first blocking result. */
+/** Validate multiple text fields at once. Returns first blocking or flagging result. */
 export function checkFields(fields: Record<string, string>): ModerationResult {
+  let flagResult: ModerationResult | null = null;
   for (const [, value] of Object.entries(fields)) {
     const result = checkContent(value);
-    if (!result.allowed) return result;
+    if (!result.allowed) return result; // block immediately
+    if (result.severity === "flag" && !flagResult) flagResult = result; // keep first flag
   }
-  return { allowed: true };
+  return flagResult ?? { allowed: true };
+}
+
+/**
+ * Records flagged content to the moderation_flags table for admin review.
+ * Call this when checkContent/checkFields returns { allowed: true, severity: "flag" }.
+ * Fire-and-forget — don't await in hot path; failure is non-fatal.
+ *
+ * WHY: Previously "flag" severity was computed but never persisted anywhere.
+ * Admins had no visibility into borderline content without proactive DB queries.
+ */
+export function recordModerationFlag(opts: {
+  userId: string;
+  contentType: "post" | "comment" | "message" | "profile" | "collab" | "group_message";
+  contentId?: string;
+  text: string;
+  category: string;
+  matched?: string;
+}): void {
+  supabaseAdmin.from("moderation_flags").insert({
+    user_id: opts.userId,
+    content_type: opts.contentType,
+    content_id: opts.contentId ?? null,
+    flagged_text: opts.text.slice(0, 500), // cap stored text at 500 chars
+    category: opts.category,
+    matched_pattern: opts.matched ?? null,
+  }).then(({ error }) => {
+    if (error) console.warn("[moderation] Failed to record flag:", error.message);
+  });
 }

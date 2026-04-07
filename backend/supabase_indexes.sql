@@ -262,6 +262,32 @@ GRANT EXECUTE ON FUNCTION sync_comment_count() TO authenticated;
 
 
 -- ============================================================
+-- SECTION 5: GROUP MEMBER COUNT ATOMIC INCREMENT/DECREMENT
+-- WHY: The old approach did COUNT(*) + UPDATE in two round-trips,
+-- creating a race condition under concurrent joins (two users join
+-- simultaneously both read count=5, both write 6 instead of 7).
+-- Atomic increment/decrement with GREATEST(0,...) prevents negative counts.
+-- ============================================================
+
+CREATE OR REPLACE FUNCTION increment_member_count(group_id UUID)
+RETURNS VOID LANGUAGE SQL SECURITY DEFINER AS $$
+  UPDATE groups
+  SET member_count = member_count + 1
+  WHERE id = group_id;
+$$;
+
+CREATE OR REPLACE FUNCTION decrement_member_count(group_id UUID)
+RETURNS VOID LANGUAGE SQL SECURITY DEFINER AS $$
+  UPDATE groups
+  SET member_count = GREATEST(0, member_count - 1)
+  WHERE id = group_id;
+$$;
+
+GRANT EXECUTE ON FUNCTION increment_member_count(UUID) TO service_role;
+GRANT EXECUTE ON FUNCTION decrement_member_count(UUID) TO service_role;
+
+
+-- ============================================================
 -- SECTION 4: QUERY ANALYSIS HINTS
 -- Run these to verify your indexes are being used after migration.
 -- ============================================================

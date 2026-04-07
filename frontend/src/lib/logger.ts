@@ -283,8 +283,10 @@ export function getInflightStats() {
   return { current: _inflight, peak: _inflightPeak };
 }
 
-// ── Expose on window for console debugging during k6 runs ─────────────────
-if (typeof window !== "undefined") {
+// ── Expose on window ONLY in development for console debugging ───────────────
+// WHY: Exposing internal logger on window in production leaks user IDs, trace IDs,
+// query patterns, and error messages to anyone who opens DevTools.
+if (typeof window !== "undefined" && import.meta.env.DEV) {
   (window as any).__prolifierLogger = logger;
   (window as any).__prolifierInflight = getInflightStats;
 }

@@ -2,7 +2,7 @@ import { Response } from "express";
 import { z } from "zod";
 import { supabaseAdmin } from "../lib/supabase";
 import { AuthRequest } from "../lib/types";
-import { checkFields } from "../services/moderation";
+import { checkFields, recordModerationFlag } from "../services/moderation";
 
 const PAGE_SIZE = 20;
 
@@ -145,6 +145,14 @@ export async function createPost(req: AuthRequest, res: Response): Promise<void>
 
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
 
+  // Persist flag for admin review (fire-and-forget, never blocks response)
+  if (mod.severity === "flag" && data) {
+    recordModerationFlag({
+      userId, contentType: "post", contentId: data.id,
+      text: body.content, category: mod.category!, matched: mod.matched,
+    });
+  }
+
   res.status(201).json({ success: true, data });
 }
 
@@ -180,9 +188,11 @@ export async function deletePost(req: AuthRequest, res: Response): Promise<void>
   const { id } = req.params;
 
   // Fetch post to get media URLs for cleanup
+  // WHY: was selecting "images"/"video" (wrong column names) — storage cleanup never ran.
+  // Correct column names are "image_urls" (array) and "video_url" (text).
   const { data: post } = await supabaseAdmin
     .from("posts")
-    .select("user_id, images, video")
+    .select("user_id, image_urls, video_url")
     .eq("id", id)
     .single();
 
@@ -203,8 +213,8 @@ export async function deletePost(req: AuthRequest, res: Response): Promise<void>
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
 
   // Clean up storage (best-effort)
-  const mediaUrls: string[] = [...(post.images ?? [])];
-  if (post.video) mediaUrls.push(post.video);
+  const mediaUrls: string[] = [...((post.image_urls as string[] | null) ?? [])];
+  if (post.video_url) mediaUrls.push(post.video_url as string);
 
   for (const url of mediaUrls) {
     const match = url.match(/\/storage\/v1\/object\/public\/posts\/(.+)/);
@@ -321,6 +331,13 @@ export async function addComment(req: AuthRequest, res: Response): Promise<void>
     .single();
 
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
+
+  if (mod.severity === "flag" && data) {
+    recordModerationFlag({
+      userId, contentType: "comment", contentId: data.id,
+      text: body.text, category: mod.category!, matched: mod.matched,
+    });
+  }
 
   if (post.user_id !== userId) {
     try {

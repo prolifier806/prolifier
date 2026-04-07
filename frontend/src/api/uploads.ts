@@ -78,6 +78,14 @@ export async function uploadVideo(
   });
 }
 
+// ── Generic file ─────────────────────────────────────────────────────────────
+
+export async function uploadFile(file: File): Promise<{ url: string }> {
+  const form = new FormData();
+  form.append("file", file);
+  return apiUpload<{ url: string }>("/api/uploads/file", form);
+}
+
 // ── Video processing status ───────────────────────────────────────────────────
 
 export async function pollVideoStatus(videoId: string, timeoutMs = 300_000): Promise<{

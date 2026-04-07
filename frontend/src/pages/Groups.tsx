@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, memo } from "react";
+import { useParams } from "react-router-dom";
 import { useRealtimeChannel } from "@/hooks/useRealtimeChannel";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -21,12 +22,15 @@ import {
   joinGroup as apiJoinGroup,
   leaveGroup as apiLeaveGroup,
   removeMember as apiRemoveMember,
+  banMember as apiBanMember,
   deleteGroup as apiDeleteGroup,
   updateGroup as apiUpdateGroup,
   createGroup as apiCreateGroup,
   sendGroupMessage as apiSendGroupMessage,
+  getBannedUsers as apiGetBannedUsers,
+  unbanUser as apiUnbanUser,
 } from "@/api/groups";
-import { uploadPostImage } from "@/api/uploads";
+import { uploadPostImage, uploadVideo, uploadFile } from "@/api/uploads";
 
 
 // ── Types ─────────────────────────────────────────────────────────────────
@@ -54,6 +58,11 @@ type GroupMember = {
   role: "owner" | "admin" | "member";
 };
 
+type BannedUser = {
+  user_id: string;
+  profiles: { name: string; color: string } | null;
+};
+
 type Group = {
   id: string;
   name: string;
@@ -65,6 +74,7 @@ type Group = {
   owner_id: string;
   member_count: number;
   created_at: string;
+  image_url?: string | null;
 };
 
 const TOPICS = ["General", "AI", "Design", "Marketing", "Tech"];
@@ -155,6 +165,7 @@ const ShareLinkModal = memo(({ group, onClose }: { group: Group; onClose: () => 
 export default function Groups() {
   const { user } = useUser();
   const navigate = useNavigate();
+  const { id: deepLinkId } = useParams<{ id?: string }>();
 
   // List
   const [groups, setGroups] = useState<Group[]>([]);
@@ -174,8 +185,11 @@ export default function Groups() {
   const [editingGroup, setEditingGroup] = useState(false);
   const [editDesc, setEditDesc] = useState("");
   const [editBio, setEditBio] = useState("");
+  const [editEmoji, setEditEmoji] = useState("");
+  const [editVisibility, setEditVisibility] = useState<"public" | "private">("public");
   const [members, setMembers] = useState<GroupMember[]>([]);
   const [loadingMembers, setLoadingMembers] = useState(false);
+  const [memberSearch, setMemberSearch] = useState("");
 
   // Chat
   const [messages, setMessages] = useState<GroupMessage[]>([]);
@@ -186,6 +200,11 @@ export default function Groups() {
   const [editMsgText, setEditMsgText] = useState("");
   const [sending, setSending] = useState(false);
   const [wsStatus, setWsStatus] = useState<"connecting" | "connected" | "error">("connecting");
+
+  // Banned users (settings panel)
+  const [bannedUsers, setBannedUsers] = useState<BannedUser[]>([]);
+  const [bannedLoading, setBannedLoading] = useState(false);
+  const [showBanned, setShowBanned] = useState(false);
 
   // Create
   const [newName, setNewName] = useState("");
@@ -242,6 +261,18 @@ export default function Groups() {
   }, [user.id]);
 
   useEffect(() => { fetchGroups(); }, [fetchGroups]);
+
+  // Deep-link: /groups/:id — auto-open or prompt to join
+  useEffect(() => {
+    if (!deepLinkId || !user.id) return;
+    (async () => {
+      const { data } = await (supabase as any).from("groups").select("*").eq("id", deepLinkId).single();
+      if (!data) { toast({ title: "Community not found", variant: "destructive" }); return; }
+      setGroups(prev => prev.find(g => g.id === deepLinkId) ? prev : [data, ...prev]);
+      openGroup(data);
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deepLinkId, user.id]);
 
   // ── Fetch messages ───────────────────────────────────────────────────────
   const fetchMessages = useCallback(async (groupId: string) => {
@@ -402,6 +433,8 @@ export default function Groups() {
   const openSettings = () => {
     if (!activeGroup) return;
     setShowSettings(true);
+    setShowBanned(false);
+    setBannedUsers([]);
     fetchMembers(activeGroup.id);
   };
 
@@ -424,14 +457,12 @@ export default function Groups() {
     }
     try {
       if (isCurrentlyJoined) {
-        const result = await apiLeaveGroup(groupId) as any;
-        const count = result?.member_count ?? 0;
-        setGroups(prev => prev.map(x => x.id === groupId ? { ...x, member_count: count } : x));
+        await apiLeaveGroup(groupId);
+        // Optimistic update already applied above; server uses atomic decrement
         toast({ title: `Left ${g.name}` });
       } else {
-        const result = await apiJoinGroup(groupId) as any;
-        const count = result?.member_count ?? (g.member_count + 1);
-        setGroups(prev => prev.map(x => x.id === groupId ? { ...x, member_count: count } : x));
+        await apiJoinGroup(groupId);
+        // Optimistic update already applied above; server uses atomic increment
         toast({ title: `Joined ${g.name}! 🎉` });
         // Notify group owner
         if (g.owner_id !== user.id) {
@@ -496,8 +527,18 @@ export default function Groups() {
     const file = e.target.files?.[0];
     if (!file || !activeGroup) return;
     try {
-      const uploaded = await uploadPostImage(file, "chat");
-      sendMessage(undefined, uploaded.url, type);
+      let url: string;
+      if (type === "video") {
+        const uploaded = await uploadVideo(file, "chat");
+        url = uploaded.fallbackUrl;
+      } else if (type === "file") {
+        const uploaded = await uploadFile(file);
+        url = uploaded.url;
+      } else {
+        const uploaded = await uploadPostImage(file, "chat");
+        url = uploaded.url;
+      }
+      sendMessage(undefined, url, type);
     } catch {
       toast({ title: "Upload failed", variant: "destructive" });
     }
@@ -559,11 +600,11 @@ export default function Groups() {
   const removeMember = async (memberId: string, memberName: string) => {
     if (!activeGroup) return;
     setMembers(prev => prev.filter(m => m.id !== memberId));
+    // Optimistic decrement; server handles atomic count via RPC
+    setActiveGroup(prev => prev ? { ...prev, member_count: Math.max(0, prev.member_count - 1) } : prev);
+    setGroups(prev => prev.map(g => g.id === activeGroup.id ? { ...g, member_count: Math.max(0, g.member_count - 1) } : g));
     try {
-      const result = await apiRemoveMember(activeGroup.id, memberId) as any;
-      const count = result?.member_count ?? 0;
-      setActiveGroup(prev => prev ? { ...prev, member_count: count } : prev);
-      setGroups(prev => prev.map(g => g.id === activeGroup.id ? { ...g, member_count: count } : g));
+      await apiRemoveMember(activeGroup.id, memberId);
       toast({ title: `${memberName} removed` });
     } catch {
       fetchMembers(activeGroup.id); // revert
@@ -574,12 +615,16 @@ export default function Groups() {
   // ── Admin: ban member ────────────────────────────────────────────────────
   const banMember = async (memberId: string, memberName: string) => {
     if (!activeGroup) return;
+    if (!window.confirm(`Ban ${memberName}? They won't be able to rejoin.`)) return;
     setMembers(prev => prev.filter(m => m.id !== memberId));
+    // Optimistic decrement; server handles atomic count via RPC
+    setActiveGroup(prev => prev ? { ...prev, member_count: Math.max(0, prev.member_count - 1) } : prev);
+    setGroups(prev => prev.map(g => g.id === activeGroup.id ? { ...g, member_count: Math.max(0, g.member_count - 1) } : g));
     try {
-      const result = await apiRemoveMember(activeGroup.id, memberId) as any;
-      const count = result?.member_count ?? 0;
-      setActiveGroup(prev => prev ? { ...prev, member_count: count } : prev);
-      toast({ title: `${memberName} banned` });
+      await apiBanMember(activeGroup.id, memberId);
+      // Refresh banned list if it's open
+      if (showBanned) setBannedUsers(await apiGetBannedUsers(activeGroup.id));
+      toast({ title: `${memberName} has been banned` });
     } catch {
       fetchMembers(activeGroup.id);
       toast({ title: "Ban failed", variant: "destructive" });
@@ -605,12 +650,12 @@ export default function Groups() {
   // ── Admin: save group edit ───────────────────────────────────────────────
   const saveGroupEdit = async () => {
     if (!activeGroup) return;
-    const updated = { ...activeGroup, description: editDesc, bio: editBio };
+    const updated = { ...activeGroup, description: editDesc, bio: editBio, emoji: editEmoji, visibility: editVisibility };
     setActiveGroup(updated);
-    setGroups(prev => prev.map(g => g.id === activeGroup.id ? { ...g, description: editDesc, bio: editBio } : g));
+    setGroups(prev => prev.map(g => g.id === activeGroup.id ? { ...g, description: editDesc, bio: editBio, emoji: editEmoji, visibility: editVisibility } : g));
     setEditingGroup(false);
     try {
-      await apiUpdateGroup(activeGroup.id, { description: editDesc, bio: editBio });
+      await apiUpdateGroup(activeGroup.id, { description: editDesc, bio: editBio, emoji: editEmoji, visibility: editVisibility });
       toast({ title: "Community updated ✓" });
     } catch {
       setActiveGroup(activeGroup);
@@ -696,7 +741,8 @@ export default function Groups() {
           <div className="flex-1 min-w-0">
             {!grouped && (
               <div className="flex items-baseline gap-2 mb-0.5">
-                <p className="text-sm font-semibold text-foreground">{m.author_name}</p>
+                <button onClick={() => navigate(`/profile/${m.user_id}`)}
+                  className="text-sm font-semibold text-foreground hover:underline">{m.author_name}</button>
                 <span className="text-xs text-muted-foreground">{fmtTime(m.created_at)}</span>
                 {m.edited && <span className="text-[10px] text-muted-foreground italic">· edited</span>}
               </div>
@@ -855,11 +901,22 @@ export default function Groups() {
                   <p className="text-xs text-muted-foreground mt-0.5">
                     {activeGroup.visibility === "private" ? "🔒 Private" : "🌐 Public"} · {activeGroup.member_count} members
                   </p>
-                  {isOwner && <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 dark:bg-amber-950 px-1.5 py-0.5 rounded-full mt-1 inline-block">Admin</span>}
+                  {isOwner && <span className="flex items-center gap-0.5 text-[10px] font-semibold text-amber-600 mt-1"><Crown className="h-3 w-3" /> Owner</span>}
                 </div>
               </div>
               {editingGroup ? (
                 <div className="space-y-3">
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground block mb-1.5">Community icon</label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {EMOJIS.map(e => (
+                        <button key={e} onClick={() => setEditEmoji(e)}
+                          className={`h-9 w-9 rounded-xl text-lg flex items-center justify-center transition-all ${editEmoji === e ? "bg-primary/20 ring-2 ring-primary" : "bg-muted hover:bg-secondary"}`}>
+                          {e}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                   <div>
                     <label className="text-xs font-medium text-muted-foreground block mb-1">Description</label>
                     <Input value={editDesc} onChange={e => setEditDesc(e.target.value)} className="h-9 text-sm" />
@@ -867,6 +924,13 @@ export default function Groups() {
                   <div>
                     <label className="text-xs font-medium text-muted-foreground block mb-1">Bio</label>
                     <Textarea value={editBio} onChange={e => setEditBio(e.target.value)} rows={3} className="text-sm" />
+                  </div>
+                  <div className="flex items-center justify-between p-3 rounded-xl border border-border">
+                    <div className="flex items-center gap-2">
+                      {editVisibility === "private" ? <Lock className="h-3.5 w-3.5 text-muted-foreground" /> : <Globe className="h-3.5 w-3.5 text-muted-foreground" />}
+                      <span className="text-sm font-medium">{editVisibility === "private" ? "Private" : "Public"}</span>
+                    </div>
+                    <Toggle checked={editVisibility === "private"} onChange={v => setEditVisibility(v ? "private" : "public")} />
                   </div>
                   <div className="flex gap-2">
                     <Button size="sm" className="flex-1 h-8 text-xs" onClick={saveGroupEdit}>Save changes</Button>
@@ -881,7 +945,7 @@ export default function Groups() {
                   <p className="text-sm text-foreground mb-3">{activeGroup.bio}</p>
                   {isOwner && (
                     <Button size="sm" variant="outline" className="gap-1.5 text-xs h-8"
-                      onClick={() => { setEditDesc(activeGroup.description); setEditBio(activeGroup.bio); setEditingGroup(true); }}>
+                      onClick={() => { setEditDesc(activeGroup.description); setEditBio(activeGroup.bio); setEditEmoji(activeGroup.emoji); setEditVisibility(activeGroup.visibility); setEditingGroup(true); }}>
                       <Edit3 className="h-3.5 w-3.5" /> Edit community info
                     </Button>
                   )}
@@ -900,13 +964,20 @@ export default function Groups() {
                   <RefreshCw className={`h-3 w-3 ${loadingMembers ? "animate-spin" : ""}`} /> Refresh
                 </button>
               </div>
+              <div className="px-4 py-2 border-b border-border">
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                  <input value={memberSearch} onChange={e => setMemberSearch(e.target.value)}
+                    placeholder="Search members…" className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg bg-muted outline-none text-foreground placeholder:text-muted-foreground" />
+                </div>
+              </div>
               {loadingMembers ? (
                 <div className="p-6 flex justify-center">
                   <div className="h-5 w-5 rounded-full border-2 border-primary border-t-transparent animate-spin" />
                 </div>
               ) : (
                 <div className="divide-y divide-border">
-                  {members.map(m => (
+                  {members.filter(m => !memberSearch || m.name.toLowerCase().includes(memberSearch.toLowerCase())).map(m => (
                     <div key={m.id} className="flex items-center gap-3 px-4 py-3">
                       <button onClick={() => navigate(`/profile/${m.id}`)}
                         className={`h-9 w-9 rounded-full ${m.color} flex items-center justify-center text-white text-xs font-semibold shrink-0 hover:opacity-80 transition-opacity`}>
@@ -917,7 +988,7 @@ export default function Groups() {
                         {m.name}{m.id === user.id ? " (You)" : ""}
                       </button>
                       <div className="flex items-center gap-1.5 shrink-0">
-                        {m.role === "owner" && <Crown className="h-3.5 w-3.5 text-amber-500" />}
+                        {(m.role === "owner" || m.role === "admin") && <Crown className="h-3.5 w-3.5 text-amber-500" />}
                         {isOwner && m.id !== user.id && (
                           <>
                             <button onClick={() => navigate(`/profile/${m.id}`)} title="View profile"
@@ -945,6 +1016,68 @@ export default function Groups() {
               <Button variant="outline" className="w-full gap-2" onClick={() => setShowShare(true)}>
                 <Link2 className="h-4 w-4" /> Share invite link
               </Button>
+            )}
+
+            {/* Banned users — visible only to owner */}
+            {isOwner && (
+              <div className="rounded-xl border border-border bg-card overflow-hidden">
+                <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+                  <p className="text-sm font-semibold flex items-center gap-2">
+                    <ShieldOff className="h-4 w-4 text-destructive" /> Banned Users
+                  </p>
+                  <button
+                    onClick={async () => {
+                      const next = !showBanned;
+                      setShowBanned(next);
+                      if (next && bannedUsers.length === 0) {
+                        setBannedLoading(true);
+                        try { setBannedUsers(await apiGetBannedUsers(activeGroup.id)); }
+                        catch { toast({ title: "Failed to load banned users", variant: "destructive" }); }
+                        finally { setBannedLoading(false); }
+                      }
+                    }}
+                    className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    {showBanned ? "Hide" : "Show"}
+                  </button>
+                </div>
+                {showBanned && (
+                  bannedLoading ? (
+                    <div className="p-4 flex justify-center">
+                      <div className="h-4 w-4 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+                    </div>
+                  ) : bannedUsers.length === 0 ? (
+                    <p className="px-4 py-3 text-xs text-muted-foreground">No banned users.</p>
+                  ) : (
+                    <div className="divide-y divide-border">
+                      {bannedUsers.map(b => (
+                        <div key={b.user_id} className="flex items-center gap-3 px-4 py-3">
+                          <div className={`h-8 w-8 rounded-full ${b.profiles?.color || "bg-muted"} flex items-center justify-center text-white text-xs font-semibold shrink-0`}>
+                            {initials(b.profiles?.name || "?")}
+                          </div>
+                          <span className="text-sm text-foreground flex-1 min-w-0 truncate">
+                            {b.profiles?.name || "Unknown"}
+                          </span>
+                          <button
+                            onClick={async () => {
+                              try {
+                                await apiUnbanUser(activeGroup.id, b.user_id);
+                                setBannedUsers(prev => prev.filter(x => x.user_id !== b.user_id));
+                                toast({ title: `${b.profiles?.name || "User"} unbanned` });
+                              } catch {
+                                toast({ title: "Unban failed", variant: "destructive" });
+                              }
+                            }}
+                            className="text-xs px-2.5 py-1 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
+                          >
+                            Unban
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                )}
+              </div>
             )}
 
             {isOwner ? (
@@ -987,7 +1120,7 @@ export default function Groups() {
                 {activeGroup.visibility === "private" && <Lock className="h-3 w-3 text-muted-foreground shrink-0" />}
               </div>
               <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-                {activeGroup.member_count} members{isOwner ? " · Admin" : ""}
+                {activeGroup.member_count} members
                 <span className={
                   "inline-block h-1.5 w-1.5 rounded-full " +
                   (wsStatus === "connected" ? "bg-emerald-500" :
@@ -1108,17 +1241,24 @@ export default function Groups() {
           <Input placeholder="Search communities..." value={search} onChange={e => setSearch(e.target.value)} className="pl-10 h-11" />
         </div>
 
+        {/* Primary tabs: All / Joined */}
+        <div className="flex bg-muted rounded-xl p-1 mb-4">
+          <button onClick={() => setFilter("all")}
+            className={`flex-1 text-sm font-medium py-1.5 rounded-lg transition-all ${filter === "all" ? "bg-card shadow text-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+            All Communities
+          </button>
+          <button onClick={() => setFilter("joined")}
+            className={`flex-1 text-sm font-medium py-1.5 rounded-lg transition-all ${filter === "joined" ? "bg-card shadow text-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+            Joined ({groups.filter(g => joinedIds.has(g.id) || g.owner_id === user.id).length})
+          </button>
+        </div>
+
+        {/* Secondary: topic filter pills */}
         <div className="flex gap-2 flex-wrap mb-4">
+          <Badge variant={topic === "" ? "default" : "outline"} className="cursor-pointer" onClick={() => setTopic("")}>All</Badge>
           {TOPICS.map(t => (
             <Badge key={t} variant={topic === t ? "default" : "outline"} className="cursor-pointer" onClick={() => setTopic(topic === t ? "" : t)}>{t}</Badge>
           ))}
-        </div>
-
-        <div className="flex gap-2 mb-6">
-          <Badge variant={filter === "all" ? "default" : "outline"} className="cursor-pointer" onClick={() => setFilter("all")}>All Communities</Badge>
-          <Badge variant={filter === "joined" ? "default" : "outline"} className="cursor-pointer" onClick={() => setFilter("joined")}>
-            Joined ({groups.filter(g => joinedIds.has(g.id) || g.owner_id === user.id).length})
-          </Badge>
         </div>
 
         {loadingGroups ? (
@@ -1145,7 +1285,6 @@ export default function Groups() {
                     <div className="flex items-start justify-between mb-3">
                       <div className="h-12 w-12 rounded-2xl bg-muted flex items-center justify-center text-2xl group-hover:scale-110 transition-transform duration-150">{g.emoji}</div>
                       <div className="flex items-center gap-1.5 flex-wrap justify-end">
-                        {isMine && <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 dark:bg-amber-950 px-1.5 py-0.5 rounded-full">Admin</span>}
                         {g.visibility === "private" && (
                           <span className="flex items-center gap-0.5 text-[10px] font-medium text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full">
                             <Lock className="h-2.5 w-2.5" /> Private

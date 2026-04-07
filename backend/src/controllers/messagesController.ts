@@ -2,7 +2,7 @@ import { Response } from "express";
 import { z } from "zod";
 import { supabaseAdmin } from "../lib/supabase";
 import { AuthRequest } from "../lib/types";
-import { checkContent } from "../services/moderation";
+import { checkContent, recordModerationFlag } from "../services/moderation";
 
 export const sendMessageSchema = z.object({
   text: z.string().max(5000).optional().default(""),
@@ -25,12 +25,14 @@ export async function sendMessage(req: AuthRequest, res: Response): Promise<void
   const body = req.body as z.infer<typeof sendMessageSchema>;
 
   // Moderate text content
+  let msgMod = { allowed: true, severity: undefined as string | undefined, category: undefined as string | undefined, matched: undefined as string | undefined };
   if (body.mediaType === "text" || !body.mediaType) {
     const mod = checkContent(body.text);
     if (!mod.allowed) {
       res.status(422).json({ success: false, error: "Message violates community guidelines" });
       return;
     }
+    msgMod = mod as typeof msgMod;
   }
 
   const receiverId = extractOtherId(userId, body.chatId);
@@ -52,6 +54,14 @@ export async function sendMessage(req: AuthRequest, res: Response): Promise<void
     .single();
 
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
+
+  if (msgMod.severity === "flag" && data) {
+    recordModerationFlag({
+      userId, contentType: "message", contentId: data.id,
+      text: body.text, category: msgMod.category!, matched: msgMod.matched,
+    });
+  }
+
   res.status(201).json({ success: true, data });
 }
 

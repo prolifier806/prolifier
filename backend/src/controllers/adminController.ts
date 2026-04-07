@@ -2,6 +2,7 @@ import { Response } from "express";
 import { z } from "zod";
 import { supabaseAdmin } from "../lib/supabase";
 import { AuthRequest } from "../lib/types";
+import { invalidateRoleCache } from "../middleware/requireAuth";
 
 export const updateUserStatusSchema = z.object({
   status: z.enum(["active", "suspended", "banned"]),
@@ -65,6 +66,11 @@ export async function updateUserStatus(req: AuthRequest, res: Response): Promise
 
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
 
+  // WHY: Invalidate the in-memory role cache for this user immediately.
+  // Without this, a banned admin could still hit admin-only endpoints for up to
+  // 5 minutes (the cache TTL), because requireAuth would return the cached "admin" role.
+  invalidateRoleCache(targetId);
+
   // Log the action
   try {
     await supabaseAdmin.from("admin_actions").insert({
@@ -116,6 +122,38 @@ export async function getReports(req: AuthRequest, res: Response): Promise<void>
 
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
   res.json({ success: true, data, total: count });
+}
+
+export async function getModerationFlags(req: AuthRequest, res: Response): Promise<void> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const page = Math.max(1, parseInt(((req as any).query?.page as string) ?? "1"));
+  const limit = 25;
+  const offset = (page - 1) * limit;
+
+  const { data, error, count } = await supabaseAdmin
+    .from("moderation_flags")
+    .select(`
+      id, content_type, content_id, flagged_text, category, matched_pattern, created_at,
+      user:user_id (id, name, avatar, color)
+    `, { count: "exact" })
+    .eq("reviewed", false)
+    .order("created_at", { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (error) { res.status(500).json({ success: false, error: error.message }); return; }
+  res.json({ success: true, data, total: count });
+}
+
+export async function resolveModerationFlag(req: AuthRequest, res: Response): Promise<void> {
+  const { id } = req.params;
+
+  const { error } = await supabaseAdmin
+    .from("moderation_flags")
+    .update({ reviewed: true, reviewed_by: req.user.id, reviewed_at: new Date().toISOString() })
+    .eq("id", id);
+
+  if (error) { res.status(500).json({ success: false, error: error.message }); return; }
+  res.json({ success: true, data: null });
 }
 
 export async function resolveReport(req: AuthRequest, res: Response): Promise<void> {

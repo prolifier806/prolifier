@@ -115,8 +115,14 @@ export async function discoverProfiles(req: AuthRequest, res: Response): Promise
   if (location) query = query.eq("location", location);
   if (skills) query = query.overlaps("skills", skills.split(","));
   if (search) {
-    const q = `%${search}%`;
-    query = query.or(`name.ilike.${q},bio.ilike.${q},location.ilike.${q}`);
+    // WHY: Injecting user input directly into PostgREST filter strings allows
+    // filter injection (e.g. passing "},{name.eq.admin" breaks query structure).
+    // Sanitize by stripping PostgREST special chars before building the filter.
+    const safe = search.replace(/[%_,.()"']/g, "").slice(0, 100);
+    if (safe) {
+      const q = `%${safe}%`;
+      query = query.or(`name.ilike.${q},bio.ilike.${q},location.ilike.${q}`);
+    }
   }
 
   // Fire blocks and profiles queries in parallel

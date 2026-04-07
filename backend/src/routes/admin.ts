@@ -4,6 +4,7 @@ import { requireAdmin } from "../middleware/requireAdmin";
 import { validate } from "../middleware/validate";
 import {
   updateUserStatus, deleteContent, getReports, resolveReport,
+  getModerationFlags, resolveModerationFlag,
   updateUserStatusSchema, resolveReportSchema,
 } from "../controllers/adminController";
 
@@ -17,5 +18,7 @@ router.get("/reports", getReports as any);
 router.patch("/reports/:id/resolve", validate(resolveReportSchema), resolveReport as any);
 router.patch("/users/:id/status", validate(updateUserStatusSchema), updateUserStatus as any);
 router.delete("/content/:type/:id", deleteContent as any);
+router.get("/moderation-flags", getModerationFlags as any);
+router.patch("/moderation-flags/:id/resolve", resolveModerationFlag as any);
 
 export default router;
