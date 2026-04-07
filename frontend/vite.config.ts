@@ -36,14 +36,16 @@ export default defineConfig(({ mode }) => ({
         entryFileNames: "assets/[name]-[hash].js",
         assetFileNames: "assets/[name]-[hash].[ext]",
         manualChunks: (id) => {
-          // Group all Lucide icons into one chunk instead of one file per icon
+          // Each vendor chunk is cached independently — a Radix update doesn't
+          // bust the React cache, and vice versa.
           if (id.includes("lucide-react")) return "vendor-icons";
           if (id.includes("react-dom") || id.includes("react-router-dom") || id.includes("/react/")) return "vendor-react";
           if (id.includes("@supabase")) return "vendor-supabase";
-          // WHY: recharts is ~500KB — isolating it prevents it from bloating the
-          // main bundle for users who never visit a page that uses charts.
-          if (id.includes("recharts")) return "vendor-charts";
+          if (id.includes("@tanstack")) return "vendor-query";
+          // recharts is ~500KB — keep it isolated so pages without charts load fast
+          if (id.includes("recharts") || id.includes("d3-") || id.includes("victory")) return "vendor-charts";
           if (id.includes("@radix-ui")) return "vendor-radix";
+          if (id.includes("date-fns") || id.includes("zod") || id.includes("clsx") || id.includes("tailwind-merge")) return "vendor-utils";
         },
       },
     },

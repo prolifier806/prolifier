@@ -47,8 +47,8 @@ export async function getFeed(req: AuthRequest, res: Response): Promise<void> {
     .from("posts")
     .select(`
       id, user_id, content, tag, image_urls, video_url,
-      created_at, likes,
-      profiles:user_id (id, name, avatar, color, avatar_url, location, skills, role)
+      created_at, likes, comment_count,
+      profiles:user_id (id, name, avatar, color, avatar_url, location, skills, role, deleted_at)
     `)
     .order("created_at", { ascending: false })
     .limit(PAGE_SIZE);
@@ -59,19 +59,26 @@ export async function getFeed(req: AuthRequest, res: Response): Promise<void> {
     .from("collabs")
     .select(`
       id, user_id, title, description, looking, skills, image_url, video_url, created_at,
-      profiles:user_id (id, name, avatar, color, avatar_url, location, skills, role)
+      profiles:user_id (id, name, avatar, color, avatar_url, location, skills, role, deleted_at)
     `)
     .order("created_at", { ascending: false })
     .limit(PAGE_SIZE);
 
   if (cursor) collabsQuery = collabsQuery.lt("created_at", cursor);
 
-  // Fire all queries in parallel — don't wait for blocks before fetching posts
-  const [blockedRes, blockerRes, postsRes, collabsRes] = await Promise.all([
+  // WHY: Fire ALL 6 queries in one parallel batch instead of two sequential batches.
+  // The likes/saves queries use the user's own ID so they don't need post IDs upfront —
+  // we fetch the user's full like/save/interest sets and filter client-side.
+  // This cuts two sequential Supabase round trips down to one.
+  const [blockedRes, blockerRes, postsRes, collabsRes, likesRes, savedPostsRes, savedCollabsRes, collabInterestsRes] = await Promise.all([
     supabaseAdmin.from("blocks").select("blocked_id").eq("blocker_id", userId),
     supabaseAdmin.from("blocks").select("blocker_id").eq("blocked_id", userId),
     postsQuery,
     collabsQuery,
+    supabaseAdmin.from("post_likes").select("post_id").eq("user_id", userId),
+    supabaseAdmin.from("saved_posts").select("post_id").eq("user_id", userId),
+    supabaseAdmin.from("saved_collabs").select("collab_id").eq("user_id", userId),
+    supabaseAdmin.from("collab_interests").select("collab_id").eq("user_id", userId),
   ]);
 
   const blockedIds = new Set([
@@ -85,21 +92,13 @@ export async function getFeed(req: AuthRequest, res: Response): Promise<void> {
   const posts = (postsRes.data ?? []).filter((p: any) => !blockedIds.has(p.user_id));
   const collabs = (collabsRes.data ?? []).filter((c: any) => !blockedIds.has(c.user_id));
 
-  // Fetch user's likes/saves/interests for these items
-  const postIds = posts.map((p: any) => p.id);
-  const collabIds = collabs.map((c: any) => c.id);
+  const postIds = new Set(posts.map((p: any) => p.id));
+  const collabIds = new Set(collabs.map((c: any) => c.id));
 
-  const [likesRes, savedPostsRes, savedCollabsRes, collabInterestsRes] = await Promise.all([
-    postIds.length ? supabaseAdmin.from("post_likes").select("post_id").eq("user_id", userId).in("post_id", postIds) : { data: [], error: null },
-    postIds.length ? supabaseAdmin.from("saved_posts").select("post_id").eq("user_id", userId).in("post_id", postIds).then(r => ({ data: r.error ? [] : r.data })) : { data: [] },
-    collabIds.length ? supabaseAdmin.from("saved_collabs").select("collab_id").eq("user_id", userId).in("collab_id", collabIds).then(r => ({ data: r.error ? [] : r.data })) : { data: [] },
-    collabIds.length ? supabaseAdmin.from("collab_interests").select("collab_id").eq("user_id", userId).in("collab_id", collabIds).then(r => ({ data: r.error ? [] : r.data })) : { data: [] },
-  ]);
-
-  const likedSet = new Set((likesRes.data ?? []).map((r: any) => r.post_id));
-  const savedPostSet = new Set((savedPostsRes.data ?? []).map((r: any) => r.post_id));
-  const savedCollabSet = new Set((savedCollabsRes.data ?? []).map((r: any) => r.collab_id));
-  const interestedSet = new Set((collabInterestsRes.data ?? []).map((r: any) => r.collab_id));
+  const likedSet = new Set((likesRes.data ?? []).filter((r: any) => postIds.has(r.post_id)).map((r: any) => r.post_id));
+  const savedPostSet = new Set((savedPostsRes.data ?? []).filter((r: any) => postIds.has(r.post_id)).map((r: any) => r.post_id));
+  const savedCollabSet = new Set((savedCollabsRes.data ?? []).filter((r: any) => collabIds.has(r.collab_id)).map((r: any) => r.collab_id));
+  const interestedSet = new Set((collabInterestsRes.data ?? []).filter((r: any) => collabIds.has(r.collab_id)).map((r: any) => r.collab_id));
 
   const enrichedPosts = posts.map((p: any) => ({
     ...p,

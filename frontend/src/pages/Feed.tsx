@@ -1554,61 +1554,86 @@ export default function Feed() {
     }
   }, [highlightedCollabId]);
 
+  // ── Feed stale cache — show last feed instantly on return visits ─────────────
+  // WHY: Without this, every page visit shows a blank spinner until the API responds.
+  // With it, the last known feed is shown immediately (within 5 minutes it's stale-ok).
+  const FEED_CACHE_KEY = `prolifier:feed:${user.id}`;
+  const FEED_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+  const applyFeedData = useCallback((rawPosts: any[], rawCollabs: any[]) => {
+    const mappedPosts: Post[] = (rawPosts || []).map((p: any) => ({
+      id: p.id, user_id: p.user_id,
+      author: p.profiles?.deleted_at ? "Deleted Account" : (p.profiles?.name || p.author || "Unknown"),
+      avatar: p.profiles?.deleted_at ? "?" : (p.profiles?.avatar || p.avatar || "?"),
+      avatarUrl: p.profiles?.deleted_at ? undefined : (p.profiles?.avatar_url || p.avatarUrl || undefined),
+      avatarColor: p.profiles?.deleted_at ? "bg-muted-foreground" : (p.profiles?.color || p.avatarColor || "bg-primary"),
+      location: p.profiles?.deleted_at ? "" : (p.profiles?.location || p.location || ""),
+      authorSkills: p.profiles?.deleted_at ? [] : (p.profiles?.skills?.slice(0, 3) || p.authorSkills || []),
+      authorDeleted: !!p.profiles?.deleted_at || !!p.authorDeleted,
+      authorRole: p.profiles?.role || p.authorRole || "user",
+      tag: p.tag, time: timeAgo(p.created_at), createdAt: p.created_at, content: p.content,
+      images: p.image_urls?.length > 0 ? p.image_urls : (p.image_url ? [p.image_url] : (p.images || [])),
+      video: p.video_url || p.video || undefined,
+      likes: p.likes || 0, commentCount: p.comment_count || p.commentCount || 0,
+      isOwn: p.isOwn ?? (p.user_id === user.id),
+      comments: [],
+    }));
+    const mappedCollabs: Collab[] = (rawCollabs || []).map((c: any) => ({
+      id: c.id, user_id: c.user_id,
+      author: c.profiles?.deleted_at ? "Deleted Account" : (c.profiles?.name || c.author || "Unknown"),
+      avatar: c.profiles?.deleted_at ? "?" : (c.profiles?.avatar || c.avatar || "?"),
+      avatarUrl: c.profiles?.deleted_at ? undefined : (c.profiles?.avatar_url || c.avatarUrl || undefined),
+      avatarColor: c.profiles?.deleted_at ? "bg-muted-foreground" : (c.profiles?.color || c.avatarColor || "bg-primary"),
+      location: c.profiles?.deleted_at ? "" : (c.profiles?.location || c.location || ""),
+      authorSkills: c.profiles?.deleted_at ? [] : (c.profiles?.skills?.slice(0, 3) || c.authorSkills || []),
+      authorDeleted: !!c.profiles?.deleted_at || !!c.authorDeleted,
+      authorRole: c.profiles?.role || c.authorRole || "user",
+      title: c.title, looking: c.looking, description: c.description, createdAt: c.created_at,
+      skills: c.skills || [], image: c.image_url || c.image || undefined,
+      video: c.video_url || c.video || undefined,
+      isOwn: c.isOwn ?? (c.user_id === user.id),
+    }));
+    setPosts(mappedPosts);
+    setCollabs(mappedCollabs);
+    setLikedPosts(new Set((rawPosts || []).filter((p: any) => p.isLiked).map((p: any) => p.id)));
+    setSavedPosts(new Set((rawPosts || []).filter((p: any) => p.isSaved).map((p: any) => p.id)));
+    setSavedCollabs(new Set((rawCollabs || []).filter((c: any) => c.isSaved).map((c: any) => c.id)));
+    setInterestedCollabs(new Set((rawCollabs || []).filter((c: any) => c.isInterested).map((c: any) => c.id)));
+    setPostsHasMore((rawPosts || []).length === 20);
+    setCollabsHasMore((rawCollabs || []).length === 20);
+    if ((rawPosts || []).length > 0) postsCursorRef.current = rawPosts[rawPosts.length - 1].created_at;
+    if ((rawCollabs || []).length > 0) collabsCursorRef.current = rawCollabs[rawCollabs.length - 1].created_at;
+  }, [user.id]);
+
   // ── Fetch via API — posts + collabs already enriched with isLiked/isSaved/isOwn ──
   const fetchFeed = useCallback(async () => {
     if (!user.id) return;
-    setLoading(true);
+
+    // Show stale cache immediately so users see content at once
+    try {
+      const raw = localStorage.getItem(FEED_CACHE_KEY);
+      if (raw) {
+        const { ts, posts: cp, collabs: cc } = JSON.parse(raw);
+        if (Date.now() - ts < FEED_CACHE_TTL) {
+          applyFeedData(cp, cc);
+          setLoading(false); // show stale, still revalidate below
+        }
+      }
+    } catch { /* ignore cache read errors */ }
+
+    setLoading(prev => prev); // keep loading true for fresh fetch unless cache hit
     logger.info("feed.load.start", { userId: user.id });
     try {
       const { posts: rawPosts, collabs: rawCollabs } = await getFeed();
 
-      const mappedPosts: Post[] = (rawPosts || []).map((p: any) => ({
-        id: p.id, user_id: p.user_id,
-        author: p.profiles?.deleted_at ? "Deleted Account" : (p.profiles?.name || p.author || "Unknown"),
-        avatar: p.profiles?.deleted_at ? "?" : (p.profiles?.avatar || p.avatar || "?"),
-        avatarUrl: p.profiles?.deleted_at ? undefined : (p.profiles?.avatar_url || p.avatarUrl || undefined),
-        avatarColor: p.profiles?.deleted_at ? "bg-muted-foreground" : (p.profiles?.color || p.avatarColor || "bg-primary"),
-        location: p.profiles?.deleted_at ? "" : (p.profiles?.location || p.location || ""),
-        authorSkills: p.profiles?.deleted_at ? [] : (p.profiles?.skills?.slice(0, 3) || p.authorSkills || []),
-        authorDeleted: !!p.profiles?.deleted_at || !!p.authorDeleted,
-        authorRole: p.profiles?.role || p.authorRole || "user",
-        tag: p.tag, time: timeAgo(p.created_at), createdAt: p.created_at, content: p.content,
-        images: p.image_urls?.length > 0 ? p.image_urls : (p.image_url ? [p.image_url] : (p.images || [])),
-        video: p.video_url || p.video || undefined,
-        likes: p.likes || 0, commentCount: p.comment_count || p.commentCount || 0,
-        isOwn: p.isOwn ?? (p.user_id === user.id),
-        comments: [],
-      }));
-
-      const mappedCollabs: Collab[] = (rawCollabs || []).map((c: any) => ({
-        id: c.id, user_id: c.user_id,
-        author: c.profiles?.deleted_at ? "Deleted Account" : (c.profiles?.name || c.author || "Unknown"),
-        avatar: c.profiles?.deleted_at ? "?" : (c.profiles?.avatar || c.avatar || "?"),
-        avatarUrl: c.profiles?.deleted_at ? undefined : (c.profiles?.avatar_url || c.avatarUrl || undefined),
-        avatarColor: c.profiles?.deleted_at ? "bg-muted-foreground" : (c.profiles?.color || c.avatarColor || "bg-primary"),
-        location: c.profiles?.deleted_at ? "" : (c.profiles?.location || c.location || ""),
-        authorSkills: c.profiles?.deleted_at ? [] : (c.profiles?.skills?.slice(0, 3) || c.authorSkills || []),
-        authorDeleted: !!c.profiles?.deleted_at || !!c.authorDeleted,
-        authorRole: c.profiles?.role || c.authorRole || "user",
-        title: c.title, looking: c.looking, description: c.description, createdAt: c.created_at,
-        skills: c.skills || [], image: c.image_url || c.image || undefined,
-        video: c.video_url || c.video || undefined,
-        isOwn: c.isOwn ?? (c.user_id === user.id),
-      }));
-
       // isLiked/isSaved/isInterested come enriched from API
-      setLikedPosts(new Set((rawPosts || []).filter((p: any) => p.isLiked).map((p: any) => p.id)));
-      setSavedPosts(new Set((rawPosts || []).filter((p: any) => p.isSaved).map((p: any) => p.id)));
-      setSavedCollabs(new Set((rawCollabs || []).filter((c: any) => c.isSaved).map((c: any) => c.id)));
-      setInterestedCollabs(new Set((rawCollabs || []).filter((c: any) => c.isInterested).map((c: any) => c.id)));
+      applyFeedData(rawPosts, rawCollabs);
 
-      setPostsHasMore((rawPosts || []).length === 30);
-      setCollabsHasMore((rawCollabs || []).length === 30);
-      if ((rawPosts || []).length > 0) postsCursorRef.current = rawPosts[rawPosts.length - 1].created_at;
-      if ((rawCollabs || []).length > 0) collabsCursorRef.current = rawCollabs[rawCollabs.length - 1].created_at;
+      // Persist fresh feed to localStorage for instant display on next visit
+      try {
+        localStorage.setItem(FEED_CACHE_KEY, JSON.stringify({ ts: Date.now(), posts: rawPosts, collabs: rawCollabs }));
+      } catch { /* quota exceeded — ignore */ }
 
-      setPosts(mappedPosts);
-      setCollabs(mappedCollabs);
       setLoading(false);
       logger.info("feed.load.done", { userId: user.id, postCount: mappedPosts.length, collabCount: mappedCollabs.length });
     } catch (err: any) {
