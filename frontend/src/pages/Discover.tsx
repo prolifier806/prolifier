@@ -469,9 +469,9 @@ export default function Discover() {
                             <img
                               src={p.avatarUrl}
                               alt={p.name}
-                              loading="lazy"
                               decoding="async"
-                              className="absolute inset-0 w-full h-full object-cover"
+                              className="absolute inset-0 w-full h-full object-cover transition-opacity duration-200 opacity-0"
+                              onLoad={e => (e.currentTarget.style.opacity = "1")}
                             />
                           )}
                         </button>
@@ -612,7 +612,7 @@ export default function Discover() {
                     >
                       <span className="absolute inset-0 flex items-center justify-center select-none">{r.avatar}</span>
                       {r.avatarUrl && (
-                        <img src={r.avatarUrl} alt={r.name} loading="lazy" decoding="async" className="absolute inset-0 w-full h-full object-cover" />
+                        <img src={r.avatarUrl} alt={r.name} decoding="async" className="absolute inset-0 w-full h-full object-cover transition-opacity duration-200 opacity-0" onLoad={e => (e.currentTarget.style.opacity = "1")} />
                       )}
                     </button>
 
