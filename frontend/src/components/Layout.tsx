@@ -2,7 +2,8 @@ import { ReactNode, useEffect, useState, useRef } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useTheme } from "@/context/ThemeContext";
 import { useUser } from "@/context/UserContext";
-import { Home, Search, MessageCircle, Users, Bell, Leaf, Sun, Moon, MessageSquarePlus, Lock, Headphones, X } from "lucide-react";
+import { Home, Search, MessageCircle, Users, Bell, Leaf, Sun, Moon, MessageSquarePlus, Lock, Lightbulb, X } from "lucide-react";
+// Lock is used in the ComingSoonModal animated icon
 import { supabase } from "@/lib/supabase";
 
 // ── Coming Soon Modal ─────────────────────────────────────────────────────────
@@ -373,10 +374,7 @@ export default function Layout({ children }: { children: ReactNode }) {
             onClick={() => setShowExpertModal(true)}
             className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium text-muted-foreground hover:bg-secondary hover:text-foreground transition-all duration-150 opacity-60"
           >
-            <div className="relative shrink-0">
-              <Headphones className="h-4 w-4" />
-              <Lock className="absolute -bottom-1 -right-1.5 h-2.5 w-2.5" />
-            </div>
+            <Lightbulb className="h-4 w-4 shrink-0" />
             Ask a Mentor
           </button>
         </nav>
