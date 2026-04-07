@@ -1,9 +1,9 @@
-import { apiPost, apiPatch, apiDelete, apiGet } from "./client";
+import { apiPost, apiPatch, apiDelete, apiGet, apiPut } from "./client";
 
-export const createGroup = (body: { name: string; description?: string; bio?: string; is_private?: boolean; emoji?: string; topic?: string }) =>
+export const createGroup = (body: { name: string; description?: string; bio?: string; is_private?: boolean; emoji?: string; topic?: string; image_url?: string | null }) =>
   apiPost<any>("/api/groups", body);
 
-export const updateGroup = (id: string, body: { description?: string; bio?: string; visibility?: "public" | "private"; emoji?: string; topic?: string }) =>
+export const updateGroup = (id: string, body: { description?: string; bio?: string; visibility?: "public" | "private"; emoji?: string; topic?: string; image_url?: string | null }) =>
   apiPatch<any>(`/api/groups/${id}`, body);
 
 export const deleteGroup = (id: string) => apiDelete(`/api/groups/${id}`);
@@ -16,6 +16,9 @@ export const removeMember = (groupId: string, memberId: string) =>
 
 export const banMember = (groupId: string, memberId: string) =>
   apiPost(`/api/groups/${groupId}/members/${memberId}/ban`);
+
+export const assignRole = (groupId: string, memberId: string, role: "admin" | "member") =>
+  apiPut(`/api/groups/${groupId}/members/${memberId}/role`, { role });
 
 export const sendGroupMessage = (groupId: string, body: {
   text: string;

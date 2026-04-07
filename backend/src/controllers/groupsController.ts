@@ -8,7 +8,7 @@ export const createGroupSchema = z.object({
   name: z.string().min(1).max(100),
   description: z.string().max(500).optional(),
   bio: z.string().max(300).optional(),
-  is_private: z.boolean().optional(), // mapped to visibility below
+  is_private: z.boolean().optional(),
   emoji: z.string().max(10).optional(),
   topic: z.string().max(50).optional(),
   image_url: z.string().url().max(2048).optional().nullable(),
@@ -33,12 +33,26 @@ export const sendGroupMessageSchema = z.object({
   path: ["text"],
 });
 
+export const assignRoleSchema = z.object({
+  role: z.enum(["admin", "member"]),
+});
+
+// Helper: get requester's role in a group
+async function getRequesterRole(groupId: string, userId: string) {
+  const [{ data: group }, { data: memberRow }] = await Promise.all([
+    supabaseAdmin.from("groups").select("owner_id").eq("id", groupId).single(),
+    supabaseAdmin.from("group_members").select("role").eq("group_id", groupId).eq("user_id", userId).maybeSingle(),
+  ]);
+  const isOwner = group?.owner_id === userId;
+  const isAdmin = isOwner || memberRow?.role === "admin";
+  return { isOwner, isAdmin, group };
+}
+
 // Join/leave
 export async function joinGroup(req: AuthRequest, res: Response): Promise<void> {
   const { id } = req.params;
   const userId = req.user.id;
 
-  // Check if user is banned from this group
   const { data: ban } = await supabaseAdmin.from("group_bans")
     .select("id").eq("group_id", id).eq("user_id", userId).maybeSingle();
   if (ban) {
@@ -51,12 +65,7 @@ export async function joinGroup(req: AuthRequest, res: Response): Promise<void> 
   if (error?.code === "23505") { res.json({ success: true, data: null }); return; }
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
 
-  // WHY: Replaced COUNT(*) + UPDATE with a single atomic increment via RPC.
-  // Previously: insert → COUNT(*) full scan → UPDATE (3 round-trips, race-prone).
-  // Now: insert → rpc increment (1 extra round-trip, atomic, no race condition).
   await supabaseAdmin.rpc("increment_member_count", { group_id: id });
-
-  // Return the current count without an extra query
   res.json({ success: true, data: null });
 }
 
@@ -65,41 +74,52 @@ export async function leaveGroup(req: AuthRequest, res: Response): Promise<void>
   const userId = req.user.id;
 
   await supabaseAdmin.from("group_members").delete().eq("group_id", id).eq("user_id", userId);
-
-  // WHY: Same atomic decrement — avoids the COUNT(*) + UPDATE race condition.
   await supabaseAdmin.rpc("decrement_member_count", { group_id: id });
-
   res.json({ success: true, data: null });
 }
 
-// Remove member (owner only)
+// Remove member — owner or admin can remove, but admins cannot remove other admins
 export async function removeMember(req: AuthRequest, res: Response): Promise<void> {
   const { id: groupId, memberId } = req.params;
   const userId = req.user.id;
 
-  const { data: group } = await supabaseAdmin.from("groups").select("owner_id").eq("id", groupId).single();
-  if (!group || group.owner_id !== userId) {
-    res.status(403).json({ success: false, error: "Only the group owner can remove members" }); return;
+  const { isOwner, isAdmin } = await getRequesterRole(groupId, userId);
+  if (!isAdmin) {
+    res.status(403).json({ success: false, error: "Only admins can remove members" }); return;
+  }
+
+  // Admins cannot remove other admins or the owner — only the owner can
+  if (!isOwner) {
+    const { data: target } = await supabaseAdmin.from("group_members")
+      .select("role").eq("group_id", groupId).eq("user_id", memberId).maybeSingle();
+    if (target?.role === "admin" || target?.role === "owner") {
+      res.status(403).json({ success: false, error: "Admins cannot remove other admins" }); return;
+    }
   }
 
   await supabaseAdmin.from("group_members").delete().eq("group_id", groupId).eq("user_id", memberId);
-
   await supabaseAdmin.rpc("decrement_member_count", { group_id: groupId });
-
   res.json({ success: true, data: null });
 }
 
-// Ban member (owner only)
+// Ban member — owner or admin can ban, but admins cannot ban other admins
 export async function banMember(req: AuthRequest, res: Response): Promise<void> {
   const { id: groupId, memberId } = req.params;
   const userId = req.user.id;
 
-  const { data: group } = await supabaseAdmin.from("groups").select("owner_id").eq("id", groupId).single();
-  if (!group || group.owner_id !== userId) {
-    res.status(403).json({ success: false, error: "Only the group owner can ban members" }); return;
+  const { isOwner, isAdmin } = await getRequesterRole(groupId, userId);
+  if (!isAdmin) {
+    res.status(403).json({ success: false, error: "Only admins can ban members" }); return;
   }
 
-  // Remove from members and insert into bans atomically
+  if (!isOwner) {
+    const { data: target } = await supabaseAdmin.from("group_members")
+      .select("role").eq("group_id", groupId).eq("user_id", memberId).maybeSingle();
+    if (target?.role === "admin" || target?.role === "owner") {
+      res.status(403).json({ success: false, error: "Admins cannot ban other admins" }); return;
+    }
+  }
+
   await supabaseAdmin.from("group_members").delete().eq("group_id", groupId).eq("user_id", memberId);
   const { error } = await supabaseAdmin.from("group_bans").insert({ group_id: groupId, user_id: memberId });
   if (error && error.code !== "23505") {
@@ -107,19 +127,38 @@ export async function banMember(req: AuthRequest, res: Response): Promise<void> 
   }
 
   await supabaseAdmin.rpc("decrement_member_count", { group_id: groupId });
-
   res.json({ success: true, data: null });
 }
 
-// Update group info (owner only)
+// Assign admin role — owner only
+export async function assignRole(req: AuthRequest, res: Response): Promise<void> {
+  const { id: groupId, memberId } = req.params;
+  const userId = req.user.id;
+  const { role } = req.body as z.infer<typeof assignRoleSchema>;
+
+  const { data: group } = await supabaseAdmin.from("groups").select("owner_id").eq("id", groupId).single();
+  if (!group || group.owner_id !== userId) {
+    res.status(403).json({ success: false, error: "Only the owner can assign roles" }); return;
+  }
+  if (memberId === userId) {
+    res.status(400).json({ success: false, error: "Cannot change your own role" }); return;
+  }
+
+  const { error } = await supabaseAdmin.from("group_members")
+    .update({ role }).eq("group_id", groupId).eq("user_id", memberId);
+  if (error) { res.status(500).json({ success: false, error: error.message }); return; }
+  res.json({ success: true, data: null });
+}
+
+// Update group info — owner or admin
 export async function updateGroup(req: AuthRequest, res: Response): Promise<void> {
   const { id } = req.params;
   const userId = req.user.id;
   const body = req.body as z.infer<typeof updateGroupSchema>;
 
-  const { data: group } = await supabaseAdmin.from("groups").select("owner_id").eq("id", id).single();
-  if (!group || group.owner_id !== userId) {
-    res.status(403).json({ success: false, error: "Only the group owner can edit the group" }); return;
+  const { isAdmin } = await getRequesterRole(id, userId);
+  if (!isAdmin) {
+    res.status(403).json({ success: false, error: "Only admins can edit the group" }); return;
   }
 
   if (body.description || body.bio) {
@@ -148,7 +187,6 @@ export async function deleteGroup(req: AuthRequest, res: Response): Promise<void
     supabaseAdmin.from("group_members").delete().eq("group_id", id),
   ]);
   await supabaseAdmin.from("groups").delete().eq("id", id);
-
   res.json({ success: true, data: null });
 }
 
@@ -172,8 +210,7 @@ export async function createGroup(req: AuthRequest, res: Response): Promise<void
     }).select().single();
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
 
-  await supabaseAdmin.from("group_members").insert({ group_id: data.id, user_id: userId });
-
+  await supabaseAdmin.from("group_members").insert({ group_id: data.id, user_id: userId, role: "owner" });
   res.status(201).json({ success: true, data });
 }
 
@@ -183,7 +220,6 @@ export async function sendGroupMessage(req: AuthRequest, res: Response): Promise
   const userId = req.user.id;
   const body = req.body as z.infer<typeof sendGroupMessageSchema>;
 
-  // Verify membership
   const { data: member } = await supabaseAdmin.from("group_members")
     .select("id").eq("group_id", groupId).eq("user_id", userId).maybeSingle();
   if (!member) { res.status(403).json({ success: false, error: "Not a member of this group" }); return; }
@@ -192,7 +228,7 @@ export async function sendGroupMessage(req: AuthRequest, res: Response): Promise
     .insert({
       group_id: groupId,
       user_id: userId,
-      text: body.text,
+      text: body.text || null,
       media_url: body.media_url ?? null,
       media_type: body.media_type ?? "text",
       reply_to_id: body.reply_to_id ?? null,
@@ -202,33 +238,50 @@ export async function sendGroupMessage(req: AuthRequest, res: Response): Promise
   res.status(201).json({ success: true, data });
 }
 
-// Get banned users (owner only)
+// Get banned users — owner or admin
 export async function getBannedUsers(req: AuthRequest, res: Response): Promise<void> {
   const { id: groupId } = req.params;
   const requesterId = req.user.id;
 
-  const { data: group } = await supabaseAdmin.from("groups").select("owner_id").eq("id", groupId).single();
-  if (!group || group.owner_id !== requesterId) {
-    res.status(403).json({ success: false, error: "Only the group owner can view banned users" }); return;
+  const { isAdmin } = await getRequesterRole(groupId, requesterId);
+  if (!isAdmin) {
+    res.status(403).json({ success: false, error: "Only admins can view banned users" }); return;
   }
 
-  const { data, error } = await supabaseAdmin
+  // group_bans.user_id references auth.users, not profiles — do a 2-step query
+  const { data: bans, error } = await supabaseAdmin
     .from("group_bans")
-    .select("user_id, profiles:user_id (name, color)")
+    .select("user_id")
     .eq("group_id", groupId);
 
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
-  res.json({ success: true, data: data ?? [] });
+  if (!bans || bans.length === 0) { res.json({ success: true, data: [] }); return; }
+
+  const userIds = bans.map((b: any) => b.user_id);
+  const { data: profiles } = await supabaseAdmin
+    .from("profiles")
+    .select("id, name, color, avatar_url")
+    .in("id", userIds);
+
+  const profileMap: Record<string, any> = {};
+  (profiles || []).forEach((p: any) => { profileMap[p.id] = p; });
+
+  const result = bans.map((b: any) => ({
+    user_id: b.user_id,
+    profiles: profileMap[b.user_id] ?? null,
+  }));
+
+  res.json({ success: true, data: result });
 }
 
-// Unban a user (owner only)
+// Unban a user — owner or admin
 export async function unbanMember(req: AuthRequest, res: Response): Promise<void> {
   const { id: groupId, userId: targetUserId } = req.params;
   const requesterId = req.user.id;
 
-  const { data: group } = await supabaseAdmin.from("groups").select("owner_id").eq("id", groupId).single();
-  if (!group || group.owner_id !== requesterId) {
-    res.status(403).json({ success: false, error: "Only the group owner can unban users" }); return;
+  const { isAdmin } = await getRequesterRole(groupId, requesterId);
+  if (!isAdmin) {
+    res.status(403).json({ success: false, error: "Only admins can unban users" }); return;
   }
 
   const { error } = await supabaseAdmin
@@ -250,16 +303,12 @@ export async function deleteGroupMessage(req: AuthRequest, res: Response): Promi
     .select("user_id").eq("id", messageId).single();
   if (!msg) { res.status(404).json({ success: false, error: "Message not found" }); return; }
 
-  const { data: group } = await supabaseAdmin.from("groups")
-    .select("owner_id").eq("id", groupId).single();
-  const isOwner = group?.owner_id === userId;
-  const isAdmin = ["admin", "moderator"].includes((req.user as any).role ?? "");
+  const { isAdmin } = await getRequesterRole(groupId, userId);
 
-  if (msg.user_id !== userId && !isOwner && !isAdmin) {
+  if (msg.user_id !== userId && !isAdmin) {
     res.status(403).json({ success: false, error: "Not authorized to delete this message" }); return;
   }
 
-  await supabaseAdmin.from("group_messages")
-    .delete().eq("id", messageId);
+  await supabaseAdmin.from("group_messages").delete().eq("id", messageId);
   res.json({ success: true, data: null });
 }

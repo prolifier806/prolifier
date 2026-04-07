@@ -10,7 +10,7 @@ import {
   Lock, Globe, Plus, Settings, X, Check,
   Crown, Image, Video, Paperclip,
   Link2, Copy, LogOut, Edit3, Trash2, UserX, MoreHorizontal,
-  ShieldOff, UserCircle, RefreshCw,
+  ShieldOff, RefreshCw,
 } from "lucide-react";
 import Layout from "@/components/Layout";
 import { toast } from "@/hooks/use-toast";
@@ -23,6 +23,7 @@ import {
   leaveGroup as apiLeaveGroup,
   removeMember as apiRemoveMember,
   banMember as apiBanMember,
+  assignRole as apiAssignRole,
   deleteGroup as apiDeleteGroup,
   updateGroup as apiUpdateGroup,
   createGroup as apiCreateGroup,
@@ -46,21 +47,23 @@ type GroupMessage = {
   created_at: string;
   edited: boolean;
   deleted: boolean;
-  unsent: boolean; // true = show "This message was unsent" tombstone to everyone
+  unsent: boolean;
   author_name: string;
   author_color: string;
+  author_avatar_url?: string;
 };
 
 type GroupMember = {
   id: string;
   name: string;
   color: string;
+  avatarUrl?: string;
   role: "owner" | "admin" | "member";
 };
 
 type BannedUser = {
   user_id: string;
-  profiles: { name: string; color: string } | null;
+  profiles: { name: string; color: string; avatar_url?: string } | null;
 };
 
 type Group = {
@@ -206,6 +209,17 @@ export default function Groups() {
   const [bannedLoading, setBannedLoading] = useState(false);
   const [showBanned, setShowBanned] = useState(false);
 
+  // Community image upload (settings)
+  const [editImageUrl, setEditImageUrl] = useState<string | null>(null);
+  const [editImagePreview, setEditImagePreview] = useState<string | null>(null);
+  const [uploadingIcon, setUploadingIcon] = useState(false);
+  const settingsImageRef = useRef<HTMLInputElement>(null);
+
+  // @mention
+  const [mentionQuery, setMentionQuery] = useState("");
+  const [mentionResults, setMentionResults] = useState<GroupMember[]>([]);
+  const [mentionIndex, setMentionIndex] = useState(0);
+
   // Create
   const [newName, setNewName] = useState("");
   const [newDesc, setNewDesc] = useState("");
@@ -222,7 +236,7 @@ export default function Groups() {
   const inputRef = useRef<HTMLInputElement>(null);
   const editRef = useRef<HTMLInputElement>(null);
   // Profile cache: avoid re-fetching the same user's profile on every message
-  const profileCache = useRef<Record<string, { name: string; color: string }>>({});
+  const profileCache = useRef<Record<string, { name: string; color: string; avatar_url?: string }>>({});
 
   const isOwner = activeGroup ? activeGroup.owner_id === user.id : false;
   const isJoined = activeGroup ? (joinedIds.has(activeGroup.id) || isOwner) : false;
@@ -292,10 +306,10 @@ export default function Groups() {
       const userIds = [...new Set(msgs.map((m: any) => m.user_id))] as string[];
       const { data: profiles } = await (supabase as any)
         .from("profiles")
-        .select("id, name, color")
+        .select("id, name, color, avatar_url")
         .in("id", userIds);
-      const profileMap: Record<string, { name: string; color: string }> = {};
-      (profiles || []).forEach((p: any) => { profileMap[p.id] = { name: p.name, color: p.color }; });
+      const profileMap: Record<string, { name: string; color: string; avatar_url?: string }> = {};
+      (profiles || []).forEach((p: any) => { profileMap[p.id] = { name: p.name, color: p.color, avatar_url: p.avatar_url || undefined }; });
 
       setMessages(msgs.map((row: any) => ({
         id: row.id,
@@ -310,6 +324,7 @@ export default function Groups() {
         unsent: row.unsent ?? false,
         author_name: profileMap[row.user_id]?.name || "Unknown",
         author_color: profileMap[row.user_id]?.color || "bg-primary",
+        author_avatar_url: profileMap[row.user_id]?.avatar_url,
       })));
     } catch (err) {
       if (import.meta.env.DEV) console.error("fetchMessages:", err);
@@ -324,7 +339,7 @@ export default function Groups() {
     try {
       const { data, error, count } = await (supabase as any)
         .from("group_members")
-        .select("id, user_id, role, profiles:user_id (name, color)", { count: "exact" })
+        .select("id, user_id, role, profiles:user_id (name, color, avatar_url)", { count: "exact" })
         .eq("group_id", groupId)
         .order("joined_at", { ascending: true });
       if (error) throw error;
@@ -333,6 +348,7 @@ export default function Groups() {
         id: row.user_id,
         name: row.profiles?.name || "Unknown",
         color: row.profiles?.color || "bg-primary",
+        avatarUrl: row.profiles?.avatar_url || undefined,
         role: row.role || "member",
       })));
 
@@ -365,8 +381,8 @@ export default function Groups() {
         const getProfile = async (uid: string) => {
           if (profileCache.current[uid]) return profileCache.current[uid];
           const { data } = await (supabase as any)
-            .from("profiles").select("name, color").eq("id", uid).single();
-          const p = { name: data?.name || "Unknown", color: data?.color || "bg-primary" };
+            .from("profiles").select("name, color, avatar_url").eq("id", uid).single();
+          const p = { name: data?.name || "Unknown", color: data?.color || "bg-primary", avatar_url: data?.avatar_url || undefined };
           profileCache.current[uid] = p;
           return p;
         };
@@ -380,11 +396,12 @@ export default function Groups() {
               created_at: row.created_at, edited: row.edited ?? false, deleted: false, unsent: row.unsent ?? false,
               author_name: profileCache.current[row.user_id]?.name || "…",
               author_color: profileCache.current[row.user_id]?.color || "bg-primary",
+              author_avatar_url: profileCache.current[row.user_id]?.avatar_url,
             }];
           });
           const profile = await getProfile(row.user_id);
           setMessages(prev => prev.map(m =>
-            m.id === row.id ? { ...m, author_name: profile.name, author_color: profile.color } : m
+            m.id === row.id ? { ...m, author_name: profile.name, author_color: profile.color, author_avatar_url: profile.avatar_url } : m
           ));
         } else if (payload.eventType === "UPDATE") {
           const row = payload.new as any;
@@ -487,6 +504,8 @@ export default function Groups() {
   const sendMessage = (text?: string, mediaUrl?: string, mediaType?: string) => {
     const trimmed = text?.trim();
     if ((!trimmed && !mediaUrl) || !activeGroup) return;
+    setMentionQuery("");
+    setMentionResults([]);
 
     // Add to UI instantly — no waiting at all
     const tempId = `tmp-${Date.now()}`;
@@ -503,6 +522,7 @@ export default function Groups() {
       unsent: false,
       author_name: user.name,
       author_color: user.color,
+      author_avatar_url: user.avatarUrl || undefined,
     }]);
     setChatInput("");
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -631,6 +651,20 @@ export default function Groups() {
     }
   };
 
+  // ── Admin: assign/revoke admin role ─────────────────────────────────────
+  const toggleAdmin = async (memberId: string, memberName: string, currentRole: string) => {
+    if (!activeGroup) return;
+    const newRole = currentRole === "admin" ? "member" : "admin";
+    setMembers(prev => prev.map(m => m.id === memberId ? { ...m, role: newRole as any } : m));
+    try {
+      await apiAssignRole(activeGroup.id, memberId, newRole);
+      toast({ title: newRole === "admin" ? `${memberName} is now an admin` : `${memberName} is no longer an admin` });
+    } catch {
+      fetchMembers(activeGroup.id);
+      toast({ title: "Failed to update role", variant: "destructive" });
+    }
+  };
+
   // ── Admin: delete group ──────────────────────────────────────────────────
   const deleteGroup = async () => {
     if (!activeGroup) return;
@@ -647,15 +681,37 @@ export default function Groups() {
     }
   };
 
+  // ── Admin: handle icon image selection ──────────────────────────────────
+  const handleIconImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    // Show local preview immediately
+    const blobUrl = URL.createObjectURL(file);
+    setEditImagePreview(blobUrl);
+    setUploadingIcon(true);
+    try {
+      const result = await uploadPostImage(file, "feed");
+      setEditImageUrl(result.url);
+      setEditImagePreview(result.url);
+      URL.revokeObjectURL(blobUrl);
+    } catch {
+      setEditImagePreview(editImageUrl); // revert to previous
+      toast({ title: "Icon upload failed", variant: "destructive" });
+    } finally {
+      setUploadingIcon(false);
+    }
+  };
+
   // ── Admin: save group edit ───────────────────────────────────────────────
   const saveGroupEdit = async () => {
     if (!activeGroup) return;
-    const updated = { ...activeGroup, description: editDesc, bio: editBio, emoji: editEmoji, visibility: editVisibility };
+    const updated = { ...activeGroup, description: editDesc, bio: editBio, emoji: editEmoji, visibility: editVisibility, image_url: editImageUrl };
     setActiveGroup(updated);
-    setGroups(prev => prev.map(g => g.id === activeGroup.id ? { ...g, description: editDesc, bio: editBio, emoji: editEmoji, visibility: editVisibility } : g));
+    setGroups(prev => prev.map(g => g.id === activeGroup.id ? { ...g, description: editDesc, bio: editBio, emoji: editEmoji, visibility: editVisibility, image_url: editImageUrl } : g));
     setEditingGroup(false);
     try {
-      await apiUpdateGroup(activeGroup.id, { description: editDesc, bio: editBio, emoji: editEmoji, visibility: editVisibility });
+      await apiUpdateGroup(activeGroup.id, { description: editDesc, bio: editBio, emoji: editEmoji, visibility: editVisibility, image_url: editImageUrl });
       toast({ title: "Community updated ✓" });
     } catch {
       setActiveGroup(activeGroup);
@@ -735,7 +791,14 @@ export default function Groups() {
       els.push(
         <div key={m.id} className={"flex gap-3 group relative " + (grouped ? "mt-0.5" : "mt-4")}>
           {!grouped
-            ? <div className={"h-9 w-9 rounded-full " + m.author_color + " flex items-center justify-center text-white text-xs font-semibold shrink-0 mt-0.5"}>{initials(m.author_name)}</div>
+            ? (
+              <button onClick={() => navigate(`/profile/${m.user_id}`)}
+                className={"h-9 w-9 rounded-full " + m.author_color + " flex items-center justify-center text-white text-xs font-semibold shrink-0 mt-0.5 overflow-hidden hover:opacity-80 transition-opacity"}>
+                {m.author_avatar_url
+                  ? <img src={m.author_avatar_url} alt={m.author_name} className="w-full h-full object-cover" />
+                  : initials(m.author_name)}
+              </button>
+            )
             : <div className="w-9 shrink-0" />
           }
           <div className="flex-1 min-w-0">
@@ -895,19 +958,48 @@ export default function Groups() {
             {/* Group info */}
             <div className="rounded-xl border border-border bg-card p-5">
               <div className="flex items-center gap-3 mb-4">
-                <div className="h-14 w-14 rounded-2xl bg-muted flex items-center justify-center text-3xl">{activeGroup.emoji}</div>
+                <div className="h-14 w-14 rounded-2xl bg-muted flex items-center justify-center text-3xl overflow-hidden shrink-0">
+                  {activeGroup.image_url
+                    ? <img src={activeGroup.image_url} alt={activeGroup.name} className="w-full h-full object-cover" />
+                    : activeGroup.emoji}
+                </div>
                 <div>
                   <p className="font-bold text-foreground">{activeGroup.name}</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
                     {activeGroup.visibility === "private" ? "🔒 Private" : "🌐 Public"} · {activeGroup.member_count} members
                   </p>
-                  {isOwner && <span className="flex items-center gap-0.5 text-[10px] font-semibold text-amber-600 mt-1"><Crown className="h-3 w-3" /> Owner</span>}
                 </div>
               </div>
               {editingGroup ? (
                 <div className="space-y-3">
                   <div>
                     <label className="text-xs font-medium text-muted-foreground block mb-1.5">Community icon</label>
+                    {/* Custom image upload */}
+                    <input ref={settingsImageRef} type="file" accept="image/*" className="hidden" onChange={handleIconImageSelect} />
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className="h-14 w-14 rounded-2xl overflow-hidden bg-muted flex items-center justify-center text-2xl shrink-0 relative">
+                        {editImagePreview
+                          ? <img src={editImagePreview} alt="icon" className="w-full h-full object-cover" />
+                          : editEmoji}
+                        {uploadingIcon && (
+                          <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                            <div className="h-4 w-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <button type="button" onClick={() => settingsImageRef.current?.click()} disabled={uploadingIcon}
+                          className="text-xs px-3 py-1.5 rounded-lg border border-border hover:bg-muted transition-colors disabled:opacity-50">
+                          Upload image
+                        </button>
+                        {editImageUrl && (
+                          <button type="button" onClick={() => { setEditImageUrl(null); setEditImagePreview(null); }}
+                            className="text-xs px-3 py-1.5 rounded-lg border border-destructive/30 text-destructive hover:bg-destructive/5 transition-colors">
+                            Remove image
+                          </button>
+                        )}
+                      </div>
+                    </div>
                     <div className="flex flex-wrap gap-1.5">
                       {EMOJIS.map(e => (
                         <button key={e} onClick={() => setEditEmoji(e)}
@@ -945,7 +1037,7 @@ export default function Groups() {
                   <p className="text-sm text-foreground mb-3">{activeGroup.bio}</p>
                   {isOwner && (
                     <Button size="sm" variant="outline" className="gap-1.5 text-xs h-8"
-                      onClick={() => { setEditDesc(activeGroup.description); setEditBio(activeGroup.bio); setEditEmoji(activeGroup.emoji); setEditVisibility(activeGroup.visibility); setEditingGroup(true); }}>
+                      onClick={() => { setEditDesc(activeGroup.description); setEditBio(activeGroup.bio); setEditEmoji(activeGroup.emoji); setEditVisibility(activeGroup.visibility); setEditImageUrl(activeGroup.image_url ?? null); setEditImagePreview(activeGroup.image_url ?? null); setEditingGroup(true); }}>
                       <Edit3 className="h-3.5 w-3.5" /> Edit community info
                     </Button>
                   )}
@@ -977,24 +1069,34 @@ export default function Groups() {
                 </div>
               ) : (
                 <div className="divide-y divide-border">
-                  {members.filter(m => !memberSearch || m.name.toLowerCase().includes(memberSearch.toLowerCase())).map(m => (
+                  {members.filter(m => !memberSearch || m.name.toLowerCase().includes(memberSearch.toLowerCase())).map(m => {
+                    const isSelf = m.id === user.id;
+                    const isAdminInGroup = members.find(x => x.id === user.id)?.role === "admin" || isOwner;
+                    const targetIsAdmin = m.role === "admin" || m.role === "owner";
+                    // Can act on this member if: (I'm owner) OR (I'm admin AND target is not admin)
+                    const canAct = !isSelf && isAdminInGroup && (isOwner || !targetIsAdmin);
+                    return (
                     <div key={m.id} className="flex items-center gap-3 px-4 py-3">
                       <button onClick={() => navigate(`/profile/${m.id}`)}
-                        className={`h-9 w-9 rounded-full ${m.color} flex items-center justify-center text-white text-xs font-semibold shrink-0 hover:opacity-80 transition-opacity`}>
-                        {initials(m.name)}
+                        className={`h-9 w-9 rounded-full ${m.color} flex items-center justify-center text-white text-xs font-semibold shrink-0 hover:opacity-80 transition-opacity overflow-hidden`}>
+                        {m.avatarUrl
+                          ? <img src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover" />
+                          : initials(m.name)}
                       </button>
                       <button onClick={() => navigate(`/profile/${m.id}`)}
                         className="text-sm text-foreground hover:underline flex-1 text-left min-w-0 truncate">
-                        {m.name}{m.id === user.id ? " (You)" : ""}
+                        {m.name}{isSelf ? " (You)" : ""}
                       </button>
                       <div className="flex items-center gap-1.5 shrink-0">
-                        {(m.role === "owner" || m.role === "admin") && <Crown className="h-3.5 w-3.5 text-amber-500" />}
-                        {isOwner && m.id !== user.id && (
+                        {(m.role === "owner" || m.role === "admin") && <Crown className="h-3.5 w-3.5 text-amber-500" title={m.role === "owner" ? "Owner" : "Admin"} />}
+                        {isOwner && !isSelf && m.role !== "owner" && (
+                          <button onClick={() => toggleAdmin(m.id, m.name, m.role)} title={m.role === "admin" ? "Revoke admin" : "Make admin"}
+                            className={`h-7 w-7 rounded-lg border transition-colors flex items-center justify-center ${m.role === "admin" ? "text-amber-500 border-amber-200 hover:bg-amber-50 dark:hover:bg-amber-950" : "text-muted-foreground border-border hover:bg-muted"}`}>
+                            <Crown className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                        {canAct && (
                           <>
-                            <button onClick={() => navigate(`/profile/${m.id}`)} title="View profile"
-                              className="h-7 w-7 rounded-lg text-muted-foreground border border-border hover:bg-muted transition-colors flex items-center justify-center">
-                              <UserCircle className="h-3.5 w-3.5" />
-                            </button>
                             <button onClick={() => removeMember(m.id, m.name)} title="Remove"
                               className="h-7 w-7 rounded-lg text-orange-500 border border-orange-200 hover:bg-orange-50 dark:hover:bg-orange-950 transition-colors flex items-center justify-center">
                               <UserX className="h-3.5 w-3.5" />
@@ -1007,7 +1109,8 @@ export default function Groups() {
                         )}
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -1106,14 +1209,18 @@ export default function Groups() {
         {msgMenuId !== null && <div className="fixed inset-0 z-30" onClick={() => setMsgMenuId(null)} />}
         {showShare && <ShareLinkModal group={activeGroup} onClose={() => setShowShare(false)} />}
 
-        <div className="flex h-[calc(100vh-4rem)] md:h-screen max-w-3xl mx-auto flex-col">
+        <div className="flex h-[calc(100vh-4rem)] md:h-screen max-w-3xl mx-auto flex-col relative">
           {/* Header */}
           <div className="px-4 py-3 border-b border-border flex items-center gap-3 shrink-0 bg-card/80 backdrop-blur-sm">
             <button onClick={() => { setView("list"); setMsgMenuId(null); setEditingMsgId(null); }}
               className="text-muted-foreground hover:text-foreground transition-colors">
               <ArrowLeft className="h-5 w-5" />
             </button>
-            <div className="h-9 w-9 rounded-xl bg-muted flex items-center justify-center text-xl shrink-0">{activeGroup.emoji}</div>
+            <div className="h-9 w-9 rounded-xl bg-muted flex items-center justify-center text-xl shrink-0 overflow-hidden">
+              {activeGroup.image_url
+                ? <img src={activeGroup.image_url} alt={activeGroup.name} className="w-full h-full object-cover" />
+                : activeGroup.emoji}
+            </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-1.5">
                 <p className="font-semibold text-sm text-foreground truncate">{activeGroup.name}</p>
@@ -1170,6 +1277,22 @@ export default function Groups() {
             <div ref={bottomRef} />
           </div>
 
+          {/* @mention dropdown */}
+          {mentionResults.length > 0 && (
+            <div className="absolute bottom-16 left-4 right-4 z-40 bg-card border border-border rounded-xl shadow-xl overflow-hidden">
+              {mentionResults.map((m, i) => (
+                <button key={m.id} onMouseDown={e => { e.preventDefault(); const replaced = chatInput.replace(/@\w*$/, `@${m.name} `); setChatInput(replaced); setMentionResults([]); setMentionQuery(""); }}
+                  className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${i === mentionIndex ? "bg-primary/10 text-primary" : "hover:bg-muted text-foreground"}`}>
+                  <div className={`h-7 w-7 rounded-full ${m.color} flex items-center justify-center text-white text-xs font-semibold shrink-0 overflow-hidden`}>
+                    {m.avatarUrl ? <img src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover" /> : initials(m.name)}
+                  </div>
+                  <span className="font-medium">{m.name}</span>
+                  {(m.role === "admin" || m.role === "owner") && <Crown className="h-3 w-3 text-amber-500 ml-auto" />}
+                </button>
+              ))}
+            </div>
+          )}
+
           {/* Input bar — voice removed */}
           {isJoined && (
             <div className="border-t border-border shrink-0">
@@ -1193,8 +1316,38 @@ export default function Groups() {
                     </button>
                   </div>
                   <input ref={inputRef} value={chatInput}
-                    onChange={e => setChatInput(e.target.value)}
-                    onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(chatInput); } }}
+                    onChange={e => {
+                      const val = e.target.value;
+                      setChatInput(val);
+                      // @mention detection: find last @ segment
+                      const atMatch = val.match(/@(\w*)$/);
+                      if (atMatch) {
+                        const q = atMatch[1].toLowerCase();
+                        setMentionQuery(q);
+                        setMentionResults(members.filter(m => m.id !== user.id && m.name.toLowerCase().includes(q)).slice(0, 5));
+                        setMentionIndex(0);
+                      } else {
+                        setMentionQuery("");
+                        setMentionResults([]);
+                      }
+                    }}
+                    onKeyDown={e => {
+                      if (mentionResults.length > 0) {
+                        if (e.key === "ArrowDown") { e.preventDefault(); setMentionIndex(i => Math.min(i + 1, mentionResults.length - 1)); return; }
+                        if (e.key === "ArrowUp") { e.preventDefault(); setMentionIndex(i => Math.max(i - 1, 0)); return; }
+                        if (e.key === "Enter" || e.key === "Tab") {
+                          e.preventDefault();
+                          const m = mentionResults[mentionIndex];
+                          const replaced = chatInput.replace(/@\w*$/, `@${m.name} `);
+                          setChatInput(replaced);
+                          setMentionResults([]);
+                          setMentionQuery("");
+                          return;
+                        }
+                        if (e.key === "Escape") { setMentionResults([]); setMentionQuery(""); return; }
+                      }
+                      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(chatInput); }
+                    }}
                     placeholder={`Message ${activeGroup.name}…`}
                     className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none py-1" />
                   <button onClick={() => sendMessage(chatInput)} disabled={!chatInput.trim()}
@@ -1283,7 +1436,11 @@ export default function Groups() {
                   <div className="h-2 w-full bg-gradient-to-r from-primary/60 to-accent/60" />
                   <div className="flex flex-col flex-1 p-5">
                     <div className="flex items-start justify-between mb-3">
-                      <div className="h-12 w-12 rounded-2xl bg-muted flex items-center justify-center text-2xl group-hover:scale-110 transition-transform duration-150">{g.emoji}</div>
+                      <div className="h-12 w-12 rounded-2xl bg-muted flex items-center justify-center text-2xl group-hover:scale-110 transition-transform duration-150 overflow-hidden">
+                        {g.image_url
+                          ? <img src={g.image_url} alt={g.name} className="w-full h-full object-cover" />
+                          : g.emoji}
+                      </div>
                       <div className="flex items-center gap-1.5 flex-wrap justify-end">
                         {g.visibility === "private" && (
                           <span className="flex items-center gap-0.5 text-[10px] font-medium text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full">

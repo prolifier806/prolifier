@@ -178,6 +178,19 @@ export async function apiDelete<T = null>(path: string): Promise<T> {
   return handleResponse<T>(res);
 }
 
+export async function apiPut<T>(path: string, body: unknown): Promise<T> {
+  const token = await getToken();
+  const res = await request(`${API_URL}${path}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders(token),
+    },
+    body: JSON.stringify(body),
+  });
+  return handleResponse<T>(res);
+}
+
 export async function apiUpload<T>(path: string, formData: FormData): Promise<T> {
   const token = await getToken();
   // WHY: uploads can be large (up to 200MB for video) — use a much longer timeout
