@@ -1556,9 +1556,10 @@ export default function Feed() {
 
   // ── Feed stale cache — show last feed instantly on return visits ─────────────
   // WHY: Without this, every page visit shows a blank spinner until the API responds.
-  // With it, the last known feed is shown immediately (within 5 minutes it's stale-ok).
+  // With it, the last known feed is shown immediately — always shown regardless of age,
+  // fresh API response replaces it. TTL only controls skipping the API call.
   const FEED_CACHE_KEY = `prolifier:feed:${user.id}`;
-  const FEED_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+  const FEED_CACHE_TTL = 2 * 60 * 1000; // 2 min — skip API only on very recent tab switches
 
   const applyFeedData = useCallback((rawPosts: any[], rawCollabs: any[]) => {
     const mappedPosts: Post[] = (rawPosts || []).map((p: any) => ({
@@ -1609,19 +1610,20 @@ export default function Feed() {
   const fetchFeed = useCallback(async () => {
     if (!user.id) return;
 
-    // Show stale cache immediately so users see content at once
+    // Show cached data immediately — always, regardless of age.
+    // WHY: stale data is always better than an empty feed while the API loads.
+    // The fresh API response will replace it below. TTL only skips the API call
+    // when cache is fresh enough (tab switch, quick return).
     try {
       const raw = localStorage.getItem(FEED_CACHE_KEY);
       if (raw) {
         const { ts, posts: cp, collabs: cc } = JSON.parse(raw);
-        if (Date.now() - ts < FEED_CACHE_TTL) {
-          applyFeedData(cp, cc);
-          setLoading(false); // show stale, still revalidate below
-        }
+        applyFeedData(cp, cc);
+        setLoading(false); // show cached content instantly, revalidate below
+        // If cache is still fresh, skip the API call entirely
+        if (Date.now() - ts < FEED_CACHE_TTL) return;
       }
     } catch { /* ignore cache read errors */ }
-
-    setLoading(prev => prev); // keep loading true for fresh fetch unless cache hit
     logger.info("feed.load.start", { userId: user.id });
     try {
       const { posts: rawPosts, collabs: rawCollabs } = await getFeed();

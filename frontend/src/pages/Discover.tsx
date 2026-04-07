@@ -147,13 +147,14 @@ export default function Discover() {
         const raw = localStorage.getItem(DISCOVER_CACHE_KEY);
         if (raw) {
           const { ts, profiles: cp, connected: cc, pending: cp2, blocked: cb } = JSON.parse(raw);
-          if (Date.now() - ts < DISCOVER_CACHE_TTL) {
-            setProfiles(cp);
-            if (cc) setConnected(new Set(cc));
-            if (cp2) setPending(new Set(cp2));
-            if (cb) setBlockedByMe(new Set(cb));
-            setLoading(false);
-          }
+          // Always show cached data regardless of age — stale > empty
+          setProfiles(cp);
+          if (cc) setConnected(new Set(cc));
+          if (cp2) setPending(new Set(cp2));
+          if (cb) setBlockedByMe(new Set(cb));
+          setLoading(false);
+          // Only skip the API call if cache is very fresh
+          if (Date.now() - ts < DISCOVER_CACHE_TTL) return;
         }
       } catch { /* ignore */ }
     }
