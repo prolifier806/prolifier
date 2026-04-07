@@ -2,9 +2,81 @@ import { ReactNode, useEffect, useState, useRef } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useTheme } from "@/context/ThemeContext";
 import { useUser } from "@/context/UserContext";
-import { Home, Search, MessageCircle, Users, Bell, Leaf, Sun, Moon, MessageSquarePlus, Lock, Headphones } from "lucide-react";
-import { toast } from "@/hooks/use-toast";
+import { Home, Search, MessageCircle, Users, Bell, Leaf, Sun, Moon, MessageSquarePlus, Lock, Headphones, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+
+// ── Coming Soon Modal ─────────────────────────────────────────────────────────
+function ComingSoonModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  // Close on Escape
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
+      onClick={onClose}
+    >
+      <div
+        className="relative bg-card border border-border rounded-2xl shadow-2xl p-10 flex flex-col items-center gap-5 max-w-sm w-full mx-4 animate-in zoom-in-95 duration-300"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Close button */}
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
+        >
+          <X className="h-4 w-4" />
+        </button>
+
+        {/* Animated lock */}
+        <div className="relative flex items-center justify-center">
+          <div className="h-24 w-24 rounded-full bg-primary/10 flex items-center justify-center animate-pulse">
+            <div className="h-16 w-16 rounded-full bg-primary/20 flex items-center justify-center">
+              <Lock className="h-8 w-8 text-primary" style={{ animation: "lockBounce 1.4s ease-in-out infinite" }} />
+            </div>
+          </div>
+        </div>
+
+        <style>{`
+          @keyframes lockBounce {
+            0%, 100% { transform: translateY(0) rotate(0deg); }
+            20% { transform: translateY(-6px) rotate(-8deg); }
+            40% { transform: translateY(-3px) rotate(6deg); }
+            60% { transform: translateY(-5px) rotate(-4deg); }
+            80% { transform: translateY(-1px) rotate(2deg); }
+          }
+        `}</style>
+
+        <div className="text-center space-y-2">
+          <h2 className="font-display text-2xl font-bold text-foreground">Coming Soon</h2>
+          <p className="text-muted-foreground text-sm leading-relaxed">
+            Talk to Expert is currently locked.<br />
+            We're working hard to bring you 1-on-1 expert sessions. Stay tuned!
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2 mt-1">
+          <span className="h-2 w-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: "0ms" }} />
+          <span className="h-2 w-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: "150ms" }} />
+          <span className="h-2 w-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: "300ms" }} />
+        </div>
+
+        <button
+          onClick={onClose}
+          className="mt-2 px-6 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity"
+        >
+          Got it
+        </button>
+      </div>
+    </div>
+  );
+}
 
 const NAV_PATHS = [
   { to: "/feed",          icon: Home,          label: "Feed"          },
@@ -19,6 +91,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
   const { theme, toggleTheme } = useTheme();
   const { user } = useUser();
+  const [showExpertModal, setShowExpertModal] = useState(false);
 
   const [notifCount, setNotifCount] = useState(0);
   const [msgCount, setMsgCount] = useState(0);
@@ -255,6 +328,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   };
 
   return (
+    <>
     <div className="min-h-screen flex bg-background">
 
       {/* ── Desktop Sidebar ── */}
@@ -296,7 +370,7 @@ export default function Layout({ children }: { children: ReactNode }) {
 
           {/* Talk to Expert — locked, coming soon */}
           <button
-            onClick={() => toast({ title: "Coming soon", description: "Talk to expert feature is coming soon. Stay tuned!" })}
+            onClick={() => setShowExpertModal(true)}
             className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium text-muted-foreground hover:bg-secondary hover:text-foreground transition-all duration-150 opacity-60"
           >
             <div className="relative shrink-0">
@@ -426,5 +500,7 @@ export default function Layout({ children }: { children: ReactNode }) {
         })}
       </nav>
     </div>
+    <ComingSoonModal open={showExpertModal} onClose={() => setShowExpertModal(false)} />
+    </>
   );
 }
