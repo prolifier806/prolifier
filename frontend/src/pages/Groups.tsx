@@ -477,8 +477,10 @@ export default function Groups() {
     setEditingMsgId(null);
     setChatInput("");
     setView("group");
-    // Fire message fetch without blocking view switch
+    setMembers([]); // clear stale members from previous group
+    // Fire both fetches without blocking view switch
     fetchMessages(group.id);
+    fetchMembers(group.id); // needed for @mention suggestions + name-only highlighting
   };
 
   const openSettings = () => {
