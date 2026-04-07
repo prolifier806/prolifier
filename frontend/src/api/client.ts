@@ -28,7 +28,21 @@ const REQUEST_TIMEOUT_MS = 30_000;
 
 async function getToken(): Promise<string | null> {
   const { data } = await supabase.auth.getSession();
-  return data.session?.access_token ?? null;
+  const session = data.session;
+  if (!session) return null;
+
+  // WHY: getSession() returns the cached token without checking expiry.
+  // After long inactivity (e.g. 6+ hours) the access_token is expired and
+  // the backend returns 401 "invalid or expired token". We proactively refresh
+  // if the token expires within the next 60 seconds.
+  const expiresAt = session.expires_at ?? 0; // unix seconds
+  const secsUntilExpiry = expiresAt - Math.floor(Date.now() / 1000);
+  if (secsUntilExpiry < 60) {
+    const { data: refreshed } = await supabase.auth.refreshSession();
+    return refreshed.session?.access_token ?? null;
+  }
+
+  return session.access_token;
 }
 
 /**
