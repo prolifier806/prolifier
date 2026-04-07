@@ -82,25 +82,30 @@ type Group = {
 
 const TOPICS = ["General", "AI", "Design", "Marketing", "Tech"];
 
-function renderTextWithLinks(text: string) {
-  const TOKEN_RE = /(https?:\/\/[^\s]+|@\w+)/g;
+function renderTextWithLinks(text: string, validMentionNames?: string[]) {
+  // Build a regex that only matches @MemberName for real member names.
+  // Sort longest-first so "John Doe" matches before "John".
+  let TOKEN_RE: RegExp;
+  if (validMentionNames && validMentionNames.length > 0) {
+    const escaped = [...validMentionNames]
+      .sort((a, b) => b.length - a.length)
+      .map(n => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    TOKEN_RE = new RegExp(`(https?:\\/\\/[^\\s]+|@(?:${escaped.join("|")})(?=[\\s,!?.)]|$))`, "gi");
+  } else {
+    TOKEN_RE = /(https?:\/\/[^\s]+)/g; // no members — only linkify URLs
+  }
   const parts = text.split(TOKEN_RE);
   return parts.map((part, i) => {
-    if (/^https?:\/\//.test(part)) {
+    if (/^https?:\/\//i.test(part)) {
       return (
-        <a
-          key={i}
-          href={part}
-          target="_blank"
-          rel="noopener noreferrer"
+        <a key={i} href={part} target="_blank" rel="noopener noreferrer"
           className="underline text-primary hover:opacity-80 break-all"
-          onClick={e => e.stopPropagation()}
-        >
+          onClick={e => e.stopPropagation()}>
           {part}
         </a>
       );
     }
-    if (/^@\w+/.test(part)) {
+    if (/^@/i.test(part)) {
       return <span key={i} className="text-emerald-500 font-medium">{part}</span>;
     }
     return <span key={i}>{part}</span>;
@@ -232,6 +237,10 @@ export default function Groups() {
   const [newEmoji, setNewEmoji] = useState("🚀");
   const [newPrivate, setNewPrivate] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [newImageUrl, setNewImageUrl] = useState<string | null>(null);
+  const [newImagePreview, setNewImagePreview] = useState<string | null>(null);
+  const [uploadingCreateIcon, setUploadingCreateIcon] = useState(false);
+  const createImageRef = useRef<HTMLInputElement>(null);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLInputElement>(null);
@@ -393,7 +402,28 @@ export default function Groups() {
         if (payload.eventType === "INSERT") {
           const row = payload.new as any;
           setMessages(prev => {
+            // Already have the real message — skip (idempotent)
             if (prev.find(m => m.id === row.id)) return prev;
+            // Replace the matching optimistic temp message from the same sender.
+            // This prevents the double-message caused by optimistic add + realtime echo.
+            const tempIdx = prev.findIndex(m =>
+              m.id.startsWith("tmp-") &&
+              m.user_id === row.user_id &&
+              (m.text ?? null) === (row.text ?? null) &&
+              (m.media_url ?? null) === (row.media_url ?? null)
+            );
+            if (tempIdx !== -1) {
+              const next = [...prev];
+              next[tempIdx] = {
+                ...next[tempIdx],
+                id: row.id,
+                created_at: row.created_at,
+                edited: row.edited ?? false,
+                unsent: row.unsent ?? false,
+              };
+              return next;
+            }
+            // Message from someone else — append normally
             return [...prev, {
               id: row.id, group_id: row.group_id, user_id: row.user_id,
               text: row.text, media_url: row.media_url, media_type: row.media_type,
@@ -707,6 +737,27 @@ export default function Groups() {
     }
   };
 
+  // ── Create form: handle icon image selection ────────────────────────────
+  const handleCreateIconSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    const blobUrl = URL.createObjectURL(file);
+    setNewImagePreview(blobUrl);
+    setUploadingCreateIcon(true);
+    try {
+      const result = await uploadPostImage(file, "feed");
+      setNewImageUrl(result.url);
+      setNewImagePreview(result.url);
+      URL.revokeObjectURL(blobUrl);
+    } catch {
+      setNewImagePreview(null);
+      toast({ title: "Icon upload failed", variant: "destructive" });
+    } finally {
+      setUploadingCreateIcon(false);
+    }
+  };
+
   // ── Admin: save group edit ───────────────────────────────────────────────
   const saveGroupEdit = async () => {
     if (!activeGroup) return;
@@ -735,11 +786,13 @@ export default function Groups() {
         is_private: newPrivate,
         emoji: newEmoji,
         topic: newTopic,
+        image_url: newImageUrl || undefined,
       });
       setGroups(prev => [data, ...prev]);
       setJoinedIds(prev => new Set([...prev, data.id]));
       toast({ title: `${data.emoji ?? newEmoji} ${data.name} created!` });
       setNewName(""); setNewDesc(""); setNewBio(""); setNewTopic("General"); setNewEmoji("🚀"); setNewPrivate(false);
+      setNewImageUrl(null); setNewImagePreview(null);
       openGroup(data);
     } catch (err) {
       if (import.meta.env.DEV) console.error(err);
@@ -832,7 +885,7 @@ export default function Groups() {
               <>
                 {m.text?.trim() && (
                   <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap break-words">
-                    {renderTextWithLinks(m.text.trim())}
+                    {renderTextWithLinks(m.text.trim(), members.map(mb => mb.name))}
                     {m.edited && grouped && <span className="text-[10px] text-muted-foreground italic ml-1">· edited</span>}
                   </p>
                 )}
@@ -895,10 +948,40 @@ export default function Groups() {
           <div className="space-y-5">
             <div>
               <label className="text-sm font-medium block mb-2">Community icon</label>
+              {/* Hidden file input */}
+              <input ref={createImageRef} type="file" accept="image/*" className="hidden" onChange={handleCreateIconSelect} />
+              {/* Main icon circle — click to upload (live preview) */}
+              <div className="flex items-center gap-4 mb-3">
+                <div
+                  onClick={() => !uploadingCreateIcon && createImageRef.current?.click()}
+                  className="h-16 w-16 rounded-2xl bg-muted flex items-center justify-center text-3xl overflow-hidden shrink-0 relative cursor-pointer ring-2 ring-primary/30 hover:ring-primary transition-all"
+                >
+                  {newImagePreview
+                    ? <img src={newImagePreview} alt="icon" className="w-full h-full object-cover" />
+                    : newEmoji}
+                  {uploadingCreateIcon && (
+                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                      <div className="h-5 w-5 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                    </div>
+                  )}
+                  {!uploadingCreateIcon && (
+                    <div className="absolute inset-0 bg-black/0 hover:bg-black/20 transition-colors rounded-2xl" />
+                  )}
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <p className="text-xs text-muted-foreground">Tap the icon to upload a custom image,<br/>or pick an emoji below.</p>
+                  {newImageUrl && (
+                    <button type="button" onClick={() => { setNewImageUrl(null); setNewImagePreview(null); }}
+                      className="text-xs px-2.5 py-1 rounded-lg border border-destructive/30 text-destructive hover:bg-destructive/5 transition-colors self-start">
+                      Remove image
+                    </button>
+                  )}
+                </div>
+              </div>
               <div className="flex flex-wrap gap-2">
                 {EMOJIS.map(e => (
-                  <button key={e} onClick={() => setNewEmoji(e)}
-                    className={`h-10 w-10 rounded-xl text-xl flex items-center justify-center transition-all ${newEmoji === e ? "bg-primary/20 ring-2 ring-primary" : "bg-muted hover:bg-secondary"}`}>
+                  <button key={e} onClick={() => { setNewEmoji(e); }}
+                    className={`h-10 w-10 rounded-xl text-xl flex items-center justify-center transition-all ${newEmoji === e && !newImagePreview ? "bg-primary/20 ring-2 ring-primary" : "bg-muted hover:bg-secondary"}`}>
                     {e}
                   </button>
                 ))}
@@ -962,52 +1045,52 @@ export default function Groups() {
             {/* Group info */}
             <div className="rounded-xl border border-border bg-card p-5">
               <div className="flex items-center gap-3 mb-4">
-                <div className="h-14 w-14 rounded-2xl bg-muted flex items-center justify-center text-3xl overflow-hidden shrink-0">
-                  {activeGroup.image_url
-                    ? <img src={activeGroup.image_url} alt={activeGroup.name} className="w-full h-full object-cover" />
-                    : activeGroup.emoji}
+                {/* Main icon circle — clickable to upload when in edit mode (acts as live preview) */}
+                <input ref={settingsImageRef} type="file" accept="image/*" className="hidden" onChange={handleIconImageSelect} />
+                <div
+                  onClick={() => editingGroup && settingsImageRef.current?.click()}
+                  className={`h-14 w-14 rounded-2xl bg-muted flex items-center justify-center text-3xl overflow-hidden shrink-0 relative ${editingGroup ? "cursor-pointer ring-2 ring-primary/40 hover:ring-primary transition-all" : ""}`}
+                >
+                  {(editingGroup ? (editImagePreview || null) : activeGroup.image_url)
+                    ? <img src={editingGroup ? editImagePreview! : activeGroup.image_url!} alt={activeGroup.name} className="w-full h-full object-cover" />
+                    : (editingGroup ? editEmoji : activeGroup.emoji)}
+                  {editingGroup && !uploadingIcon && (
+                    <div className="absolute inset-0 bg-black/0 hover:bg-black/25 transition-colors rounded-2xl flex items-center justify-center">
+                      <Image className="h-4 w-4 text-white opacity-0 hover:opacity-100 transition-opacity" />
+                    </div>
+                  )}
+                  {uploadingIcon && (
+                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                      <div className="h-4 w-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                    </div>
+                  )}
                 </div>
                 <div>
                   <p className="font-bold text-foreground">{activeGroup.name}</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
                     {activeGroup.visibility === "private" ? "🔒 Private" : "🌐 Public"} · {activeGroup.member_count} members
                   </p>
+                  {editingGroup && (
+                    <p className="text-xs text-muted-foreground mt-1">Tap the icon to change it</p>
+                  )}
                 </div>
               </div>
               {editingGroup ? (
                 <div className="space-y-3">
                   <div>
-                    <label className="text-xs font-medium text-muted-foreground block mb-1.5">Community icon</label>
-                    {/* Custom image upload */}
-                    <input ref={settingsImageRef} type="file" accept="image/*" className="hidden" onChange={handleIconImageSelect} />
-                    <div className="flex items-center gap-3 mb-2">
-                      <div className="h-14 w-14 rounded-2xl overflow-hidden bg-muted flex items-center justify-center text-2xl shrink-0 relative">
-                        {editImagePreview
-                          ? <img src={editImagePreview} alt="icon" className="w-full h-full object-cover" />
-                          : editEmoji}
-                        {uploadingIcon && (
-                          <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                            <div className="h-4 w-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex flex-col gap-1.5">
-                        <button type="button" onClick={() => settingsImageRef.current?.click()} disabled={uploadingIcon}
-                          className="text-xs px-3 py-1.5 rounded-lg border border-border hover:bg-muted transition-colors disabled:opacity-50">
-                          Upload image
+                    <label className="text-xs font-medium text-muted-foreground block mb-1.5">Icon options</label>
+                    <div className="flex items-center gap-2 mb-2">
+                      {editImageUrl && (
+                        <button type="button" onClick={() => { setEditImageUrl(null); setEditImagePreview(null); }}
+                          className="text-xs px-3 py-1.5 rounded-lg border border-destructive/30 text-destructive hover:bg-destructive/5 transition-colors">
+                          Remove custom image
                         </button>
-                        {editImageUrl && (
-                          <button type="button" onClick={() => { setEditImageUrl(null); setEditImagePreview(null); }}
-                            className="text-xs px-3 py-1.5 rounded-lg border border-destructive/30 text-destructive hover:bg-destructive/5 transition-colors">
-                            Remove image
-                          </button>
-                        )}
-                      </div>
+                      )}
                     </div>
                     <div className="flex flex-wrap gap-1.5">
                       {EMOJIS.map(e => (
-                        <button key={e} onClick={() => setEditEmoji(e)}
-                          className={`h-9 w-9 rounded-xl text-lg flex items-center justify-center transition-all ${editEmoji === e ? "bg-primary/20 ring-2 ring-primary" : "bg-muted hover:bg-secondary"}`}>
+                        <button key={e} onClick={() => { setEditEmoji(e); if (!editImageUrl) setEditImagePreview(null); }}
+                          className={`h-9 w-9 rounded-xl text-lg flex items-center justify-center transition-all ${editEmoji === e && !editImagePreview ? "bg-primary/20 ring-2 ring-primary" : "bg-muted hover:bg-secondary"}`}>
                           {e}
                         </button>
                       ))}
@@ -1093,10 +1176,18 @@ export default function Groups() {
                       </button>
                       <div className="flex items-center gap-1.5 shrink-0">
                         {(m.role === "owner" || m.role === "admin") && <Crown className="h-3.5 w-3.5 text-amber-500" title={m.role === "owner" ? "Owner" : "Admin"} />}
-                        {isOwner && !isSelf && m.role !== "owner" && (
-                          <button onClick={() => toggleAdmin(m.id, m.name, m.role)} title={m.role === "admin" ? "Revoke admin" : "Make admin"}
-                            className={`h-7 w-7 rounded-lg border transition-colors flex items-center justify-center ${m.role === "admin" ? "text-amber-500 border-amber-200 hover:bg-amber-50 dark:hover:bg-amber-950" : "text-muted-foreground border-border hover:bg-muted"}`}>
+                        {/* Promote button: only for plain members, never for admins/owner (prevents double crown) */}
+                        {isOwner && !isSelf && m.role === "member" && (
+                          <button onClick={() => toggleAdmin(m.id, m.name, m.role)} title="Appoint as admin"
+                            className="h-7 w-7 rounded-lg border border-border text-muted-foreground hover:bg-muted transition-colors flex items-center justify-center">
                             <Crown className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                        {/* Revoke button: only for admins, separate from crown display */}
+                        {isOwner && !isSelf && m.role === "admin" && (
+                          <button onClick={() => toggleAdmin(m.id, m.name, m.role)} title="Revoke admin"
+                            className="text-xs px-2 py-0.5 rounded-md border border-amber-200 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950 transition-colors shrink-0">
+                            Revoke
                           </button>
                         )}
                         {canAct && (
