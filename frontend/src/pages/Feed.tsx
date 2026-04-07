@@ -1918,10 +1918,14 @@ export default function Feed() {
   }, [user.id]);
 
   const handleDeletePost = useCallback(async (id: string) => {
-    await deletePost(id).catch(() => {});
+    // Remove from UI immediately — don't wait for the API
     setPosts(p => p.filter(x => x.id !== id));
     toast({ title: "Post deleted" });
-  }, []); // functional updater — no need for `posts` in deps
+    deletePost(id).catch(() => {
+      // Revert: re-fetch on failure so the post reappears
+      toast({ title: "Delete failed — post restored", variant: "destructive" });
+    });
+  }, []);
 
   const handleEditPost = useCallback(async (id: string, content: string, tag: string, images: string[], video?: string) => {
     const pre = checkContent(content);
@@ -1946,34 +1950,42 @@ export default function Feed() {
     if (!postDialog.content.trim() || postDialog.publishing) return;
     const pre = checkContent(postDialog.content);
     if (!pre.allowed) { toast({ title: pre.message!, variant: "destructive" }); return; }
-    setPostDialog(d => ({ ...d, publishing: true }));
+
+    // Capture dialog state before closing it
+    const { content, tag, images, video } = postDialog;
+    const tempId = `tmp-${Date.now()}`;
+    const optimisticPost: Post = {
+      id: tempId, user_id: user.id, author: user.name, avatar: user.avatar,
+      avatarUrl: user.avatarUrl || undefined, avatarColor: user.color,
+      location: user.location, authorSkills: user.skills?.slice(0, 3) || [],
+      authorDeleted: false, authorRole: user.role,
+      tag, time: "Just now", content, images, video,
+      likes: 0, commentCount: 0, isOwn: true, comments: [],
+    };
+
+    // Show immediately — close dialog and prepend post without waiting
+    setPosts(p => [optimisticPost, ...p]);
+    setActiveTab("feed");
+    setPostDialog({ open: false, content: "", tag: "General", images: [], video: undefined, uploading: false, publishing: false });
+
     try {
       let data: any;
       try {
         data = await createPost({
-          content: postDialog.content,
-          tag: postDialog.tag,
-          image_urls: postDialog.images.length > 0 ? postDialog.images : undefined,
-          video_url: postDialog.video || undefined,
+          content,
+          tag,
+          image_urls: images.length > 0 ? images : undefined,
+          video_url: video || undefined,
         });
       } catch (err: any) {
+        // Revert the optimistic post on failure
+        setPosts(p => p.filter(x => x.id !== tempId));
         const modMsg = parseModerationError(err);
         toast({ title: modMsg ?? "Failed to create post", variant: "destructive" });
         return;
       }
-      // OPT: prepend new post directly to state — no refetch needed
-      setPosts(p => [{
-        id: data.id, user_id: user.id, author: user.name, avatar: user.avatar,
-        avatarUrl: user.avatarUrl || undefined,
-        avatarColor: user.color, location: user.location,
-        authorSkills: user.skills?.slice(0, 3) || [],
-        authorDeleted: false, authorRole: user.role,
-        tag: postDialog.tag, time: "Just now",
-        content: postDialog.content, images: postDialog.images, video: postDialog.video,
-        likes: 0, commentCount: 0, isOwn: true, comments: [],
-      }, ...p]);
-      setActiveTab("feed");
-      setPostDialog({ open: false, content: "", tag: "General", images: [], video: undefined, uploading: false, publishing: false });
+      // Replace temp ID with real ID from server
+      setPosts(p => p.map(x => x.id === tempId ? { ...x, id: data.id } : x));
       toast({ title: "Post published! 🎉" });
     } finally {
       setPostDialog(d => ({ ...d, publishing: false }));
