@@ -37,9 +37,14 @@ async function getToken(): Promise<string | null> {
  * WHY: When the user navigates away mid-request, or our 30s timeout fires,
  * fetch throws an AbortError with message "signal is aborted without reason".
  * Showing that message as a toast is confusing noise — it is never a real error.
+ * WHY message fallback: Some browsers / Supabase internals throw a generic Error
+ * (not DOMException) with name "Error" but message "signal is aborted without reason",
+ * so checking only name misses those cases.
  */
 export function isAbortError(err: unknown): boolean {
-  return (err as any)?.name === "AbortError";
+  if ((err as any)?.name === "AbortError") return true;
+  const msg: string = (err as any)?.message ?? "";
+  return msg.includes("signal is aborted") || msg.includes("aborted without reason") || msg.includes("Request timed out or was cancelled");
 }
 
 /**

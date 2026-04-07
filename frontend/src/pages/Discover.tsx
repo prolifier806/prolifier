@@ -191,10 +191,12 @@ export default function Discover() {
         setBlockedByMe(blockedSet);
 
         // Cache profiles + connection state together so buttons show correctly on next visit
+        // WHY: Save mapped (camelCase) not raw data — cache restore sets profiles directly
+        // without remapping, so avatar_url/open_to_collab would be undefined on first paint.
         try {
           localStorage.setItem(DISCOVER_CACHE_KEY, JSON.stringify({
             ts: Date.now(),
-            profiles: data,
+            profiles: mapped,
             connected: [...acceptedIds],
             pending: [...pendingIds],
             blocked: [...blockedSet],

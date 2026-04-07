@@ -2,7 +2,8 @@ import { ReactNode, useEffect, useState, useRef } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useTheme } from "@/context/ThemeContext";
 import { useUser } from "@/context/UserContext";
-import { Home, Search, MessageCircle, Users, Bell, Leaf, Sun, Moon, MessageSquarePlus } from "lucide-react";
+import { Home, Search, MessageCircle, Users, Bell, Leaf, Sun, Moon, MessageSquarePlus, Lock } from "lucide-react";
+import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/lib/supabase";
 
 const NAV_PATHS = [
@@ -312,6 +313,17 @@ export default function Layout({ children }: { children: ReactNode }) {
             </div>
             My Profile
           </Link>
+
+          <button
+            onClick={() => toast({ title: "Coming soon", description: "Talk to expert feature is coming soon. Stay tuned!" })}
+            className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium text-muted-foreground hover:bg-secondary hover:text-foreground transition-all duration-150 opacity-60"
+          >
+            <div className="relative shrink-0">
+              <MessageSquarePlus className="h-4 w-4" />
+              <Lock className="absolute -bottom-1 -right-1.5 h-2.5 w-2.5 text-muted-foreground" />
+            </div>
+            Talk to Expert
+          </button>
 
           <Link
             to="/feedback"

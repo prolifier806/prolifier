@@ -33,8 +33,33 @@ export const removeAvatar = () => apiDelete("/api/uploads/avatar");
 
 export async function uploadPostImage(
   file: File,
-  context: "feed" | "chat" = "feed"
+  context: "feed" | "chat" = "feed",
+  onProgress?: (pct: number) => void
 ): Promise<UploadedImage> {
+  // Use XHR when a progress callback is provided — fetch has no upload progress API
+  if (onProgress) {
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    return new Promise((resolve, reject) => {
+      const form = new FormData();
+      form.append("file", file);
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", `${API_URL}/api/uploads/image?context=${context}`);
+      if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+      };
+      xhr.onload = () => {
+        try {
+          const json = JSON.parse(xhr.responseText);
+          if (json.success) resolve(json.data);
+          else reject(new Error(json.error ?? "Upload failed"));
+        } catch { reject(new Error("Invalid response from server")); }
+      };
+      xhr.onerror = () => reject(new Error("Network error during image upload"));
+      xhr.send(form);
+    });
+  }
   const form = new FormData();
   form.append("file", file);
   return apiUpload<UploadedImage>(`/api/uploads/image?context=${context}`, form);

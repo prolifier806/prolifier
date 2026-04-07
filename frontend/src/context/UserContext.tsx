@@ -7,6 +7,7 @@
 import { createContext, useContext, useEffect, useState, useRef, ReactNode, useCallback, useMemo } from "react";
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
+import { logger } from "@/lib/logger";
 
 export type CurrentUser = {
   id: string;
@@ -262,6 +263,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       }
 
       const next = profileFromRow(userId, email, row);
+      logger.setUserId(userId);
       setUser(prev => {
         if (prev.updatedAt && next.updatedAt && prev.updatedAt > next.updatedAt) return prev;
         writeCache(next);
@@ -288,6 +290,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
       const cached = readCache(userId);
       if (cached) {
+        logger.setUserId(userId);
         setUser(cached);
         setLoading(false);
         // CHANGED: only sync if cache is stale — saves 1 DB call per tab switch

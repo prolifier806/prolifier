@@ -478,10 +478,10 @@ function MediaUploadBar({ images, onAddImage, onRemoveImage, onVideo, onUploadin
       return;
     }
 
-    // Image upload via API
+    // Image upload via API — XHR with progress so user sees % instead of spinner
     try {
-      setUploadLabel("Uploading…");
-      const result = await uploadPostImage(file, "feed");
+      setUploadLabel("Uploading…  0%");
+      const result = await uploadPostImage(file, "feed", (pct) => setUploadLabel(`Uploading… ${pct}%`));
       cb(result.url);
       setUploadLabel("Photo uploaded ✓"); setTimeout(() => setUploadLabel(""), 2000);
     } catch (err: any) {
