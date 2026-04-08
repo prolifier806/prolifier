@@ -97,6 +97,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   const [notifCount, setNotifCount] = useState(0);
   const [msgCount, setMsgCount] = useState(0);
   const [discoverCount, setDiscoverCount] = useState(0);
+  const [groupsCount, setGroupsCount] = useState(0);
 
   // Rate-limit visibility refreshes
   const lastFetchRef = useRef<number>(0);
@@ -288,6 +289,7 @@ export default function Layout({ children }: { children: ReactNode }) {
     if (pathname.startsWith("/notifications")) clearBadge("/notifications");
     else if (pathname.startsWith("/messages"))    clearBadge("/messages");
     else if (pathname.startsWith("/discover"))    clearBadge("/discover");
+    else if (pathname.startsWith("/groups"))      setGroupsCount(0);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname, user.id]);
 
@@ -321,10 +323,23 @@ export default function Layout({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("prolifier:notifications-opened", handler);
   }, []);
 
+  // Groups unread count — broadcast from Groups.tsx via custom event
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const total = (e as CustomEvent<number>).detail;
+      if (!window.location.pathname.startsWith("/groups")) {
+        setGroupsCount(total);
+      }
+    };
+    window.addEventListener("prolifier:groups-unread", handler);
+    return () => window.removeEventListener("prolifier:groups-unread", handler);
+  }, []);
+
   const getBadge = (to: string) => {
     if (to === "/notifications") return notifCount;
     if (to === "/messages") return msgCount;
     if (to === "/discover") return discoverCount;
+    if (to === "/groups") return groupsCount;
     return 0;
   };
 

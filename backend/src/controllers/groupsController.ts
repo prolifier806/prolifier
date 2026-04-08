@@ -58,12 +58,16 @@ async function getRequesterRole(groupId: string, userId: string) {
 
 // ── Helper: post a system message into a group ────────────────────────────────
 async function postSystemMsg(groupId: string, actingUserId: string, text: string) {
-  await supabaseAdmin.from("group_messages").insert({
-    group_id: groupId,
-    user_id: actingUserId,
-    text,
-    is_system: true,
-  }); // fire-and-forget; never block the main action
+  try {
+    await supabaseAdmin.from("group_messages").insert({
+      group_id: groupId,
+      user_id: actingUserId,
+      text,
+      is_system: true,
+    });
+  } catch {
+    // fire-and-forget — never let a system message failure block the main action
+  }
 }
 
 // ── Join / Leave ──────────────────────────────────────────────────────────────

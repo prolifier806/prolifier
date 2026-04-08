@@ -286,6 +286,12 @@ export default function Groups() {
   const isOwner = activeGroup ? activeGroup.owner_id === user.id : false;
   const isJoined = activeGroup ? (joinedIds.has(activeGroup.id) || isOwner) : false;
 
+  // ── Broadcast total unread count to Layout sidebar ───────────────────────
+  useEffect(() => {
+    const total = Object.values(unreadCounts).reduce((a, b) => a + b, 0);
+    window.dispatchEvent(new CustomEvent("prolifier:groups-unread", { detail: total }));
+  }, [unreadCounts]);
+
   // ── Fetch groups + membership in parallel ────────────────────────────────
   const fetchGroups = useCallback(async () => {
     if (!user.id) return;
@@ -1790,7 +1796,7 @@ export default function Groups() {
             <span className="flex items-center justify-center gap-1.5">
               Joined ({groups.filter(g => joinedIds.has(g.id) || g.owner_id === user.id).length})
               {Object.values(unreadCounts).reduce((a, b) => a + b, 0) > 0 && (
-                <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-bold flex items-center justify-center">
+                <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center">
                   {Object.values(unreadCounts).reduce((a, b) => a + b, 0) > 99 ? "99+" : Object.values(unreadCounts).reduce((a, b) => a + b, 0)}
                 </span>
               )}
@@ -1837,7 +1843,7 @@ export default function Groups() {
                             : g.emoji}
                         </div>
                         {unread > 0 && (
-                          <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-bold flex items-center justify-center">
+                          <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center">
                             {unread > 99 ? "99+" : unread}
                           </span>
                         )}
