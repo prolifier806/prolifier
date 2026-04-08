@@ -289,7 +289,10 @@ export default function Layout({ children }: { children: ReactNode }) {
     if (pathname.startsWith("/notifications")) clearBadge("/notifications");
     else if (pathname.startsWith("/messages"))    clearBadge("/messages");
     else if (pathname.startsWith("/discover"))    clearBadge("/discover");
-    else if (pathname.startsWith("/groups"))      setGroupsCount(0);
+    else if (pathname.startsWith("/groups")) {
+      setGroupsCount(0);
+      try { localStorage.setItem(`prf_groups_unread_${user.id}`, "0"); } catch { /* ignore */ }
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname, user.id]);
 
@@ -323,8 +326,14 @@ export default function Layout({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("prolifier:notifications-opened", handler);
   }, []);
 
-  // Groups unread count — broadcast from Groups.tsx via custom event
+  // Groups unread count — read from localStorage on mount, then keep in sync via custom event
   useEffect(() => {
+    if (!user.id) return;
+    // Read persisted count immediately so badge shows before Groups.tsx mounts
+    if (!window.location.pathname.startsWith("/groups")) {
+      const stored = parseInt(localStorage.getItem(`prf_groups_unread_${user.id}`) ?? "0", 10);
+      if (!isNaN(stored) && stored > 0) setGroupsCount(stored);
+    }
     const handler = (e: Event) => {
       const total = (e as CustomEvent<number>).detail;
       if (!window.location.pathname.startsWith("/groups")) {
@@ -333,7 +342,7 @@ export default function Layout({ children }: { children: ReactNode }) {
     };
     window.addEventListener("prolifier:groups-unread", handler);
     return () => window.removeEventListener("prolifier:groups-unread", handler);
-  }, []);
+  }, [user.id]);
 
   const getBadge = (to: string) => {
     if (to === "/notifications") return notifCount;

@@ -290,7 +290,9 @@ export default function Groups() {
   useEffect(() => {
     const total = Object.values(unreadCounts).reduce((a, b) => a + b, 0);
     window.dispatchEvent(new CustomEvent("prolifier:groups-unread", { detail: total }));
-  }, [unreadCounts]);
+    // Persist so Layout can read it on mount (before Groups.tsx is loaded)
+    try { localStorage.setItem(`prf_groups_unread_${user.id}`, String(total)); } catch { /* ignore */ }
+  }, [unreadCounts, user.id]);
 
   // ── Fetch groups + membership in parallel ────────────────────────────────
   const fetchGroups = useCallback(async () => {
@@ -1658,6 +1660,7 @@ export default function Groups() {
                   const id = mentionMsgIds[mentionJumpIdx.current % mentionMsgIds.length];
                   mentionJumpIdx.current++;
                   document.getElementById(`msg-${id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+                  setMentionMsgIds([]);
                 }}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500 text-white text-xs font-medium rounded-full shadow-lg hover:bg-emerald-600 transition-colors"
               >
