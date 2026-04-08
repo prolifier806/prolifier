@@ -10,7 +10,7 @@ import {
   Lock, Globe, Plus, Settings, X, Check,
   Crown, Image, Video, Paperclip,
   Link2, Copy, LogOut, Edit3, Trash2, UserX, MoreHorizontal,
-  ShieldOff, RefreshCw,
+  ShieldOff, RefreshCw, AtSign, ChevronsDown, UserPlus, Bell,
 } from "lucide-react";
 import Layout from "@/components/Layout";
 import { toast } from "@/hooks/use-toast";
@@ -30,6 +30,10 @@ import {
   sendGroupMessage as apiSendGroupMessage,
   getBannedUsers as apiGetBannedUsers,
   unbanUser as apiUnbanUser,
+  requestToJoin as apiRequestToJoin,
+  getJoinRequests as apiGetJoinRequests,
+  respondJoinRequest as apiRespondJoinRequest,
+  addMemberToGroup as apiAddMember,
 } from "@/api/groups";
 import { uploadPostImage, uploadVideo, uploadFile } from "@/api/uploads";
 
@@ -48,9 +52,18 @@ type GroupMessage = {
   edited: boolean;
   deleted: boolean;
   unsent: boolean;
+  is_system: boolean;
   author_name: string;
   author_color: string;
   author_avatar_url?: string;
+};
+
+type JoinRequest = {
+  id: string;
+  user_id: string;
+  status: string;
+  created_at: string;
+  profile: { name: string; color: string; avatar_url?: string } | null;
 };
 
 type GroupMember = {
@@ -218,6 +231,25 @@ export default function Groups() {
   const [bannedLoading, setBannedLoading] = useState(false);
   const [showBanned, setShowBanned] = useState(false);
 
+  // Join requests (private communities)
+  const [joinRequests, setJoinRequests] = useState<JoinRequest[]>([]);
+  const [joinRequestsLoading, setJoinRequestsLoading] = useState(false);
+  const [showJoinRequests, setShowJoinRequests] = useState(false);
+  // Track whether the current user has sent a join request per group
+  const [requestedIds, setRequestedIds] = useState<Set<string>>(new Set());
+
+  // Unread counts: keyed by group id — incremented by realtime on non-active groups
+  const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
+  // Refs for mention message IDs in the current open chat
+  const [mentionMsgIds, setMentionMsgIds] = useState<string[]>([]);
+  const mentionJumpIdx = useRef(0);
+
+  // Add members panel (admin)
+  const [showAddMembers, setShowAddMembers] = useState(false);
+  const [connections, setConnections] = useState<{ id: string; name: string; color: string; avatarUrl?: string }[]>([]);
+  const [connectionsLoading, setConnectionsLoading] = useState(false);
+  const [addMemberSearch, setAddMemberSearch] = useState("");
+
   // Community image upload (settings)
   const [editImageUrl, setEditImageUrl] = useState<string | null>(null);
   const [editImagePreview, setEditImagePreview] = useState<string | null>(null);
@@ -267,16 +299,36 @@ export default function Groups() {
       if (groupsErr) throw groupsErr;
       setGroups(groupsData || []);
 
-      // Fetch memberships separately — don't let it crash page if it fails
+      // Fetch memberships and pending join requests in parallel
       try {
-        const { data: memberData } = await (supabase as any)
-          .from("group_members")
-          .select("group_id")
-          .eq("user_id", user.id);
-        setJoinedIds(new Set((memberData || []).map((r: any) => r.group_id)));
+        const [{ data: memberData }, { data: reqData }] = await Promise.all([
+          (supabase as any).from("group_members").select("group_id").eq("user_id", user.id),
+          (supabase as any).from("group_join_requests").select("group_id, status").eq("user_id", user.id),
+        ]);
+        const joined = new Set<string>((memberData || []).map((r: any) => r.group_id));
+        setJoinedIds(joined);
+        setRequestedIds(new Set(
+          (reqData || []).filter((r: any) => r.status === "pending").map((r: any) => r.group_id)
+        ));
+        // Load unread counts from localStorage (messages since last open)
+        const initialUnread: Record<string, number> = {};
+        for (const gid of Array.from(joined)) {
+          const lastRead = localStorage.getItem(`prf_read_${user.id}_${gid}`);
+          if (lastRead) {
+            try {
+              const { count } = await (supabase as any)
+                .from("group_messages")
+                .select("id", { count: "exact", head: true })
+                .eq("group_id", gid)
+                .gt("created_at", lastRead)
+                .eq("is_system", false);
+              if (count && count > 0) initialUnread[gid] = count;
+            } catch { /* non-fatal */ }
+          }
+        }
+        setUnreadCounts(initialUnread);
       } catch (memberErr) {
         if (import.meta.env.DEV) console.error("fetchGroups memberships:", memberErr);
-        // Still show groups even if membership fetch fails
         setJoinedIds(new Set());
       }
     } catch (err) {
@@ -309,7 +361,7 @@ export default function Groups() {
       // Fetch messages and profiles in parallel - much faster than a join
       const { data: msgs, error } = await (supabase as any)
         .from("group_messages")
-        .select("id, group_id, user_id, text, media_url, media_type, created_at, edited, unsent")
+        .select("id, group_id, user_id, text, media_url, media_type, created_at, edited, unsent, is_system")
         .eq("group_id", groupId)
         .order("created_at", { ascending: true });
       if (error) throw error;
@@ -324,7 +376,7 @@ export default function Groups() {
       const profileMap: Record<string, { name: string; color: string; avatar_url?: string }> = {};
       (profiles || []).forEach((p: any) => { profileMap[p.id] = { name: p.name, color: p.color, avatar_url: p.avatar_url || undefined }; });
 
-      setMessages(msgs.map((row: any) => ({
+      const mapped = msgs.map((row: any) => ({
         id: row.id,
         group_id: row.group_id,
         user_id: row.user_id,
@@ -335,10 +387,19 @@ export default function Groups() {
         edited: row.edited ?? false,
         deleted: false,
         unsent: row.unsent ?? false,
+        is_system: row.is_system ?? false,
         author_name: profileMap[row.user_id]?.name || "Unknown",
         author_color: profileMap[row.user_id]?.color || "bg-primary",
         author_avatar_url: profileMap[row.user_id]?.avatar_url,
-      })));
+      }));
+      setMessages(mapped);
+      // Detect messages that mention the current user
+      if (user.name) {
+        const mention = `@${user.name}`;
+        const ids = mapped.filter((m: GroupMessage) => m.text?.includes(mention)).map((m: GroupMessage) => m.id);
+        setMentionMsgIds(ids);
+        mentionJumpIdx.current = 0;
+      }
     } catch (err) {
       if (import.meta.env.DEV) console.error("fetchMessages:", err);
     } finally {
@@ -401,6 +462,14 @@ export default function Groups() {
         };
         if (payload.eventType === "INSERT") {
           const row = payload.new as any;
+          // Increment unread for non-system messages (handled here via realtime for non-active groups)
+          // (active group is always open so we don't increment it)
+          if (!row.is_system && row.user_id !== user.id) {
+            setUnreadCounts(prev => {
+              const cur = prev[row.group_id] ?? 0;
+              return { ...prev, [row.group_id]: cur + 1 };
+            });
+          }
           setMessages(prev => {
             // Already have the real message — skip (idempotent)
             if (prev.find(m => m.id === row.id)) return prev;
@@ -424,14 +493,20 @@ export default function Groups() {
               return next;
             }
             // Message from someone else — append normally
-            return [...prev, {
+            const newMsg = {
               id: row.id, group_id: row.group_id, user_id: row.user_id,
               text: row.text, media_url: row.media_url, media_type: row.media_type,
-              created_at: row.created_at, edited: row.edited ?? false, deleted: false, unsent: row.unsent ?? false,
+              created_at: row.created_at, edited: row.edited ?? false, deleted: false,
+              unsent: row.unsent ?? false, is_system: row.is_system ?? false,
               author_name: profileCache.current[row.user_id]?.name || "…",
               author_color: profileCache.current[row.user_id]?.color || "bg-primary",
               author_avatar_url: profileCache.current[row.user_id]?.avatar_url,
-            }];
+            };
+            // Detect new mention for the current user
+            if (!row.is_system && row.text?.includes(`@${user.name}`)) {
+              setMentionMsgIds(prev => prev.includes(row.id) ? prev : [...prev, row.id]);
+            }
+            return [...prev, newMsg];
           });
           const profile = await getProfile(row.user_id);
           setMessages(prev => prev.map(m =>
@@ -477,10 +552,14 @@ export default function Groups() {
     setEditingMsgId(null);
     setChatInput("");
     setView("group");
-    setMembers([]); // clear stale members from previous group
-    // Fire both fetches without blocking view switch
+    setMembers([]);
+    setMentionMsgIds([]);
+    mentionJumpIdx.current = 0;
+    // Mark this group as read — reset unread counter + persist timestamp
+    setUnreadCounts(prev => ({ ...prev, [group.id]: 0 }));
+    try { localStorage.setItem(`prf_read_${user.id}_${group.id}`, new Date().toISOString()); } catch { /* storage full */ }
     fetchMessages(group.id);
-    fetchMembers(group.id); // needed for @mention suggestions + name-only highlighting
+    fetchMembers(group.id);
   };
 
   const openSettings = () => {
@@ -488,8 +567,29 @@ export default function Groups() {
     setShowSettings(true);
     setShowBanned(false);
     setBannedUsers([]);
+    setShowJoinRequests(false);
+    setJoinRequests([]);
+    setShowAddMembers(false);
     fetchMembers(activeGroup.id);
   };
+
+  const fetchConnections = useCallback(async () => {
+    if (!user.id) return;
+    setConnectionsLoading(true);
+    try {
+      const { data } = await (supabase as any)
+        .from("connections")
+        .select("requester_id, receiver_id, profiles_requester:requester_id(id, name, color, avatar_url), profiles_receiver:receiver_id(id, name, color, avatar_url)")
+        .eq("status", "accepted")
+        .or(`requester_id.eq.${user.id},receiver_id.eq.${user.id}`);
+      const conns = (data || []).map((r: any) => {
+        const isRequester = r.requester_id === user.id;
+        const p = isRequester ? r.profiles_receiver : r.profiles_requester;
+        return { id: p?.id, name: p?.name || "Unknown", color: p?.color || "bg-primary", avatarUrl: p?.avatar_url || undefined };
+      }).filter((c: any) => c.id);
+      setConnections(conns);
+    } catch { /* non-fatal */ } finally { setConnectionsLoading(false); }
+  }, [user.id]);
 
   // ── Join / Leave ─────────────────────────────────────────────────────────
   const toggleJoin = async (groupId: string, isCurrentlyJoined: boolean, e?: React.MouseEvent) => {
@@ -497,7 +597,17 @@ export default function Groups() {
     const g = groups.find(x => x.id === groupId);
     if (!g) return;
     if (!isCurrentlyJoined && g.visibility === "private") {
-      toast({ title: "Private community", description: "You need an invite to join." });
+      if (requestedIds.has(groupId)) {
+        toast({ title: "Request already sent", description: "Waiting for admin approval." });
+        return;
+      }
+      try {
+        await apiRequestToJoin(groupId);
+        setRequestedIds(prev => new Set([...prev, groupId]));
+        toast({ title: "Request sent!", description: "An admin will review your request." });
+      } catch {
+        toast({ title: "Could not send request", variant: "destructive" });
+      }
       return;
     }
     // Optimistic update
@@ -556,6 +666,7 @@ export default function Groups() {
       edited: false,
       deleted: false,
       unsent: false,
+      is_system: false,
       author_name: user.name,
       author_color: user.color,
       author_avatar_url: user.avatarUrl || undefined,
@@ -809,9 +920,9 @@ export default function Groups() {
     const els: React.ReactNode[] = [];
     let lastDate = "";
 
-    // Show all messages including unsent tombstones; skip truly empty ones
+    // Show all messages including unsent tombstones and system messages; skip truly empty ones
     const visible = messages.filter(m =>
-      m.unsent || m.text?.trim() || m.media_url
+      m.is_system || m.unsent || m.text?.trim() || m.media_url
     );
 
     visible.forEach((m, idx) => {
@@ -833,6 +944,18 @@ export default function Groups() {
       const isEditingThis = editingMsgId === m.id;
       const menuOpen = msgMenuId === m.id;
       const canMenu = (isMe || isOwner) && !m.unsent;
+
+      // System message — centered pill (join/leave/ban/unban events)
+      if (m.is_system) {
+        els.push(
+          <div key={m.id} className="flex justify-center my-2">
+            <span className="text-[11px] text-muted-foreground bg-muted px-3 py-1 rounded-full select-none">
+              {m.text}
+            </span>
+          </div>
+        );
+        return;
+      }
 
       // Tombstone — shown to everyone when a message is unsent
       if (m.unsent) {
@@ -857,8 +980,9 @@ export default function Groups() {
         return;
       }
 
+      const isMentioned = !m.is_system && m.text?.includes(`@${user.name}`);
       els.push(
-        <div key={m.id} className={"flex gap-3 group relative " + (grouped ? "mt-0.5" : "mt-4")}>
+        <div key={m.id} id={`msg-${m.id}`} className={"flex gap-3 group relative " + (grouped ? "mt-0.5" : "mt-4") + (isMentioned ? " bg-emerald-500/5 rounded-xl -mx-1 px-1" : "")}>
           {!grouped
             ? (
               <button onClick={() => navigate(`/profile/${m.user_id}`)}
@@ -1222,10 +1346,146 @@ export default function Groups() {
               )}
             </div>
 
-            {isOwner && (
+            {(isOwner || members.find(m => m.id === user.id)?.role === "admin") && (
               <Button variant="outline" className="w-full gap-2" onClick={() => setShowShare(true)}>
                 <Link2 className="h-4 w-4" /> Share invite link
               </Button>
+            )}
+
+            {/* Add Members — admin/owner can add connections */}
+            {(isOwner || members.find(m => m.id === user.id)?.role === "admin") && (
+              <div className="rounded-xl border border-border bg-card overflow-hidden">
+                <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+                  <p className="text-sm font-semibold flex items-center gap-2">
+                    <UserPlus className="h-4 w-4 text-primary" /> Add Members
+                  </p>
+                  <button
+                    onClick={async () => {
+                      const next = !showAddMembers;
+                      setShowAddMembers(next);
+                      if (next && connections.length === 0) await fetchConnections();
+                    }}
+                    className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    {showAddMembers ? "Hide" : "Show"}
+                  </button>
+                </div>
+                {showAddMembers && (
+                  connectionsLoading ? (
+                    <div className="p-4 flex justify-center">
+                      <div className="h-4 w-4 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+                    </div>
+                  ) : connections.length === 0 ? (
+                    <p className="px-4 py-3 text-xs text-muted-foreground">No connections to add.</p>
+                  ) : (
+                    <div>
+                      <div className="px-3 pt-2 pb-1">
+                        <input value={addMemberSearch} onChange={e => setAddMemberSearch(e.target.value)}
+                          placeholder="Search connections…" className="w-full px-3 py-1.5 text-xs rounded-lg bg-muted outline-none" />
+                      </div>
+                      <div className="divide-y divide-border max-h-52 overflow-y-auto">
+                        {connections.filter(c => !members.find(m => m.id === c.id) && (!addMemberSearch || c.name.toLowerCase().includes(addMemberSearch.toLowerCase()))).map(c => (
+                          <div key={c.id} className="flex items-center gap-3 px-4 py-2.5">
+                            <div className={`h-8 w-8 rounded-full ${c.color} flex items-center justify-center text-white text-xs font-semibold shrink-0 overflow-hidden`}>
+                              {c.avatarUrl ? <img src={c.avatarUrl} alt={c.name} className="w-full h-full object-cover" /> : initials(c.name)}
+                            </div>
+                            <span className="text-sm text-foreground flex-1 min-w-0 truncate">{c.name}</span>
+                            <button
+                              onClick={async () => {
+                                if (!activeGroup) return;
+                                try {
+                                  await apiAddMember(activeGroup.id, c.id);
+                                  fetchMembers(activeGroup.id);
+                                  toast({ title: `${c.name} added` });
+                                } catch (err: any) {
+                                  toast({ title: err.message || "Failed to add", variant: "destructive" });
+                                }
+                              }}
+                              className="text-xs px-2.5 py-1 rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity shrink-0"
+                            >
+                              Add
+                            </button>
+                          </div>
+                        ))}
+                        {connections.filter(c => !members.find(m => m.id === c.id)).length === 0 && (
+                          <p className="px-4 py-3 text-xs text-muted-foreground">All your connections are already members.</p>
+                        )}
+                      </div>
+                    </div>
+                  )
+                )}
+              </div>
+            )}
+
+            {/* Join requests — owner/admin can approve/reject */}
+            {activeGroup.visibility === "private" && (isOwner || members.find(m => m.id === user.id)?.role === "admin") && (
+              <div className="rounded-xl border border-border bg-card overflow-hidden">
+                <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+                  <p className="text-sm font-semibold flex items-center gap-2">
+                    <Bell className="h-4 w-4 text-amber-500" /> Join Requests
+                  </p>
+                  <button
+                    onClick={async () => {
+                      const next = !showJoinRequests;
+                      setShowJoinRequests(next);
+                      if (next) {
+                        setJoinRequestsLoading(true);
+                        try { setJoinRequests(await apiGetJoinRequests(activeGroup.id)); }
+                        catch { toast({ title: "Failed to load requests", variant: "destructive" }); }
+                        finally { setJoinRequestsLoading(false); }
+                      }
+                    }}
+                    className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    {showJoinRequests ? "Hide" : "Show"}
+                  </button>
+                </div>
+                {showJoinRequests && (
+                  joinRequestsLoading ? (
+                    <div className="p-4 flex justify-center">
+                      <div className="h-4 w-4 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+                    </div>
+                  ) : joinRequests.length === 0 ? (
+                    <p className="px-4 py-3 text-xs text-muted-foreground">No pending requests.</p>
+                  ) : (
+                    <div className="divide-y divide-border">
+                      {joinRequests.map(r => (
+                        <div key={r.id} className="flex items-center gap-3 px-4 py-3">
+                          <div className={`h-8 w-8 rounded-full ${r.profile?.color || "bg-muted"} flex items-center justify-center text-white text-xs font-semibold shrink-0 overflow-hidden`}>
+                            {r.profile?.avatar_url
+                              ? <img src={r.profile.avatar_url} alt={r.profile?.name} className="w-full h-full object-cover" />
+                              : initials(r.profile?.name || "?")}
+                          </div>
+                          <span className="text-sm text-foreground flex-1 min-w-0 truncate">{r.profile?.name || "Unknown"}</span>
+                          <div className="flex gap-1.5 shrink-0">
+                            <button
+                              onClick={async () => {
+                                try {
+                                  await apiRespondJoinRequest(activeGroup.id, r.id, "accepted");
+                                  setJoinRequests(prev => prev.filter(x => x.id !== r.id));
+                                  fetchMembers(activeGroup.id);
+                                  toast({ title: `${r.profile?.name || "User"} approved` });
+                                } catch { toast({ title: "Failed", variant: "destructive" }); }
+                              }}
+                              className="text-xs px-2.5 py-1 rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
+                            >Accept</button>
+                            <button
+                              onClick={async () => {
+                                try {
+                                  await apiRespondJoinRequest(activeGroup.id, r.id, "rejected");
+                                  setJoinRequests(prev => prev.filter(x => x.id !== r.id));
+                                  toast({ title: "Request declined" });
+                                } catch { toast({ title: "Failed", variant: "destructive" }); }
+                              }}
+                              className="text-xs px-2.5 py-1 rounded-lg border border-border text-muted-foreground hover:bg-muted transition-colors"
+                            >Decline</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                )}
+              </div>
             )}
 
             {/* Banned users — visible only to owner */}
@@ -1384,6 +1644,24 @@ export default function Groups() {
             <div ref={bottomRef} />
           </div>
 
+          {/* Jump to mention button */}
+          {mentionMsgIds.length > 0 && (
+            <div className="absolute bottom-16 right-4 z-40">
+              <button
+                onClick={() => {
+                  const id = mentionMsgIds[mentionJumpIdx.current % mentionMsgIds.length];
+                  mentionJumpIdx.current++;
+                  document.getElementById(`msg-${id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500 text-white text-xs font-medium rounded-full shadow-lg hover:bg-emerald-600 transition-colors"
+              >
+                <AtSign className="h-3 w-3" />
+                {mentionMsgIds.length > 1 ? `${mentionMsgIds.length} mentions` : "1 mention"} — jump
+                <ChevronsDown className="h-3 w-3" />
+              </button>
+            </div>
+          )}
+
           {/* @mention dropdown */}
           {mentionResults.length > 0 && (
             <div className="absolute bottom-16 left-4 right-4 z-40 bg-card border border-border rounded-xl shadow-xl overflow-hidden">
@@ -1509,7 +1787,14 @@ export default function Groups() {
           </button>
           <button onClick={() => setFilter("joined")}
             className={`flex-1 text-sm font-medium py-1.5 rounded-lg transition-all ${filter === "joined" ? "bg-card shadow text-foreground" : "text-muted-foreground hover:text-foreground"}`}>
-            Joined ({groups.filter(g => joinedIds.has(g.id) || g.owner_id === user.id).length})
+            <span className="flex items-center justify-center gap-1.5">
+              Joined ({groups.filter(g => joinedIds.has(g.id) || g.owner_id === user.id).length})
+              {Object.values(unreadCounts).reduce((a, b) => a + b, 0) > 0 && (
+                <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-bold flex items-center justify-center">
+                  {Object.values(unreadCounts).reduce((a, b) => a + b, 0) > 99 ? "99+" : Object.values(unreadCounts).reduce((a, b) => a + b, 0)}
+                </span>
+              )}
+            </span>
           </button>
         </div>
 
@@ -1537,16 +1822,25 @@ export default function Groups() {
             {filtered.map(g => {
               const joined = joinedIds.has(g.id);
               const isMine = g.owner_id === user.id;
+              const unread = unreadCounts[g.id] ?? 0;
+              const requested = requestedIds.has(g.id);
               return (
                 <div key={g.id} onClick={() => openGroup(g)}
                   className="flex flex-col rounded-2xl border border-border bg-card hover:shadow-md hover:-translate-y-0.5 transition-all duration-150 cursor-pointer overflow-hidden group">
                   <div className="h-2 w-full bg-gradient-to-r from-primary/60 to-accent/60" />
                   <div className="flex flex-col flex-1 p-5">
                     <div className="flex items-start justify-between mb-3">
-                      <div className="h-12 w-12 rounded-2xl bg-muted flex items-center justify-center text-2xl group-hover:scale-110 transition-transform duration-150 overflow-hidden">
-                        {g.image_url
-                          ? <img src={g.image_url} alt={g.name} className="w-full h-full object-cover" />
-                          : g.emoji}
+                      <div className="relative">
+                        <div className="h-12 w-12 rounded-2xl bg-muted flex items-center justify-center text-2xl group-hover:scale-110 transition-transform duration-150 overflow-hidden">
+                          {g.image_url
+                            ? <img src={g.image_url} alt={g.name} className="w-full h-full object-cover" />
+                            : g.emoji}
+                        </div>
+                        {unread > 0 && (
+                          <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-bold flex items-center justify-center">
+                            {unread > 99 ? "99+" : unread}
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-1.5 flex-wrap justify-end">
                         {g.visibility === "private" && (
@@ -1556,6 +1850,9 @@ export default function Groups() {
                         )}
                         {joined && !isMine && (
                           <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full dark:bg-emerald-950 dark:text-emerald-400">Joined</span>
+                        )}
+                        {requested && !joined && !isMine && (
+                          <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full dark:bg-amber-950 dark:text-amber-400">Requested</span>
                         )}
                       </div>
                     </div>
@@ -1570,10 +1867,11 @@ export default function Groups() {
                         onClick={e => { e.stopPropagation(); (joined || isMine) ? openGroup(g) : toggleJoin(g.id, false, e); }}
                         className={`h-7 px-3 rounded-lg text-xs font-medium transition-colors ${
                           joined || isMine ? "bg-muted text-foreground hover:bg-secondary"
-                            : g.visibility === "private" ? "bg-muted text-muted-foreground cursor-default"
-                              : "bg-primary text-primary-foreground hover:opacity-90"
+                            : requested ? "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400 cursor-default"
+                              : g.visibility === "private" ? "bg-muted text-muted-foreground hover:bg-secondary"
+                                : "bg-primary text-primary-foreground hover:opacity-90"
                         }`}>
-                        {joined || isMine ? "Open" : g.visibility === "private" ? "Private" : "Join"}
+                        {joined || isMine ? "Open" : requested ? "Requested" : g.visibility === "private" ? "Request" : "Join"}
                       </button>
                     </div>
                   </div>

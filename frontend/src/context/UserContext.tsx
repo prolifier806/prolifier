@@ -426,35 +426,49 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const updateUser = useCallback(async (patch: Partial<CurrentUser>) => {
     if (!authUser) return;
     const now = new Date().toISOString();
+
+    // Compute next state outside of setState so we can properly await the DB write.
+    // WHY: Previously the Supabase update was fire-and-forget inside the setState
+    // callback — React discards async work inside setState, so the DB write was
+    // never guaranteed to complete before the component navigated away (e.g. profile setup).
+    let next: CurrentUser | undefined;
     setUser(prev => {
       const nameChanged = patch.name !== undefined && patch.name !== prev.name;
-      const next = { ...prev, ...patch, updatedAt: now, ...(nameChanged ? { nameChangedAt: now } : {}) };
+      next = { ...prev, ...patch, updatedAt: now, ...(nameChanged ? { nameChangedAt: now } : {}) };
       writeCache(next);
-      const profileData: Record<string, any> = {
-        id: authUser.id,
-        name: next.name,
-        avatar: next.avatar,
-        color: next.color,
-        location: next.location,
-        bio: next.bio,
-        project: next.project,
-        skills: next.skills,
-        looking_for: next.lookingFor,
-        roles: next.roles,
-        github: next.github,
-        website: next.website,
-        twitter: next.twitter,
-        primary_lang: next.primaryLang,
-        open_to_collab: next.openToCollab,
-        updated_at: now,
-        avatar_url: next.avatarUrl || null,
-        ...(nameChanged ? { name_changed_at: now } : {}),
-      };
-      // Use update (not upsert) so admin-set columns like role/account_status
-      // are never accidentally overwritten with default values.
-      (supabase.from("profiles") as any).update(profileData).eq("id", authUser.id);
       return next;
     });
+
+    // next is set synchronously by the setState updater above
+    if (!next) return;
+    const nameChanged = patch.name !== undefined;
+    const profileData: Record<string, any> = {
+      name: next.name,
+      avatar: next.avatar,
+      color: next.color,
+      location: next.location,
+      bio: next.bio,
+      project: next.project,
+      skills: next.skills,
+      looking_for: next.lookingFor,
+      roles: next.roles,
+      github: next.github,
+      website: next.website,
+      twitter: next.twitter,
+      primary_lang: next.primaryLang,
+      open_to_collab: next.openToCollab,
+      updated_at: now,
+      avatar_url: next.avatarUrl || null,
+      ...(nameChanged && patch.name !== undefined ? { name_changed_at: now } : {}),
+    };
+    // Use update (not upsert) so admin-set columns like role/account_status
+    // are never accidentally overwritten with default values.
+    const { error } = await (supabase.from("profiles") as any)
+      .update(profileData).eq("id", authUser.id);
+    if (error) {
+      // Log but do not throw — local state is already updated, sync will retry on next load
+      if (import.meta.env.DEV) console.error("[updateUser] DB sync failed:", error.message);
+    }
   }, [authUser]);
 
   const completeProfileSetup = useCallback(async () => {

@@ -11,6 +11,20 @@ export const deleteGroup = (id: string) => apiDelete(`/api/groups/${id}`);
 export const joinGroup  = (id: string) => apiPost(`/api/groups/${id}/join`);
 export const leaveGroup = (id: string) => apiDelete(`/api/groups/${id}/leave`);
 
+// Join requests (private communities)
+export const requestToJoin = (id: string) =>
+  apiPost<{ status: string }>(`/api/groups/${id}/join-request`);
+
+export const getJoinRequests = (id: string) =>
+  apiGet<any[]>(`/api/groups/${id}/join-requests`);
+
+export const respondJoinRequest = (id: string, requestId: string, status: "accepted" | "rejected") =>
+  apiPut(`/api/groups/${id}/join-requests/${requestId}`, { status });
+
+// Member management
+export const addMemberToGroup = (groupId: string, userId: string) =>
+  apiPost(`/api/groups/${groupId}/members`, { userId });
+
 export const removeMember = (groupId: string, memberId: string) =>
   apiDelete(`/api/groups/${groupId}/members/${memberId}`);
 

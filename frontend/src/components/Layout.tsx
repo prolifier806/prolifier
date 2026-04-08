@@ -57,7 +57,7 @@ function ComingSoonModal({ open, onClose }: { open: boolean; onClose: () => void
         <div className="text-center space-y-2">
           <h2 className="font-display text-2xl font-bold text-foreground">Coming Soon</h2>
           <p className="text-muted-foreground text-sm leading-relaxed">
-            Ask a Mentor is currently locked.<br />
+            Ask a mentor is currently locked.<br />
             We're working hard to bring you 1-on-1 mentor sessions. Stay tuned!
           </p>
         </div>
@@ -375,7 +375,7 @@ export default function Layout({ children }: { children: ReactNode }) {
             className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium text-muted-foreground hover:bg-secondary hover:text-foreground transition-all duration-150 opacity-60"
           >
             <Lightbulb className="h-4 w-4 shrink-0" />
-            Ask a Mentor
+            Ask a mentor
           </button>
         </nav>
 
