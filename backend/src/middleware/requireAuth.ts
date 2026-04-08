@@ -3,43 +3,50 @@ import { supabaseAdmin } from "../lib/supabase";
 import { AuthRequest } from "../lib/types";
 
 /**
- * In-memory role cache — avoids a DB round-trip on every authenticated request.
+ * In-memory profile cache — avoids a DB round-trip on every authenticated request.
  * WHY: Without this, every API call fires 2 DB queries (auth.getUser + profiles.select).
  * At 1000 concurrent users that's 2000 DB queries/sec just for auth.
- * Cache TTL: 5 minutes — stale enough to save DB load, fresh enough to pick up role changes.
+ *
+ * Two TTLs:
+ *   - role: 5 minutes (role changes are rare, higher DB savings)
+ *   - account_status: 1 minute (bans must take effect quickly)
  */
-interface CachedRole {
+interface CachedProfile {
   role: string;
+  accountStatus: string;
   expiresAt: number;
 }
-const roleCache = new Map<string, CachedRole>();
-const ROLE_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const profileCache = new Map<string, CachedProfile>();
+const ROLE_CACHE_TTL_MS = 5 * 60 * 1000;   // 5 minutes
+const BAN_CACHE_TTL_MS  = 1 * 60 * 1000;   // 1 minute — bans propagate within 60s
 
-function getCachedRole(userId: string): string | null {
-  const entry = roleCache.get(userId);
+function getCachedProfile(userId: string): CachedProfile | null {
+  const entry = profileCache.get(userId);
   if (!entry) return null;
   if (Date.now() > entry.expiresAt) {
-    roleCache.delete(userId);
+    profileCache.delete(userId);
     return null;
   }
-  return entry.role;
+  return entry;
 }
 
-function setCachedRole(userId: string, role: string): void {
-  roleCache.set(userId, { role, expiresAt: Date.now() + ROLE_CACHE_TTL_MS });
-  // Prevent unbounded growth — evict if cache exceeds 10k entries
-  if (roleCache.size > 10_000) {
+function setCachedProfile(userId: string, role: string, accountStatus: string): void {
+  // Use the shorter TTL when account is banned so unban is also reflected quickly
+  const ttl = accountStatus === "banned" ? BAN_CACHE_TTL_MS : ROLE_CACHE_TTL_MS;
+  profileCache.set(userId, { role, accountStatus, expiresAt: Date.now() + ttl });
+  // Prevent unbounded growth — evict expired entries if cache exceeds 10k
+  if (profileCache.size > 10_000) {
     const now = Date.now();
-    for (const [id, entry] of roleCache) {
-      if (now > entry.expiresAt) roleCache.delete(id);
-      if (roleCache.size <= 8_000) break;
+    for (const [id, entry] of profileCache) {
+      if (now > entry.expiresAt) profileCache.delete(id);
+      if (profileCache.size <= 8_000) break;
     }
   }
 }
 
-/** Call this when a user's role changes (admin panel, ban, etc.) to force re-fetch */
+/** Call this when a user's role or ban status changes to force an immediate re-fetch */
 export function invalidateRoleCache(userId: string): void {
-  roleCache.delete(userId);
+  profileCache.delete(userId);
 }
 
 /**
@@ -71,23 +78,31 @@ export async function requireAuth(
 
   const userId = data.user.id;
 
-  // Use cached role if fresh — avoids a DB query on every request
-  let role: string = getCachedRole(userId) ?? "";
+  // Use cached profile if fresh — avoids a DB query on every request
+  let cached = getCachedProfile(userId);
 
-  if (!role) {
+  if (!cached) {
     const { data: profile } = await supabaseAdmin
       .from("profiles")
-      .select("role")
+      .select("role, account_status")
       .eq("id", userId)
       .single();
-    role = (profile?.role as string | undefined) ?? "user";
-    setCachedRole(userId, role);
+    const role = (profile?.role as string | undefined) ?? "user";
+    const accountStatus = (profile?.account_status as string | undefined) ?? "active";
+    setCachedProfile(userId, role, accountStatus);
+    cached = { role, accountStatus, expiresAt: 0 }; // expiresAt unused here
+  }
+
+  // Reject banned accounts at the API boundary
+  if (cached.accountStatus === "banned") {
+    res.status(403).json({ success: false, error: "Your account has been suspended." });
+    return;
   }
 
   req.user = {
     id: userId,
     email: data.user.email ?? "",
-    role,
+    role: cached.role,
   };
 
   next();
