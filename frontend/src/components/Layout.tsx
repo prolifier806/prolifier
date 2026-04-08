@@ -239,8 +239,11 @@ export default function Layout({ children }: { children: ReactNode }) {
           if (msg.user_id === user.id) return;           // own message
           if (msg.is_system) return;                      // system event
           if (!joinedGroupIdsRef.current.has(msg.group_id)) return; // not in this group
-          if (window.location.pathname.startsWith("/groups")) return; // already viewing groups
-          setGroupsCount(c => c + 1);
+          // Groups.tsx will also fire prolifier:groups-unread to sync the total,
+          // but only when it's mounted. Increment here covers when it's not mounted.
+          if (!window.location.pathname.startsWith("/groups")) {
+            setGroupsCount(c => c + 1);
+          }
         }
       )
       .subscribe();
@@ -380,12 +383,11 @@ export default function Layout({ children }: { children: ReactNode }) {
 
     fetchGroupsUnread();
 
-    // Keep in sync when Groups.tsx updates the count in realtime
+    // Keep in sync when Groups.tsx updates the count (always — including while on /groups
+    // so that reading chats clears the badge before the user navigates away)
     const handler = (e: Event) => {
       const total = (e as CustomEvent<number>).detail;
-      if (!window.location.pathname.startsWith("/groups")) {
-        setGroupsCount(total);
-      }
+      setGroupsCount(total);
     };
     window.addEventListener("prolifier:groups-unread", handler);
     return () => window.removeEventListener("prolifier:groups-unread", handler);
