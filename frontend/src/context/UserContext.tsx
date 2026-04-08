@@ -8,6 +8,7 @@ import { createContext, useContext, useEffect, useState, useRef, ReactNode, useC
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import { logger } from "@/lib/logger";
+import { setOnSuspended } from "@/api/client";
 
 export type CurrentUser = {
   id: string;
@@ -354,15 +355,23 @@ export function UserProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Poll for deletion every 5 minutes + on visibility change
+  // Poll for deletion + ban every 60 seconds + on visibility change.
+  // Also registers the API client 403 interceptor so any API call instantly
+  // triggers the suspended screen without waiting for the next poll.
   useEffect(() => {
     if (!authUser?.id) return;
     const id = authUser.id;
 
-    const checkDeletion = async () => {
+    // Register suspension callback in the API client.
+    // Any 403 "suspended" response from the backend will call this immediately.
+    setOnSuspended(() => {
+      setUser(prev => ({ ...prev, accountStatus: "banned" }));
+    });
+
+    const checkAccountState = async () => {
       const { data, error } = await (supabase as any)
         .from("profiles")
-        .select("deleted_at, permanently_deleted")
+        .select("deleted_at, permanently_deleted, account_status")
         .eq("id", id)
         .maybeSingle();
       // Network/auth errors return null data — don't sign out on transient failures
@@ -376,12 +385,15 @@ export function UserProvider({ children }: { children: ReactNode }) {
           localStorage.removeItem(cacheKey(id));
           return next;
         });
+      } else if (data.account_status === "banned") {
+        setUser(prev => ({ ...prev, accountStatus: "banned" }));
       }
     };
 
-    const onVisible = () => { if (document.visibilityState === "visible") checkDeletion(); };
+    const onVisible = () => { if (document.visibilityState === "visible") checkAccountState(); };
     document.addEventListener("visibilitychange", onVisible);
-    const timer = setInterval(checkDeletion, 5 * 60_000);
+    // Poll every 60 s as a safety net (realtime + API interceptor handle instant cases)
+    const timer = setInterval(checkAccountState, 60_000);
 
     return () => {
       document.removeEventListener("visibilitychange", onVisible);

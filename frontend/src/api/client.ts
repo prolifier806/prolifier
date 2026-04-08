@@ -7,6 +7,14 @@ import { supabase } from "@/lib/supabase";
 
 export const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3001";
 
+// ── Suspension interceptor ────────────────────────────────────────────────────
+// When the backend returns 403 "suspended", we need to update the UserContext
+// immediately. Because client.ts has no access to React context, UserContext
+// registers a callback here that fires on the first 403 suspension response.
+let _onSuspended: (() => void) | null = null;
+export function setOnSuspended(cb: () => void): void { _onSuspended = cb; }
+function notifySuspended(): void { _onSuspended?.(); }
+
 // ── Keep-alive ping — prevents Render free-tier backend from sleeping ─────────
 // WHY: Render free tier sleeps after 15 min of inactivity. The wake-up takes
 // ~30s and returns a 502, which the browser reports as a CORS error (no headers
@@ -100,6 +108,12 @@ async function handleResponse<T>(res: Response): Promise<T> {
     throw new Error(`Unexpected response (HTTP ${res.status})`);
   }
   const json = await res.json();
+  // Intercept ban: backend returns 403 + specific message for suspended accounts.
+  // Notify UserContext so the UI switches to SuspendedScreen immediately,
+  // regardless of whether the Supabase realtime channel fired.
+  if (res.status === 403 && json.error === "Your account has been suspended.") {
+    notifySuspended();
+  }
   if (!json.success) throw new Error(json.error ?? "Request failed");
   return json.data as T;
 }
