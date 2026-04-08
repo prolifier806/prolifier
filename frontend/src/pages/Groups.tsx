@@ -328,6 +328,7 @@ export default function Groups() {
                 .from("group_messages")
                 .select("id", { count: "exact", head: true })
                 .eq("group_id", gid)
+                .neq("user_id", user.id)
                 .gt("created_at", lastRead)
                 .eq("is_system", false);
               if (count && count > 0) initialUnread[gid] = count;

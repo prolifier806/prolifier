@@ -107,6 +107,8 @@ export default function Layout({ children }: { children: ReactNode }) {
   const sessionClearedRef = useRef<Set<string>>(new Set());
   // Muted senders — badge increments are skipped for these
   const mutedByMeRef = useRef<Set<string>>(new Set());
+  // Joined group IDs — used by group_messages realtime handler
+  const joinedGroupIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!user.id) return;
@@ -228,6 +230,19 @@ export default function Layout({ children }: { children: ReactNode }) {
           }
         }
       )
+      // New group message → increment Communities badge if not on /groups, not own msg, not system
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "group_messages" },
+        (payload) => {
+          const msg = payload.new as any;
+          if (msg.user_id === user.id) return;           // own message
+          if (msg.is_system) return;                      // system event
+          if (!joinedGroupIdsRef.current.has(msg.group_id)) return; // not in this group
+          if (window.location.pathname.startsWith("/groups")) return; // already viewing groups
+          setGroupsCount(c => c + 1);
+        }
+      )
       .subscribe();
 
     // Visibility change: re-fetch ONLY if tab was away for 5+ minutes
@@ -339,6 +354,7 @@ export default function Layout({ children }: { children: ReactNode }) {
           .select("group_id")
           .eq("user_id", user.id);
         const groupIds: string[] = (membership || []).map((r: any) => r.group_id);
+        joinedGroupIdsRef.current = new Set(groupIds);
         if (groupIds.length === 0) { setGroupsCount(0); return; }
 
         // Step 2: fetch recent messages for those groups (last 30 days)
