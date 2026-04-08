@@ -838,7 +838,17 @@ export default function Groups() {
       if (m.unsent) {
         els.push(
           <div key={m.id} className={"flex gap-3 " + (grouped ? "mt-0.5" : "mt-4")}>
-            <div className="w-9 shrink-0" />
+            {!grouped
+              ? (
+                <button onClick={() => navigate(`/profile/${m.user_id}`)}
+                  className={"h-9 w-9 rounded-full " + m.author_color + " flex items-center justify-center text-white text-xs font-semibold shrink-0 mt-0.5 overflow-hidden hover:opacity-80 transition-opacity"}>
+                  {m.author_avatar_url
+                    ? <img src={m.author_avatar_url} alt={m.author_name} className="w-full h-full object-cover" />
+                    : initials(m.author_name)}
+                </button>
+              )
+              : <div className="w-9 shrink-0" />
+            }
             <p className="text-xs text-muted-foreground italic py-0.5 select-none">
               🚫 This message was unsent.
             </p>

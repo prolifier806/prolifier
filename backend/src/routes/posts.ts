@@ -2,7 +2,7 @@ import { Router } from "express";
 import { requireAuth } from "../middleware/requireAuth";
 import { validate } from "../middleware/validate";
 import {
-  getFeed,
+  getFeed, getDiscover,
   createPost, updatePost, deletePost,
   likePost, unlikePost, savePost, unsavePost,
   getComments, addComment, deleteComment,
@@ -18,6 +18,7 @@ router.use(requireAuth as any);
 
 // Feed
 router.get("/", getFeed as any);
+router.get("/discover", getDiscover as any);
 
 // Posts
 router.post("/posts", validate(createPostSchema), createPost as any);
