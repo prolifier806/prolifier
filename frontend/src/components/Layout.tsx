@@ -326,14 +326,45 @@ export default function Layout({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("prolifier:notifications-opened", handler);
   }, []);
 
-  // Groups unread count — read from localStorage on mount, then keep in sync via custom event
+  // Groups unread count — fetch from DB on mount, keep in sync via custom event from Groups.tsx
   useEffect(() => {
     if (!user.id) return;
-    // Read persisted count immediately so badge shows before Groups.tsx mounts
-    if (!window.location.pathname.startsWith("/groups")) {
-      const stored = parseInt(localStorage.getItem(`prf_groups_unread_${user.id}`) ?? "0", 10);
-      if (!isNaN(stored) && stored > 0) setGroupsCount(stored);
-    }
+
+    const fetchGroupsUnread = async () => {
+      if (window.location.pathname.startsWith("/groups")) return;
+      try {
+        // Step 1: get all groups the user is a member of
+        const { data: membership } = await (supabase as any)
+          .from("group_members")
+          .select("group_id")
+          .eq("user_id", user.id);
+        const groupIds: string[] = (membership || []).map((r: any) => r.group_id);
+        if (groupIds.length === 0) { setGroupsCount(0); return; }
+
+        // Step 2: fetch recent messages for those groups (last 30 days)
+        const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+        const { data: msgs } = await (supabase as any)
+          .from("group_messages")
+          .select("id, group_id, created_at")
+          .in("group_id", groupIds)
+          .neq("user_id", user.id)
+          .eq("is_system", false)
+          .gt("created_at", since);
+
+        // Step 3: count per group using per-group last-read timestamps from localStorage
+        let total = 0;
+        for (const gid of groupIds) {
+          const lastRead = localStorage.getItem(`prf_read_${user.id}_${gid}`) ?? new Date(0).toISOString();
+          total += (msgs || []).filter((m: any) => m.group_id === gid && m.created_at > lastRead).length;
+        }
+        setGroupsCount(total);
+        try { localStorage.setItem(`prf_groups_unread_${user.id}`, String(total)); } catch { /* ignore */ }
+      } catch { /* ignore */ }
+    };
+
+    fetchGroupsUnread();
+
+    // Keep in sync when Groups.tsx updates the count in realtime
     const handler = (e: Event) => {
       const total = (e as CustomEvent<number>).detail;
       if (!window.location.pathname.startsWith("/groups")) {

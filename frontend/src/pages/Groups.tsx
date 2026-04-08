@@ -401,10 +401,14 @@ export default function Groups() {
         author_avatar_url: profileMap[row.user_id]?.avatar_url,
       }));
       setMessages(mapped);
-      // Detect messages that mention the current user
-      if (user.name) {
+      // Detect unread messages that mention the current user
+      // Only show mention button for messages AFTER the last-read timestamp
+      if (user.name && groupId) {
         const mention = `@${user.name}`;
-        const ids = mapped.filter((m: GroupMessage) => m.text?.includes(mention)).map((m: GroupMessage) => m.id);
+        const lastRead = localStorage.getItem(`prf_read_${user.id}_${groupId}`) ?? new Date(0).toISOString();
+        const ids = mapped
+          .filter((m: GroupMessage) => m.text?.includes(mention) && (m.created_at ?? "") > lastRead)
+          .map((m: GroupMessage) => m.id);
         setMentionMsgIds(ids);
         mentionJumpIdx.current = 0;
       }
