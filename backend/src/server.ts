@@ -41,6 +41,7 @@ const allowedOrigins = new Set([
   "http://localhost:5173",
   "https://prolifier.com",
   "https://www.prolifier.com",
+  "https://prolifier.vercel.app",
 ]);
 
 const corsOptions: cors.CorsOptions = {
