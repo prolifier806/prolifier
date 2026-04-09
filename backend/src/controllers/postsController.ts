@@ -136,10 +136,28 @@ export async function getFeed(req: AuthRequest, res: Response): Promise<void> {
 
   if (cursor) collabsQuery = collabsQuery.lt("created_at", cursor);
 
+  // Always fetch own recent posts separately so they are never crowded out by ranking
+  let ownPostsQuery = supabaseAdmin
+    .from("posts")
+    .select(`id, user_id, content, tag, image_urls, video_url, created_at, likes, comment_count, profiles:user_id (id, name, avatar, color, avatar_url, location, skills, role, deleted_at)`)
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(10);
+  if (cursor) ownPostsQuery = ownPostsQuery.lt("created_at", cursor);
+
+  let ownCollabsQuery = supabaseAdmin
+    .from("collabs")
+    .select(`id, user_id, title, description, looking, skills, image_url, video_url, created_at, profiles:user_id (id, name, avatar, color, avatar_url, location, skills, role, deleted_at)`)
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(10);
+  if (cursor) ownCollabsQuery = ownCollabsQuery.lt("created_at", cursor);
+
   // Fire all queries in parallel — user's like/save sets fetched up-front
   const [
     blockedRes, blockerRes,
     postsRes, collabsRes,
+    ownPostsRes, ownCollabsRes,
     likesRes, savedPostsRes, savedCollabsRes, collabInterestsRes,
     connectionsRes, profileRes,
   ] = await Promise.all([
@@ -147,6 +165,8 @@ export async function getFeed(req: AuthRequest, res: Response): Promise<void> {
     supabaseAdmin.from("blocks").select("blocker_id").eq("blocked_id", userId),
     postsQuery,
     collabsQuery,
+    ownPostsQuery,
+    ownCollabsQuery,
     supabaseAdmin.from("post_likes").select("post_id").eq("user_id", userId),
     supabaseAdmin.from("saved_posts").select("post_id").eq("user_id", userId),
     supabaseAdmin.from("saved_collabs").select("collab_id").eq("user_id", userId),
@@ -175,8 +195,14 @@ export async function getFeed(req: AuthRequest, res: Response): Promise<void> {
 
   const userSkills: string[] = (profileRes.data as any)?.skills ?? [];
 
-  const posts = (postsRes.data ?? []).filter((p: any) => !blockedIds.has(p.user_id));
-  const collabs = (collabsRes.data ?? []).filter((c: any) => !blockedIds.has(c.user_id));
+  // Merge own posts into the pool — deduplicate by id so they aren't doubled
+  const allPostsMap = new Map<string, any>();
+  [...(ownPostsRes.data ?? []), ...(postsRes.data ?? [])].forEach(p => { if (!allPostsMap.has(p.id)) allPostsMap.set(p.id, p); });
+  const allCollabsMap = new Map<string, any>();
+  [...(ownCollabsRes.data ?? []), ...(collabsRes.data ?? [])].forEach(c => { if (!allCollabsMap.has(c.id)) allCollabsMap.set(c.id, c); });
+
+  const posts = [...allPostsMap.values()].filter((p: any) => !blockedIds.has(p.user_id));
+  const collabs = [...allCollabsMap.values()].filter((c: any) => !blockedIds.has(c.user_id));
 
   // Rank posts
   const rankedPosts = posts
