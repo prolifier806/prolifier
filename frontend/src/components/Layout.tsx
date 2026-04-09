@@ -370,11 +370,17 @@ export default function Layout({ children }: { children: ReactNode }) {
           .eq("is_system", false)
           .gt("created_at", since);
 
-        // Step 3: count per group using per-group last-read timestamps from localStorage
+        // Step 3: group messages into a Map (O(n)) then count per group (O(m)) — not O(n×m)
+        const msgsByGroup = new Map<string, string[]>();
+        for (const m of (msgs || [])) {
+          const arr = msgsByGroup.get(m.group_id) ?? [];
+          arr.push(m.created_at);
+          msgsByGroup.set(m.group_id, arr);
+        }
         let total = 0;
         for (const gid of groupIds) {
           const lastRead = localStorage.getItem(`prf_read_${user.id}_${gid}`) ?? new Date(0).toISOString();
-          total += (msgs || []).filter((m: any) => m.group_id === gid && m.created_at > lastRead).length;
+          total += (msgsByGroup.get(gid) ?? []).filter(t => t > lastRead).length;
         }
         setGroupsCount(total);
         try { localStorage.setItem(`prf_groups_unread_${user.id}`, String(total)); } catch { /* ignore */ }

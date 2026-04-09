@@ -318,22 +318,32 @@ export default function Groups() {
         setRequestedIds(new Set(
           (reqData || []).filter((r: any) => r.status === "pending").map((r: any) => r.group_id)
         ));
-        // Load unread counts from localStorage (messages since last open)
+        // Load unread counts — ONE batched query for all joined groups, not N sequential queries
         const initialUnread: Record<string, number> = {};
-        for (const gid of Array.from(joined)) {
-          const lastRead = localStorage.getItem(`prf_read_${user.id}_${gid}`);
-          if (lastRead) {
-            try {
-              const { count } = await (supabase as any)
-                .from("group_messages")
-                .select("id", { count: "exact", head: true })
-                .eq("group_id", gid)
-                .neq("user_id", user.id)
-                .gt("created_at", lastRead)
-                .eq("is_system", false);
-              if (count && count > 0) initialUnread[gid] = count;
-            } catch { /* non-fatal */ }
-          }
+        const joinedArr = Array.from(joined);
+        // Find the oldest last-read timestamp to use as a single lower bound
+        const oldestLastRead = joinedArr.reduce((oldest, gid) => {
+          const ts = localStorage.getItem(`prf_read_${user.id}_${gid}`);
+          if (!ts) return oldest;
+          return !oldest || ts < oldest ? ts : oldest;
+        }, "");
+        if (oldestLastRead && joinedArr.length > 0) {
+          try {
+            const { data: recentMsgs } = await (supabase as any)
+              .from("group_messages")
+              .select("group_id, created_at")
+              .in("group_id", joinedArr)
+              .neq("user_id", user.id)
+              .eq("is_system", false)
+              .gt("created_at", oldestLastRead);
+            // Count per group using per-group timestamps
+            for (const gid of joinedArr) {
+              const lastRead = localStorage.getItem(`prf_read_${user.id}_${gid}`);
+              if (!lastRead) continue;
+              const c = (recentMsgs || []).filter((m: any) => m.group_id === gid && m.created_at > lastRead).length;
+              if (c > 0) initialUnread[gid] = c;
+            }
+          } catch { /* non-fatal */ }
         }
         setUnreadCounts(initialUnread);
       } catch (memberErr) {
@@ -444,8 +454,11 @@ export default function Groups() {
       setActiveGroup(prev => prev && prev.id === groupId ? { ...prev, member_count: realCount } : prev);
       setGroups(prev => prev.map(g => g.id === groupId ? { ...g, member_count: realCount } : g));
 
-      // Sync the count in DB if it's wrong
-      await (supabase as any).from("groups").update({ member_count: realCount }).eq("id", groupId);
+      // Sync the count in DB only if it diverged (avoid unnecessary writes on every open)
+      const currentCount = groups.find(g => g.id === groupId)?.member_count;
+      if (currentCount !== realCount) {
+        await (supabase as any).from("groups").update({ member_count: realCount }).eq("id", groupId);
+      }
     } catch (err) {
       if (import.meta.env.DEV) console.error("fetchMembers:", err);
     } finally {
