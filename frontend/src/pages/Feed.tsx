@@ -1556,29 +1556,6 @@ export default function Feed() {
     }
   }, [highlightedCollabId]);
 
-  // ── Infinite scroll — auto-load more when sentinel div enters viewport ───────
-  useEffect(() => {
-    const el = postsEndRef.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => { if (entry.isIntersecting && postsHasMore && !loadingMorePosts) fetchMorePosts(); },
-      { threshold: 0.1 }
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [postsHasMore, loadingMorePosts, fetchMorePosts]);
-
-  useEffect(() => {
-    const el = collabsEndRef.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => { if (entry.isIntersecting && collabsHasMore && !loadingMoreCollabs) fetchMoreCollabs(); },
-      { threshold: 0.1 }
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [collabsHasMore, loadingMoreCollabs, fetchMoreCollabs]);
-
   // ── Feed stale cache — show last feed instantly on return visits ─────────────
   // WHY: Without this, every page visit shows a blank spinner until the API responds.
   // With it, the last known feed is shown immediately — always shown regardless of age,
@@ -1762,6 +1739,29 @@ export default function Feed() {
     } catch { /* silent */ }
     setLoadingMoreCollabs(false);
   }, [loadingMoreCollabs, user.id]);
+
+  // ── Infinite scroll — auto-load more when sentinel div enters viewport ───────
+  useEffect(() => {
+    const el = postsEndRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting && postsHasMore && !loadingMorePosts) fetchMorePosts(); },
+      { threshold: 0.1 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [postsHasMore, loadingMorePosts, fetchMorePosts]);
+
+  useEffect(() => {
+    const el = collabsEndRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting && collabsHasMore && !loadingMoreCollabs) fetchMoreCollabs(); },
+      { threshold: 0.1 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [collabsHasMore, loadingMoreCollabs, fetchMoreCollabs]);
 
   // Real-time removed to reduce Supabase Disk IO.
   // Feed refreshes on tab focus (90s throttle) and after own post/collab actions.
