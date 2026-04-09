@@ -1475,6 +1475,8 @@ export default function Feed() {
   const postsCursorRef = useRef<string | null>(null);
   const collabsCursorRef = useRef<string | null>(null);
   const deepLinkHandledRef = useRef<string | null>(null);
+  const postsEndRef = useRef<HTMLDivElement | null>(null);
+  const collabsEndRef = useRef<HTMLDivElement | null>(null);
 
   // OPT: grouped compose state — fewer useState hooks, fewer re-renders when
   // one compose field changes (only the compose area re-renders, not the whole feed)
@@ -1553,6 +1555,29 @@ export default function Feed() {
       return () => clearTimeout(t);
     }
   }, [highlightedCollabId]);
+
+  // ── Infinite scroll — auto-load more when sentinel div enters viewport ───────
+  useEffect(() => {
+    const el = postsEndRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting && postsHasMore && !loadingMorePosts) fetchMorePosts(); },
+      { threshold: 0.1 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [postsHasMore, loadingMorePosts, fetchMorePosts]);
+
+  useEffect(() => {
+    const el = collabsEndRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting && collabsHasMore && !loadingMoreCollabs) fetchMoreCollabs(); },
+      { threshold: 0.1 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [collabsHasMore, loadingMoreCollabs, fetchMoreCollabs]);
 
   // ── Feed stale cache — show last feed instantly on return visits ─────────────
   // WHY: Without this, every page visit shows a blank spinner until the API responds.
@@ -1961,7 +1986,7 @@ export default function Feed() {
       avatarUrl: user.avatarUrl || undefined, avatarColor: user.color,
       location: user.location, authorSkills: user.skills?.slice(0, 3) || [],
       authorDeleted: false, authorRole: user.role,
-      tag, time: "Just now", content, images, video,
+      tag, time: "Just now", createdAt: new Date().toISOString(), content, images, video,
       likes: 0, commentCount: 0, isOwn: true, comments: [],
     };
 
@@ -2321,13 +2346,10 @@ export default function Feed() {
                   onShare={id => openShareWithContent("post", id)}
                 />
               ))}
-            {postsHasMore && !loading && (
-              <div className="flex justify-center pt-2 pb-4">
-                <Button variant="outline" onClick={fetchMorePosts} disabled={loadingMorePosts} className="gap-2">
-                  {loadingMorePosts
-                    ? <><div className="h-3.5 w-3.5 rounded-full border-2 border-primary border-t-transparent animate-spin" /> Loading…</>
-                    : "Load more posts"}
-                </Button>
+            <div ref={postsEndRef} className="h-4" />
+            {loadingMorePosts && (
+              <div className="flex justify-center pb-4">
+                <div className="h-5 w-5 rounded-full border-2 border-primary border-t-transparent animate-spin" />
               </div>
             )}
           </TabsContent>
@@ -2480,13 +2502,10 @@ export default function Feed() {
                 ))}
               </>
             )}
-            {collabsHasMore && !loading && (
-              <div className="flex justify-center pt-2 pb-4">
-                <Button variant="outline" onClick={fetchMoreCollabs} disabled={loadingMoreCollabs} className="gap-2">
-                  {loadingMoreCollabs
-                    ? <><div className="h-3.5 w-3.5 rounded-full border-2 border-primary border-t-transparent animate-spin" /> Loading…</>
-                    : "Load more collabs"}
-                </Button>
+            <div ref={collabsEndRef} className="h-4" />
+            {loadingMoreCollabs && (
+              <div className="flex justify-center pb-4">
+                <div className="h-5 w-5 rounded-full border-2 border-primary border-t-transparent animate-spin" />
               </div>
             )}
           </TabsContent>
