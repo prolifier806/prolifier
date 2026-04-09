@@ -68,10 +68,21 @@ function feedPriority(
  * then recency as a tiebreaker.
  */
 function withinTierSort(a: any, b: any): number {
+  const now = Date.now();
+  const ageA = now - new Date(a.created_at).getTime();
+  const ageB = now - new Date(b.created_at).getTime();
+  const ONE_HOUR = 60 * 60 * 1000;
+  // Posts newer than 1 hour always rank by recency first
+  const aNew = ageA < ONE_HOUR;
+  const bNew = ageB < ONE_HOUR;
+  if (aNew && bNew) return ageA - ageB;
+  if (aNew) return -1;
+  if (bNew) return 1;
+  // Older posts: engagement first, recency as tiebreaker
   const engA = (a.likes ?? 0) + (a.comment_count ?? 0) * 2;
   const engB = (b.likes ?? 0) + (b.comment_count ?? 0) * 2;
   if (engB !== engA) return engB - engA;
-  return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+  return ageA - ageB;
 }
 
 /**

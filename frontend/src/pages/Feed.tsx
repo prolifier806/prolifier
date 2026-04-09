@@ -1741,27 +1741,36 @@ export default function Feed() {
   }, [loadingMoreCollabs, user.id]);
 
   // ── Infinite scroll — auto-load more when sentinel div enters viewport ───────
+  const postsHasMoreRef = useRef(postsHasMore);
+  const loadingMorePostsRef = useRef(loadingMorePosts);
+  const collabsHasMoreRef = useRef(collabsHasMore);
+  const loadingMoreCollabsRef = useRef(loadingMoreCollabs);
+  useEffect(() => { postsHasMoreRef.current = postsHasMore; }, [postsHasMore]);
+  useEffect(() => { loadingMorePostsRef.current = loadingMorePosts; }, [loadingMorePosts]);
+  useEffect(() => { collabsHasMoreRef.current = collabsHasMore; }, [collabsHasMore]);
+  useEffect(() => { loadingMoreCollabsRef.current = loadingMoreCollabs; }, [loadingMoreCollabs]);
+
   useEffect(() => {
     const el = postsEndRef.current;
     if (!el) return;
     const observer = new IntersectionObserver(
-      ([entry]) => { if (entry.isIntersecting && postsHasMore && !loadingMorePosts) fetchMorePosts(); },
-      { threshold: 0.1 }
+      ([entry]) => { if (entry.isIntersecting && postsHasMoreRef.current && !loadingMorePostsRef.current) fetchMorePosts(); },
+      { rootMargin: "200px", threshold: 0 }
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, [postsHasMore, loadingMorePosts, fetchMorePosts]);
+  }, [fetchMorePosts]);
 
   useEffect(() => {
     const el = collabsEndRef.current;
     if (!el) return;
     const observer = new IntersectionObserver(
-      ([entry]) => { if (entry.isIntersecting && collabsHasMore && !loadingMoreCollabs) fetchMoreCollabs(); },
-      { threshold: 0.1 }
+      ([entry]) => { if (entry.isIntersecting && collabsHasMoreRef.current && !loadingMoreCollabsRef.current) fetchMoreCollabs(); },
+      { rootMargin: "200px", threshold: 0 }
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, [collabsHasMore, loadingMoreCollabs, fetchMoreCollabs]);
+  }, [fetchMoreCollabs]);
 
   // Real-time removed to reduce Supabase Disk IO.
   // Feed refreshes on tab focus (90s throttle) and after own post/collab actions.
