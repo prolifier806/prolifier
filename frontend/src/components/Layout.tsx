@@ -101,6 +101,8 @@ export default function Layout({ children }: { children: ReactNode }) {
 
   // Rate-limit visibility refreshes
   const lastFetchRef = useRef<number>(0);
+  // Ref to the server-filtered group_messages channel — recreated when joined groups change
+  const groupMsgChannelRef = useRef<any>(null);
 
   // Track badges cleared this session — fetchCounts must NEVER restore these.
   // Only a new incoming realtime event (not on that page) removes the flag.
@@ -230,22 +232,6 @@ export default function Layout({ children }: { children: ReactNode }) {
           }
         }
       )
-      // New group message → increment Communities badge if not on /groups, not own msg, not system
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "group_messages" },
-        (payload) => {
-          const msg = payload.new as any;
-          if (msg.user_id === user.id) return;           // own message
-          if (msg.is_system) return;                      // system event
-          if (!joinedGroupIdsRef.current.has(msg.group_id)) return; // not in this group
-          // Groups.tsx will also fire prolifier:groups-unread to sync the total,
-          // but only when it's mounted. Increment here covers when it's not mounted.
-          if (!window.location.pathname.startsWith("/groups")) {
-            setGroupsCount(c => c + 1);
-          }
-        }
-      )
       .subscribe();
 
     // Visibility change: re-fetch ONLY if tab was away for 5+ minutes
@@ -358,6 +344,39 @@ export default function Layout({ children }: { children: ReactNode }) {
           .eq("user_id", user.id);
         const groupIds: string[] = (membership || []).map((r: any) => r.group_id);
         joinedGroupIdsRef.current = new Set(groupIds);
+
+        // (Re)create a server-filtered realtime channel for group_messages.
+        // This replaces the previous platform-wide subscription — only messages
+        // for groups the user has joined are pushed to this browser.
+        if (groupMsgChannelRef.current) {
+          supabase.removeChannel(groupMsgChannelRef.current);
+          groupMsgChannelRef.current = null;
+        }
+        if (groupIds.length > 0) {
+          groupMsgChannelRef.current = (supabase as any)
+            .channel(`layout-group-msgs-${user.id}`)
+            .on(
+              "postgres_changes",
+              {
+                event: "INSERT",
+                schema: "public",
+                table: "group_messages",
+                filter: `group_id=in.(${groupIds.join(",")})`,
+              },
+              (payload: any) => {
+                const msg = payload.new as any;
+                if (msg.user_id === user.id) return; // own message
+                if (msg.is_system) return;            // system event
+                // Groups.tsx fires prolifier:groups-unread when mounted.
+                // Increment here covers pages where Groups.tsx is not mounted.
+                if (!window.location.pathname.startsWith("/groups")) {
+                  setGroupsCount(c => c + 1);
+                }
+              }
+            )
+            .subscribe();
+        }
+
         if (groupIds.length === 0) { setGroupsCount(0); return; }
 
         // Step 2: fetch recent messages for those groups (last 30 days)
@@ -396,7 +415,13 @@ export default function Layout({ children }: { children: ReactNode }) {
       setGroupsCount(total);
     };
     window.addEventListener("prolifier:groups-unread", handler);
-    return () => window.removeEventListener("prolifier:groups-unread", handler);
+    return () => {
+      window.removeEventListener("prolifier:groups-unread", handler);
+      if (groupMsgChannelRef.current) {
+        supabase.removeChannel(groupMsgChannelRef.current);
+        groupMsgChannelRef.current = null;
+      }
+    };
   }, [user.id]);
 
   const getBadge = (to: string) => {

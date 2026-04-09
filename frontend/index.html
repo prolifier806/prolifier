@@ -16,6 +16,14 @@
     <meta name="twitter:description" content="Connect with founders, builders, and creators. Find collaborators, share your journey, and grow with a community of makers." />
 
     <link rel="icon" type="image/x-icon" href="/favicon.ico">
+
+    <!-- Performance: pre-negotiate DNS/TLS to external origins before JS runs.
+         TODO: replace the two URLs below with your actual Supabase project URL
+         (e.g. https://xyzxyz.supabase.co) and your Render backend URL. -->
+    <link rel="preconnect" href="https://supabase.co" crossorigin />
+    <link rel="dns-prefetch" href="https://supabase.co" />
+    <link rel="preconnect" href="https://onrender.com" crossorigin />
+    <link rel="dns-prefetch" href="https://onrender.com" />
   </head>
 
   <body>

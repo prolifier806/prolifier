@@ -303,7 +303,8 @@ export default function Groups() {
       const { data: groupsData, error: groupsErr } = await (supabase as any)
         .from("groups")
         .select("*")
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false })
+        .limit(300);
       if (groupsErr) throw groupsErr;
       setGroups(groupsData || []);
 
@@ -378,11 +379,15 @@ export default function Groups() {
     setMessages([]);
     try {
       // Fetch messages and profiles in parallel - much faster than a join
-      const { data: msgs, error } = await (supabase as any)
+      // Fetch the 100 most recent messages — descending so we get the latest,
+      // then reverse to display oldest-first (bottom of chat).
+      const { data: msgsDesc, error } = await (supabase as any)
         .from("group_messages")
         .select("id, group_id, user_id, text, media_url, media_type, created_at, edited, unsent, is_system")
         .eq("group_id", groupId)
-        .order("created_at", { ascending: true });
+        .order("created_at", { ascending: false })
+        .limit(100);
+      const msgs = msgsDesc ? [...msgsDesc].reverse() : msgsDesc;
       if (error) throw error;
       if (!msgs || msgs.length === 0) { setLoadingMessages(false); return; }
 
@@ -534,10 +539,14 @@ export default function Groups() {
             }
             return [...prev, newMsg];
           });
-          const profile = await getProfile(row.user_id);
-          setMessages(prev => prev.map(m =>
-            m.id === row.id ? { ...m, author_name: profile.name, author_color: profile.color, author_avatar_url: profile.avatar_url } : m
-          ));
+          // Only fetch profile if it wasn't already in cache — avoids a second
+          // setMessages render for every message from a known sender.
+          if (!profileCache.current[row.user_id]) {
+            const profile = await getProfile(row.user_id);
+            setMessages(prev => prev.map(m =>
+              m.id === row.id ? { ...m, author_name: profile.name, author_color: profile.color, author_avatar_url: profile.avatar_url } : m
+            ));
+          }
         } else if (payload.eventType === "UPDATE") {
           const row = payload.new as any;
           setMessages(prev => prev.map(m =>

@@ -99,8 +99,8 @@ function decluster<T extends { user_id: string }>(items: T[]): T[] {
 export async function getFeed(req: AuthRequest, res: Response): Promise<void> {
   const userId = req.user.id;
   const cursor = req.query.cursor as string | undefined;
-  // Fetch a larger pool so ranking has enough material to produce PAGE_SIZE results
-  const POOL = PAGE_SIZE * 4;
+  // Fetch a pool 2× the page size — enough material for ranking without over-fetching
+  const POOL = PAGE_SIZE * 2;
 
   let postsQuery = supabaseAdmin
     .from("posts")
@@ -228,7 +228,7 @@ export async function getFeed(req: AuthRequest, res: Response): Promise<void> {
 export async function getDiscover(req: AuthRequest, res: Response): Promise<void> {
   const userId = req.user.id;
   const page = Math.max(0, parseInt(req.query.page as string ?? "0", 10));
-  const POOL = PAGE_SIZE * 6;
+  const POOL = PAGE_SIZE * 3;
   const OFFSET = page * PAGE_SIZE;
 
   // Fetch user's skills and connections to allow soft-relevance and network diversity
