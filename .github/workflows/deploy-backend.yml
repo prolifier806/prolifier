@@ -25,7 +25,11 @@ jobs:
             npm install --production=false
             npm run build
             # Recreate .env from GitHub secrets on every deploy
-            printf "SUPABASE_URL=%s\nSUPABASE_SERVICE_ROLE_KEY=%s\nSUPABASE_JWT_SECRET=%s\nFRONTEND_URL=https://prolifier.com\nPORT=3001\n" "${{ secrets.SUPABASE_URL }}" "${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" "${{ secrets.SUPABASE_JWT_SECRET }}" > .env
+            echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" > .env
+            echo "SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" >> .env
+            echo "SUPABASE_JWT_SECRET=${{ secrets.SUPABASE_JWT_SECRET }}" >> .env
+            echo "FRONTEND_URL=https://prolifier.com" >> .env
+            echo "PORT=3001" >> .env
             pm2 restart prolifier-backend --update-env
             pm2 save
             sudo systemctl reload nginx
