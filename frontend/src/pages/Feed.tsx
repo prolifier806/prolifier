@@ -1561,7 +1561,7 @@ export default function Feed() {
   // With it, the last known feed is shown immediately — always shown regardless of age,
   // fresh API response replaces it. TTL only controls skipping the API call.
   const FEED_CACHE_KEY = `prolifier:feed:${user.id}`;
-  const FEED_CACHE_TTL = 2 * 60 * 1000; // 2 min — skip API only on very recent tab switches
+
 
   const applyFeedData = useCallback((rawPosts: any[], rawCollabs: any[]) => {
     const mappedPosts: Post[] = (rawPosts || []).map((p: any) => ({
@@ -1626,9 +1626,7 @@ export default function Feed() {
       if (raw) {
         const { ts, posts: cp, collabs: cc } = JSON.parse(raw);
         applyFeedData(cp, cc);
-        setLoading(false); // show cached content instantly, revalidate below
-        // If cache is still fresh, skip the API call entirely
-        if (Date.now() - ts < FEED_CACHE_TTL) return;
+        setLoading(false); // show cached content instantly, always revalidate below
       }
     } catch { /* ignore cache read errors */ }
     logger.info("feed.load.start", { userId: user.id });
