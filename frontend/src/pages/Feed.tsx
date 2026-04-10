@@ -2022,6 +2022,8 @@ export default function Feed() {
       }
       // Replace temp ID with real ID from server
       setPosts(p => p.map(x => x.id === tempId ? { ...x, id: data.id } : x));
+      // Invalidate feed cache so refresh shows the new post from server
+      localStorage.removeItem(FEED_CACHE_KEY);
       toast({ title: "Post published! 🎉" });
     } finally {
       setPostDialog(d => ({ ...d, publishing: false }));
@@ -2165,6 +2167,7 @@ export default function Feed() {
       }, ...p]);
       setActiveTab("collabs");
       setCollabDialog({ open: false, title: "", looking: "", desc: "", skills: [], image: undefined, video: undefined, uploading: false, publishing: false, customSkillInput: "" });
+      localStorage.removeItem(FEED_CACHE_KEY);
       toast({ title: "Collab posted! 🤝" });
     } finally {
       setCollabDialog(d => ({ ...d, publishing: false }));
