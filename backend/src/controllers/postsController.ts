@@ -204,29 +204,58 @@ export async function getFeed(req: AuthRequest, res: Response): Promise<void> {
   const posts = [...allPostsMap.values()].filter((p: any) => !blockedIds.has(p.user_id));
   const collabs = [...allCollabsMap.values()].filter((c: any) => !blockedIds.has(c.user_id));
 
-  // Rank posts
-  const rankedPosts = posts
-    .map((p: any) => ({
-      ...p,
-      _priority: feedPriority(p.user_id, userId, connectedIds, userSkills, [p.tag ?? ""]),
-    }))
+  // Rank posts — with recency injection so very new posts always appear
+  // regardless of tier. Top 5 most recent posts are guaranteed a slot; the
+  // remaining PAGE_SIZE-5 slots are filled by ranked content (deduped).
+  const RECENCY_SLOTS = 5;
+  const withPriorityPosts = posts.map((p: any) => ({
+    ...p,
+    _priority: feedPriority(p.user_id, userId, connectedIds, userSkills, [p.tag ?? ""]),
+  }));
+  const recentPosts = [...withPriorityPosts]
+    .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    .slice(0, RECENCY_SLOTS);
+  const recentPostIds = new Set(recentPosts.map((p: any) => p.id));
+  const rankedRestPosts = withPriorityPosts
+    .filter((p: any) => !recentPostIds.has(p.id))
     .sort((a: any, b: any) => {
       if (a._priority !== b._priority) return a._priority - b._priority;
       return withinTierSort(a, b);
     })
-    .slice(0, PAGE_SIZE);
+    .slice(0, PAGE_SIZE - RECENCY_SLOTS);
+  // Merge: recency posts first, then ranked. Re-sort recency slots by priority
+  // so own/connection posts still float above strangers within the recency group.
+  const rankedPosts = [
+    ...recentPosts.sort((a: any, b: any) => {
+      if (a._priority !== b._priority) return a._priority - b._priority;
+      return withinTierSort(a, b);
+    }),
+    ...rankedRestPosts,
+  ].slice(0, PAGE_SIZE);
 
-  // Rank collabs
-  const rankedCollabs = collabs
-    .map((c: any) => ({
-      ...c,
-      _priority: feedPriority(c.user_id, userId, connectedIds, userSkills, c.skills ?? []),
-    }))
+  // Rank collabs — same recency injection
+  const withPriorityCollabs = collabs.map((c: any) => ({
+    ...c,
+    _priority: feedPriority(c.user_id, userId, connectedIds, userSkills, c.skills ?? []),
+  }));
+  const recentCollabs = [...withPriorityCollabs]
+    .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    .slice(0, RECENCY_SLOTS);
+  const recentCollabIds = new Set(recentCollabs.map((c: any) => c.id));
+  const rankedRestCollabs = withPriorityCollabs
+    .filter((c: any) => !recentCollabIds.has(c.id))
     .sort((a: any, b: any) => {
       if (a._priority !== b._priority) return a._priority - b._priority;
       return withinTierSort(a, b);
     })
-    .slice(0, PAGE_SIZE);
+    .slice(0, PAGE_SIZE - RECENCY_SLOTS);
+  const rankedCollabs = [
+    ...recentCollabs.sort((a: any, b: any) => {
+      if (a._priority !== b._priority) return a._priority - b._priority;
+      return withinTierSort(a, b);
+    }),
+    ...rankedRestCollabs,
+  ].slice(0, PAGE_SIZE);
 
   const postIds = new Set(rankedPosts.map((p: any) => p.id));
   const collabIds = new Set(rankedCollabs.map((c: any) => c.id));
@@ -256,7 +285,7 @@ export async function getFeed(req: AuthRequest, res: Response): Promise<void> {
     })),
   );
 
-  res.setHeader("Cache-Control", "private, max-age=30, stale-while-revalidate=60");
+  res.setHeader("Cache-Control", "no-store");
   res.json({ success: true, data: { posts: enrichedPosts, collabs: enrichedCollabs } });
 }
 
