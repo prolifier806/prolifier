@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, memo, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -1108,22 +1109,32 @@ import { LOCATIONS as ALL_LOCATIONS } from "@/lib/locations";
 function CollabLocationPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const [query, setQuery] = useState(value);
   const [show, setShow] = useState(false);
+  const [dropdownStyle, setDropdownStyle] = useState<React.CSSProperties>({});
+  const wrapRef = useRef<HTMLDivElement>(null);
 
   const suggestions = query.trim().length >= 1
-    ? ALL_LOCATIONS.filter(l => l.toLowerCase().includes(query.toLowerCase())).slice(0, 8)
+    ? ALL_LOCATIONS.filter(l => l.toLowerCase().includes(query.toLowerCase())).slice(0, 20)
     : [];
 
   const handleSelect = (loc: string) => { onChange(loc); setQuery(loc); setShow(false); };
   const handleClear  = () => { onChange(""); setQuery(""); };
 
+  const handleFocus = () => {
+    if (wrapRef.current) {
+      const rect = wrapRef.current.getBoundingClientRect();
+      setDropdownStyle({ position: "fixed", top: rect.bottom + 4, left: rect.left, width: rect.width, zIndex: 9999 });
+    }
+    setShow(true);
+  };
+
   return (
-    <div className="relative">
+    <div className="relative" ref={wrapRef}>
       <div className="relative">
         <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
         <Input
           value={query}
           onChange={e => { setQuery(e.target.value); onChange(e.target.value); setShow(true); }}
-          onFocus={() => setShow(true)}
+          onFocus={handleFocus}
           onBlur={() => setTimeout(() => setShow(false), 150)}
           placeholder="No preference"
           className="h-10 pl-9 pr-8"
@@ -1135,8 +1146,8 @@ function CollabLocationPicker({ value, onChange }: { value: string; onChange: (v
           </button>
         )}
       </div>
-      {show && suggestions.length > 0 && (
-        <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-card border border-border rounded-lg shadow-lg max-h-48 overflow-y-auto">
+      {show && suggestions.length > 0 && createPortal(
+        <div style={dropdownStyle} className="bg-card border border-border rounded-lg shadow-lg max-h-48 overflow-y-auto">
           <button type="button" onMouseDown={() => handleSelect("")}
             className="w-full text-left px-3 py-2.5 text-sm text-muted-foreground hover:bg-secondary transition-colors border-b border-border">
             No preference
@@ -1147,7 +1158,8 @@ function CollabLocationPicker({ value, onChange }: { value: string; onChange: (v
               {loc}
             </button>
           ))}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
@@ -2204,8 +2216,8 @@ export default function Feed() {
         looking: updates.looking,
         description: updates.description,
         skills: updates.skills,
-        image: updates.image || undefined,
-        video: updates.video || undefined,
+        image_url: updates.image || undefined,
+        video_url: updates.video || undefined,
       });
     } catch (err: any) {
       const modMsg = parseModerationError(err);
@@ -2235,8 +2247,8 @@ export default function Feed() {
           description: collabDialog.desc,
           skills: collabDialog.skills,
           candidate_location: collabDialog.candidateLocation.trim() || undefined,
-          image: collabDialog.image || undefined,
-          video: collabDialog.video || undefined,
+          image_url: collabDialog.image || undefined,
+          video_url: collabDialog.video || undefined,
         });
       } catch (err: any) {
         const modMsg = parseModerationError(err);
@@ -2493,9 +2505,14 @@ export default function Feed() {
                       onChange={e => setCollabDialog(d => ({ ...d, desc: e.target.value }))}
                       maxLength={500}
                       placeholder="What are you building? What kind of help do you need?" rows={3}/>
-                    <p className="text-xs text-muted-foreground text-right mt-1">
-                      {collabDialog.desc.length}/500
-                    </p>
+                  </div>
+                  {/* Preferred Candidate Location */}
+                  <div>
+                    <label className="text-sm font-medium mb-1.5 block">Preferred Candidate Location</label>
+                    <CollabLocationPicker
+                      value={collabDialog.candidateLocation}
+                      onChange={v => setCollabDialog(d => ({ ...d, candidateLocation: v }))}
+                    />
                   </div>
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
@@ -2555,17 +2572,6 @@ export default function Feed() {
                         Add
                       </Button>
                     </div>
-                  </div>
-                  {/* Preferred Candidate Location */}
-                  <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <label className="text-sm font-medium">Preferred Candidate Location</label>
-                      <span className="text-xs text-muted-foreground">Optional</span>
-                    </div>
-                    <CollabLocationPicker
-                      value={collabDialog.candidateLocation}
-                      onChange={v => setCollabDialog(d => ({ ...d, candidateLocation: v }))}
-                    />
                   </div>
                 </div>
                 <DialogFooter>

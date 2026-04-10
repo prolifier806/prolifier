@@ -168,7 +168,7 @@ export async function getDiscover(req: AuthRequest, res: Response): Promise<void
     supabaseAdmin
       .from("collabs")
       .select(`
-        id, user_id, title, description, looking, skills, image_url, video_url, created_at,
+        id, user_id, title, description, looking, skills, image_url, video_url, created_at, candidate_location,
         profiles:user_id (id, name, avatar, color, avatar_url, location, skills, role, deleted_at)
       `)
       .order("created_at", { ascending: false })
