@@ -40,48 +40,111 @@ export const createCommentSchema = z.object({
 // ── Feed helpers ─────────────────────────────────────────────────────────────
 
 /**
- * Assign a priority tier to a post/collab for feed ranking.
- * Lower number = higher priority.
- *   0 – own content
- *   1 – connected users
- *   2 – skill/tag overlap
- *   3 – everything else
+ * Score-based ranking:
+ *   Score = 0.4*RecencyScore + 0.3*EngagementScore + 0.2*RelationshipScore + 0.1*DiversityPenalty
+ *
+ * DiversityPenalty is applied later during assembly (depends on final ordering),
+ * so this function returns the base score without it.
  */
-function feedPriority(
-  authorId: string,
+function calculateScore(
+  item: any,
   userId: string,
   connectedIds: Set<string>,
   userSkills: string[],
-  itemSkillsOrTag: string[],
+  isCollab: boolean,
 ): number {
-  if (authorId === userId || connectedIds.has(authorId)) return 1;
-  const hasOverlap = itemSkillsOrTag.some(s =>
-    userSkills.some(us => us.toLowerCase() === s.toLowerCase()),
-  );
-  if (hasOverlap) return 2;
-  return 3;
+  const now = Date.now();
+  const hoursAgo = (now - new Date(item.created_at).getTime()) / (1000 * 60 * 60);
+
+  // RecencyScore: linear decay over 48 hours
+  const recencyScore = Math.max(0, 1 - hoursAgo / 48);
+
+  // EngagementScore: likes=1pt, comments=3pt (shares not stored)
+  const engPoints = (item.likes ?? 0) * 1 + (item.comment_count ?? 0) * 3;
+  const engagementScore = Math.min(1, engPoints / 50);
+
+  // RelationshipScore: connected or own post = 1, else 0
+  const relationshipScore = (item.user_id === userId || connectedIds.has(item.user_id)) ? 1 : 0;
+
+  let score = 0.4 * recencyScore + 0.3 * engagementScore + 0.2 * relationshipScore;
+
+  // Collab bonus
+  if (isCollab) {
+    if (hoursAgo < 24) score += 0.3;
+    const skills: string[] = item.skills ?? [];
+    const hasSkillMatch = skills.some(s =>
+      userSkills.some(us => us.toLowerCase() === s.toLowerCase()),
+    );
+    if (hasSkillMatch) score += 0.2;
+  }
+
+  return score;
 }
 
 /**
- * Sort items within the same priority tier: higher engagement first,
- * then recency as a tiebreaker.
+ * Apply diversity rules after initial score sort:
+ * - Apply -0.5 diversity penalty if same author appears in last 5 items
+ * - Enforce: no same author more than 2 times in any 10 consecutive posts
+ * - Guarantee at least 50% of returned posts are from the last 24h (inject if needed)
  */
-function withinTierSort(a: any, b: any): number {
+function applyDiversityRules<T extends { user_id: string; created_at: string; _score: number }>(
+  sorted: T[],
+  pageSize: number,
+): T[] {
+  // Step 1: apply diversity penalty re-sort
+  const result: T[] = [];
+  const remaining = [...sorted];
+
+  while (result.length < pageSize && remaining.length > 0) {
+    const last5Authors = result.slice(-5).map(i => i.user_id);
+
+    // Find the best item that doesn't trigger a penalty, or penalise and re-pick
+    let bestIdx = 0;
+    let bestScore = -Infinity;
+    for (let i = 0; i < remaining.length; i++) {
+      const item = remaining[i];
+      const penalty = last5Authors.includes(item.user_id) ? -0.5 : 0;
+      const effectiveScore = item._score + penalty;
+      if (effectiveScore > bestScore) {
+        bestScore = effectiveScore;
+        bestIdx = i;
+      }
+    }
+    result.push(...remaining.splice(bestIdx, 1));
+  }
+
+  // Step 2: enforce max 2 same author per 10-post window (sliding)
+  const final: T[] = [];
+  for (const item of result) {
+    const last10 = final.slice(-10);
+    const authorCount = last10.filter(i => i.user_id === item.user_id).length;
+    if (authorCount < 2) {
+      final.push(item);
+    } else {
+      // Defer — push to end of result for later insertion
+      result.push(item);
+    }
+    if (final.length >= pageSize) break;
+  }
+
+  // Step 3: guarantee ≥50% from last 24h
   const now = Date.now();
-  const ageA = now - new Date(a.created_at).getTime();
-  const ageB = now - new Date(b.created_at).getTime();
-  const ONE_HOUR = 60 * 60 * 1000;
-  // Posts newer than 1 hour always rank by recency first
-  const aNew = ageA < ONE_HOUR;
-  const bNew = ageB < ONE_HOUR;
-  if (aNew && bNew) return ageA - ageB;
-  if (aNew) return -1;
-  if (bNew) return 1;
-  // Older posts: engagement first, recency as tiebreaker
-  const engA = (a.likes ?? 0) + (a.comment_count ?? 0) * 2;
-  const engB = (b.likes ?? 0) + (b.comment_count ?? 0) * 2;
-  if (engB !== engA) return engB - engA;
-  return ageA - ageB;
+  const MS_24H = 24 * 60 * 60 * 1000;
+  const minRecent = Math.floor(pageSize / 2);
+  const recentCount = final.filter(i => now - new Date(i.created_at).getTime() < MS_24H).length;
+
+  if (recentCount < minRecent) {
+    // Find recent items from remaining sorted pool not already in final
+    const finalIds = new Set(final.map((i: any) => i.id));
+    const extraRecent = sorted
+      .filter(i => !finalIds.has((i as any).id) && now - new Date(i.created_at).getTime() < MS_24H)
+      .slice(0, minRecent - recentCount);
+    // Insert them at the front of the final list
+    final.unshift(...extraRecent);
+    return final.slice(0, pageSize);
+  }
+
+  return final.slice(0, pageSize);
 }
 
 /**
@@ -109,6 +172,8 @@ function decluster<T extends { user_id: string }>(items: T[]): T[] {
 export async function getFeed(req: AuthRequest, res: Response): Promise<void> {
   const userId = req.user.id;
   const cursor = req.query.cursor as string | undefined;
+  // "ranked" (default) applies scoring algorithm; "latest" is pure chronological
+  const mode = (req.query.mode as string) === "latest" ? "latest" : "ranked";
   // Fetch a pool 2× the page size — enough material for ranking without over-fetching
   const POOL = PAGE_SIZE * 2;
 
@@ -177,58 +242,50 @@ export async function getFeed(req: AuthRequest, res: Response): Promise<void> {
   const posts = (postsRes.data ?? []).filter((p: any) => !blockedIds.has(p.user_id));
   const collabs = (collabsRes.data ?? []).filter((c: any) => !blockedIds.has(c.user_id));
 
-  // Rank posts — with recency injection so very new posts always appear
-  // regardless of tier. Top 5 most recent posts are guaranteed a slot; the
-  // remaining PAGE_SIZE-5 slots are filled by ranked content (deduped).
-  const RECENCY_SLOTS = 5;
-  const withPriorityPosts = posts.map((p: any) => ({
-    ...p,
-    _priority: feedPriority(p.user_id, userId, connectedIds, userSkills, [p.tag ?? ""]),
-  }));
-  const recentPosts = [...withPriorityPosts]
-    .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-    .slice(0, RECENCY_SLOTS);
-  const recentPostIds = new Set(recentPosts.map((p: any) => p.id));
-  const rankedRestPosts = withPriorityPosts
-    .filter((p: any) => !recentPostIds.has(p.id))
-    .sort((a: any, b: any) => {
-      if (a._priority !== b._priority) return a._priority - b._priority;
-      return withinTierSort(a, b);
-    })
-    .slice(0, PAGE_SIZE - RECENCY_SLOTS);
-  // Merge: recency posts first, then ranked. Re-sort recency slots by priority
-  // so own/connection posts still float above strangers within the recency group.
-  const rankedPosts = [
-    ...recentPosts.sort((a: any, b: any) => {
-      if (a._priority !== b._priority) return a._priority - b._priority;
-      return withinTierSort(a, b);
-    }),
-    ...rankedRestPosts,
-  ].slice(0, PAGE_SIZE);
+  let rankedPosts: any[];
+  let rankedCollabs: any[];
 
-  // Rank collabs — same recency injection
-  const withPriorityCollabs = collabs.map((c: any) => ({
-    ...c,
-    _priority: feedPriority(c.user_id, userId, connectedIds, userSkills, c.skills ?? []),
-  }));
-  const recentCollabs = [...withPriorityCollabs]
-    .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-    .slice(0, RECENCY_SLOTS);
-  const recentCollabIds = new Set(recentCollabs.map((c: any) => c.id));
-  const rankedRestCollabs = withPriorityCollabs
-    .filter((c: any) => !recentCollabIds.has(c.id))
-    .sort((a: any, b: any) => {
-      if (a._priority !== b._priority) return a._priority - b._priority;
-      return withinTierSort(a, b);
-    })
-    .slice(0, PAGE_SIZE - RECENCY_SLOTS);
-  const rankedCollabs = [
-    ...recentCollabs.sort((a: any, b: any) => {
-      if (a._priority !== b._priority) return a._priority - b._priority;
-      return withinTierSort(a, b);
-    }),
-    ...rankedRestCollabs,
-  ].slice(0, PAGE_SIZE);
+  if (mode === "latest") {
+    // Strict chronological — no scoring, just newest first
+    rankedPosts = posts
+      .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .slice(0, PAGE_SIZE);
+    rankedCollabs = collabs
+      .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .slice(0, PAGE_SIZE);
+  } else {
+    // Cold-start: if user has no connections, treat all posts as equal relationship
+    // (algorithm still ranks by recency + engagement, which is fine for discovery)
+
+    // Score and rank posts
+    const scoredPosts = posts.map((p: any) => ({
+      ...p,
+      _score: calculateScore(p, userId, connectedIds, userSkills, false),
+    }));
+    scoredPosts.sort((a: any, b: any) => {
+      if (b._score !== a._score) return b._score - a._score;
+      // Tiebreak: newer post wins
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+    rankedPosts = applyDiversityRules(scoredPosts, PAGE_SIZE).map((p: any) => {
+      const { _score, ...rest } = p;
+      return rest;
+    });
+
+    // Score and rank collabs (with collab bonus)
+    const scoredCollabs = collabs.map((c: any) => ({
+      ...c,
+      _score: calculateScore(c, userId, connectedIds, userSkills, true),
+    }));
+    scoredCollabs.sort((a: any, b: any) => {
+      if (b._score !== a._score) return b._score - a._score;
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+    rankedCollabs = applyDiversityRules(scoredCollabs, PAGE_SIZE).map((c: any) => {
+      const { _score, ...rest } = c;
+      return rest;
+    });
+  }
 
   const postIds = new Set(rankedPosts.map((p: any) => p.id));
   const collabIds = new Set(rankedCollabs.map((c: any) => c.id));
@@ -238,25 +295,25 @@ export async function getFeed(req: AuthRequest, res: Response): Promise<void> {
   const savedCollabSet = new Set((savedCollabsRes.data ?? []).filter((r: any) => collabIds.has(r.collab_id)).map((r: any) => r.collab_id));
   const interestedSet = new Set((collabInterestsRes.data ?? []).filter((r: any) => collabIds.has(r.collab_id)).map((r: any) => r.collab_id));
 
-  const enrichedPosts = decluster(
-    rankedPosts.map((p: any) => ({
-      ...p,
-      _priority: undefined,
-      isLiked: likedSet.has(p.id),
-      isSaved: savedPostSet.has(p.id),
-      isOwn: p.user_id === userId,
-    })),
-  );
+  // In ranked mode diversity is already handled by applyDiversityRules.
+  // In latest mode we still decluster so one author doesn't fill the top.
+  const enrichedPostsRaw = rankedPosts.map((p: any) => ({
+    ...p,
+    _priority: undefined,
+    isLiked: likedSet.has(p.id),
+    isSaved: savedPostSet.has(p.id),
+    isOwn: p.user_id === userId,
+  }));
+  const enrichedCollabsRaw = rankedCollabs.map((c: any) => ({
+    ...c,
+    _priority: undefined,
+    isInterested: interestedSet.has(c.id),
+    isSaved: savedCollabSet.has(c.id),
+    isOwn: c.user_id === userId,
+  }));
 
-  const enrichedCollabs = decluster(
-    rankedCollabs.map((c: any) => ({
-      ...c,
-      _priority: undefined,
-      isInterested: interestedSet.has(c.id),
-      isSaved: savedCollabSet.has(c.id),
-      isOwn: c.user_id === userId,
-    })),
-  );
+  const enrichedPosts = mode === "latest" ? decluster(enrichedPostsRaw) : enrichedPostsRaw;
+  const enrichedCollabs = mode === "latest" ? decluster(enrichedCollabsRaw) : enrichedCollabsRaw;
 
   res.setHeader("Cache-Control", "no-store");
   res.json({ success: true, data: { posts: enrichedPosts, collabs: enrichedCollabs } });

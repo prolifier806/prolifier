@@ -6,8 +6,13 @@ import { apiGet, apiPost, apiPatch, apiDelete } from "./client";
 
 // ── Feed ─────────────────────────────────────────────────────────────────────
 
-export const getFeed = (cursor?: string) =>
-  apiGet<{ posts: any[]; collabs: any[] }>(`/api/feed${cursor ? `?cursor=${cursor}` : ""}`);
+export const getFeed = (cursor?: string, mode?: "ranked" | "latest") => {
+  const params = new URLSearchParams();
+  if (cursor) params.set("cursor", cursor);
+  if (mode && mode !== "ranked") params.set("mode", mode);
+  const qs = params.toString();
+  return apiGet<{ posts: any[]; collabs: any[] }>(`/api/feed${qs ? `?${qs}` : ""}`);
+};
 
 // ── Posts ─────────────────────────────────────────────────────────────────────
 

@@ -15,7 +15,7 @@ import {
   Heart, MessageCircle, MapPin, Search, Plus, Send, MoreHorizontal,
   Trash2, Edit3, Bookmark, Share2, Flag, EyeOff, Handshake,
   X, Check, BookmarkCheck, ImageIcon, Link2, Video as VideoIcon, ZoomIn,
-  SlidersHorizontal, ChevronLeft, ChevronRight,
+  SlidersHorizontal, ChevronLeft, ChevronRight, TrendingUp, Clock,
 } from "lucide-react";
 import Layout from "@/components/Layout";
 import { toast } from "@/hooks/use-toast";
@@ -1451,6 +1451,17 @@ export default function Feed() {
   const [postSearch, setPostSearch] = useState("");
   const [activeFilter, setActiveFilter] = useState("All");
   const [activePostTag, setActivePostTag] = useState("All");
+  const [feedSortMode, setFeedSortMode] = useState<"ranked" | "latest">(() => {
+    try { return (localStorage.getItem("prolifier:feedSortMode") as "ranked" | "latest") || "ranked"; }
+    catch { return "ranked"; }
+  });
+  const toggleSortMode = useCallback((mode: "ranked" | "latest") => {
+    setFeedSortMode(mode);
+    try { localStorage.setItem("prolifier:feedSortMode", mode); } catch { /* quota */ }
+    // Reset cursors so pagination starts fresh with new sort order
+    postsCursorRef.current = null;
+    collabsCursorRef.current = null;
+  }, []);
 
   const [highlightedPostId, setHighlightedPostId] = useState<string|null>(null);
   const [highlightedCollabId, setHighlightedCollabId] = useState<string|null>(null);
@@ -1626,7 +1637,7 @@ export default function Feed() {
     } catch { /* ignore cache read errors */ }
     logger.info("feed.load.start", { userId: user.id });
     try {
-      const { posts: rawPosts, collabs: rawCollabs } = await getFeed();
+      const { posts: rawPosts, collabs: rawCollabs } = await getFeed(undefined, feedSortMode);
 
       // isLiked/isSaved/isInterested come enriched from API
       applyFeedData(rawPosts, rawCollabs);
@@ -1644,7 +1655,7 @@ export default function Feed() {
       toast({ title: "Failed to load feed", description: err.message, variant: "destructive" });
       setLoading(false);
     }
-  }, [user.id]);
+  }, [user.id, feedSortMode]);
 
   useEffect(() => {
     fetchFeed();
@@ -1667,7 +1678,7 @@ export default function Feed() {
     if (!postsCursorRef.current || loadingMorePosts) return;
     setLoadingMorePosts(true);
     try {
-      const { posts: rawPosts } = await getFeed(postsCursorRef.current);
+      const { posts: rawPosts } = await getFeed(postsCursorRef.current, feedSortMode);
       const more: Post[] = (rawPosts || []).map((p: any) => ({
         id: p.id, user_id: p.user_id,
         author: p.profiles?.deleted_at ? "Deleted Account" : (p.profiles?.name || p.author || "Unknown"),
@@ -1699,13 +1710,13 @@ export default function Feed() {
       if ((rawPosts || []).length > 0) postsCursorRef.current = rawPosts[rawPosts.length - 1].created_at;
     } catch { /* silent */ }
     setLoadingMorePosts(false);
-  }, [loadingMorePosts, user.id]);
+  }, [loadingMorePosts, user.id, feedSortMode]);
 
   const fetchMoreCollabs = useCallback(async () => {
     if (!collabsCursorRef.current || loadingMoreCollabs) return;
     setLoadingMoreCollabs(true);
     try {
-      const { collabs: rawCollabs } = await getFeed(collabsCursorRef.current);
+      const { collabs: rawCollabs } = await getFeed(collabsCursorRef.current, feedSortMode);
       const more: Collab[] = (rawCollabs || []).map((c: any) => ({
         id: c.id, user_id: c.user_id,
         author: c.profiles?.deleted_at ? "Deleted Account" : (c.profiles?.name || c.author || "Unknown"),
@@ -1736,7 +1747,7 @@ export default function Feed() {
       if ((rawCollabs || []).length > 0) collabsCursorRef.current = rawCollabs[rawCollabs.length - 1].created_at;
     } catch { /* silent */ }
     setLoadingMoreCollabs(false);
-  }, [loadingMoreCollabs, user.id]);
+  }, [loadingMoreCollabs, user.id, feedSortMode]);
 
   // ── Infinite scroll — auto-load more when sentinel div enters viewport ───────
   const postsHasMoreRef = useRef(postsHasMore);
@@ -2335,11 +2346,28 @@ export default function Feed() {
               </DialogContent>
             </Dialog>
 
-            {/* Post search + filter */}
+            {/* Post search + sort toggle + filter */}
             <div className="flex gap-2">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground"/>
                 <Input placeholder="Search posts…" value={postSearch} onChange={e => setPostSearch(e.target.value)} className="pl-10 h-10"/>
+              </div>
+              {/* Sort toggle */}
+              <div className="flex rounded-md border border-input overflow-hidden shrink-0 h-10">
+                <button
+                  onClick={() => toggleSortMode("ranked")}
+                  className={`flex items-center gap-1.5 px-3 text-xs font-medium transition-colors ${feedSortMode === "ranked" ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:text-foreground"}`}
+                  title="Top Posts — ranked by relevance and engagement"
+                >
+                  <TrendingUp className="h-3.5 w-3.5"/> Top
+                </button>
+                <button
+                  onClick={() => toggleSortMode("latest")}
+                  className={`flex items-center gap-1.5 px-3 text-xs font-medium transition-colors border-l border-input ${feedSortMode === "latest" ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:text-foreground"}`}
+                  title="Latest — newest posts first"
+                >
+                  <Clock className="h-3.5 w-3.5"/> New
+                </button>
               </div>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -2498,6 +2526,23 @@ export default function Feed() {
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground"/>
                 <Input placeholder="Search collaborations…" value={search} onChange={e => setSearch(e.target.value)} className="pl-10 h-10"/>
+              </div>
+              {/* Sort toggle */}
+              <div className="flex rounded-md border border-input overflow-hidden shrink-0 h-10">
+                <button
+                  onClick={() => toggleSortMode("ranked")}
+                  className={`flex items-center gap-1.5 px-3 text-xs font-medium transition-colors ${feedSortMode === "ranked" ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:text-foreground"}`}
+                  title="Top Posts — ranked by relevance and engagement"
+                >
+                  <TrendingUp className="h-3.5 w-3.5"/> Top
+                </button>
+                <button
+                  onClick={() => toggleSortMode("latest")}
+                  className={`flex items-center gap-1.5 px-3 text-xs font-medium transition-colors border-l border-input ${feedSortMode === "latest" ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:text-foreground"}`}
+                  title="Latest — newest first"
+                >
+                  <Clock className="h-3.5 w-3.5"/> New
+                </button>
               </div>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
