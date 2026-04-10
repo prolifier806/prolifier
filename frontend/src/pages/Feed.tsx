@@ -2020,10 +2020,11 @@ export default function Feed() {
         toast({ title: modMsg ?? "Failed to create post", variant: "destructive" });
         return;
       }
-      // Replace temp ID with real ID from server
-      setPosts(p => p.map(x => x.id === tempId ? { ...x, id: data.id } : x));
-      // Invalidate feed cache so refresh shows the new post from server
+      // Invalidate cache and reload feed from server so new post appears at top
       localStorage.removeItem(FEED_CACHE_KEY);
+      const { posts: rawPosts, collabs: rawCollabs } = await getFeed();
+      applyFeedData(rawPosts, rawCollabs);
+      try { localStorage.setItem(FEED_CACHE_KEY, JSON.stringify({ ts: Date.now(), posts: rawPosts, collabs: rawCollabs })); } catch { /* ignore */ }
       toast({ title: "Post published! 🎉" });
     } finally {
       setPostDialog(d => ({ ...d, publishing: false }));
@@ -2168,6 +2169,9 @@ export default function Feed() {
       setActiveTab("collabs");
       setCollabDialog({ open: false, title: "", looking: "", desc: "", skills: [], image: undefined, video: undefined, uploading: false, publishing: false, customSkillInput: "" });
       localStorage.removeItem(FEED_CACHE_KEY);
+      const { posts: rawPosts, collabs: rawCollabs } = await getFeed();
+      applyFeedData(rawPosts, rawCollabs);
+      try { localStorage.setItem(FEED_CACHE_KEY, JSON.stringify({ ts: Date.now(), posts: rawPosts, collabs: rawCollabs })); } catch { /* ignore */ }
       toast({ title: "Collab posted! 🤝" });
     } finally {
       setCollabDialog(d => ({ ...d, publishing: false }));
