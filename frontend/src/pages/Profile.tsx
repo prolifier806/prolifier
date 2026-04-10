@@ -148,6 +148,7 @@ export default function Profile() {
   const [draftGithub, setDraftGithub]     = useState("");
   const [draftWebsite, setDraftWebsite]   = useState("");
   const [draftTwitter, setDraftTwitter]   = useState("");
+  const [draftStartupStage, setDraftStartupStage] = useState("");
 
   // Location autocomplete
   const [locationQuery, setLocationQuery]               = useState("");
@@ -335,6 +336,7 @@ export default function Profile() {
     setDraftGithub(user.github);
     setDraftWebsite(user.website);
     setDraftTwitter(user.twitter);
+    setDraftStartupStage(user.startupStage || "");
     setEditing(true);
   };
 
@@ -357,6 +359,7 @@ export default function Profile() {
       name: draftName.trim(), location: draftLocation.trim(), bio: draftBio.trim(),
       project: draftProject.trim(), skills: draftSkills,
       github: draftGithub.trim(), website: draftWebsite.trim(), twitter: draftTwitter.trim(),
+      startupStage: draftStartupStage || undefined,
     });
     setSaving(false);
     setEditing(false);
@@ -585,7 +588,7 @@ export default function Profile() {
                     className={`px-4 py-1.5 rounded-full text-xs font-medium transition-colors ${
                       postsTab === tab ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-secondary"
                     }`}>
-                    {tab === "posts" ? `Feed (${userPosts.length})` : `Collabs (${userCollabs.length})`}
+                    {tab === "posts" ? `Posts (${userPosts.length})` : `Collab Posts (${userCollabs.length})`}
                   </button>
                 ))}
               </div>
@@ -1175,6 +1178,32 @@ export default function Profile() {
               </div>
             )}
           </div>
+
+          {/* Startup Stage */}
+          {(editing || user.startupStage) && (
+            <div className="mb-4">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Startup Stage</p>
+              {editing ? (
+                <div className="flex flex-wrap gap-2">
+                  {["Ideation","MVP","Traction","Scaling","None"].map(stage => (
+                    <button key={stage} type="button"
+                      onClick={() => setDraftStartupStage(prev => prev === stage ? "" : stage)}
+                      className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                        draftStartupStage === stage
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                      }`}>
+                      {stage}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <span className="inline-flex items-center text-xs font-semibold px-2.5 py-1 rounded-full bg-primary/10 text-primary border border-primary/20">
+                  {user.startupStage}
+                </span>
+              )}
+            </div>
+          )}
 
           {/* Links */}
           <div className="mb-5">

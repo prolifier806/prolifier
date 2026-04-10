@@ -15,27 +15,26 @@ export const createNotificationSchema = z.object({
 export async function getNotifications(req: AuthRequest, res: Response): Promise<void> {
   const userId = req.user.id;
 
-  const { data, error } = await supabaseAdmin
-    .from("notifications")
-    .select("*")
-    .eq("user_id", userId)
-    .not("type", "in", "(message,match)")
-    .order("created_at", { ascending: false })
-    .limit(50);
-
-  if (error) { res.status(500).json({ success: false, error: error.message }); return; }
-
-  // Mark all as read
-  try {
-    await supabaseAdmin
+  // Fire fetch + mark-read in parallel — eliminates sequential waterfall
+  const [fetchResult] = await Promise.all([
+    supabaseAdmin
+      .from("notifications")
+      .select("*")
+      .eq("user_id", userId)
+      .not("type", "in", "(message,match)")
+      .order("created_at", { ascending: false })
+      .limit(50),
+    supabaseAdmin
       .from("notifications")
       .update({ read: true })
       .eq("user_id", userId)
       .eq("read", false)
-      .not("type", "in", "(message,match)");
-  } catch (markErr) {
-    console.warn("[notifications] Failed to mark notifications read:", markErr);
-  }
+      .not("type", "in", "(message,match)")
+      .then(() => {}, (err) => console.warn("[notifications] Failed to mark read:", err)),
+  ]);
+
+  const { data, error } = fetchResult;
+  if (error) { res.status(500).json({ success: false, error: error.message }); return; }
 
   res.json({ success: true, data });
 }

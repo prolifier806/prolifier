@@ -53,6 +53,7 @@ export const createCollab = (body: {
   skills: string[];
   image_url?: string;
   video_url?: string;
+  candidate_location?: string;
 }) => apiPost<any>("/api/feed/collabs", body);
 
 export const updateCollab = (id: string, body: Partial<Parameters<typeof createCollab>[0]>) =>

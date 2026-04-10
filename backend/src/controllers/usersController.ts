@@ -16,6 +16,7 @@ export const updateProfileSchema = z.object({
   role: z.string().max(50).optional(),
   avatar: z.string().max(10).optional(),
   color: z.string().max(50).optional(),
+  startup_stage: z.enum(["Ideation", "MVP", "Traction", "Scaling", "None"]).optional(),
 });
 
 export const blockUserSchema = z.object({

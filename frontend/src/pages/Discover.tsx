@@ -41,6 +41,7 @@ type Profile = {
   skills: string[];
   openToCollab: boolean;
   role?: string;
+  isRecommended?: boolean;
 };
 
 type Request = {
@@ -106,6 +107,8 @@ export default function Discover() {
 
   const [pending, setPending] = useState<Set<string>>(new Set());
   const [blockedByMe, setBlockedByMe] = useState<Set<string>>(new Set());
+  // Skills extracted from user's collab posts — used to recommend profiles
+  const [collabSkills, setCollabSkills] = useState<string[]>([]);
 
   const [requests, setRequests] = useState<Request[]>([]);
   const [requestsLoading, setRequestsLoading] = useState(false);
@@ -118,6 +121,28 @@ export default function Discover() {
     debounceRef.current = setTimeout(() => setDebouncedSearch(search), 300);
     return () => clearTimeout(debounceRef.current);
   }, [search]);
+
+  // Fetch user's own collab posts to extract required skills for recommendations
+  useEffect(() => {
+    if (!user.id) return;
+    (supabase as any)
+      .from("collabs")
+      .select("skills")
+      .eq("user_id", user.id)
+      .limit(10)
+      .then(({ data }: any) => {
+        if (!data || data.length === 0) { setCollabSkills([]); return; }
+        const all: string[] = [];
+        for (const c of data) {
+          for (const s of (c.skills || [])) {
+            const norm = s.toLowerCase().trim();
+            if (norm && !all.some(x => x.toLowerCase().trim() === norm)) all.push(s);
+          }
+        }
+        setCollabSkills(all);
+      })
+      .catch(() => setCollabSkills([]));
+  }, [user.id]);
 
   const DISCOVER_CACHE_KEY = `prolifier:discover:${user.id}`;
   const DISCOVER_CACHE_TTL = 3 * 60 * 1000; // 3 minutes
@@ -387,7 +412,32 @@ export default function Discover() {
     }
   };
 
-  const filtered = profiles;
+  // Skill match helper — case-insensitive, handles "React" / "react" / "React.js"
+  const skillMatches = (profileSkills: string[], needed: string[]): boolean => {
+    if (needed.length === 0) return false;
+    return needed.some(need => {
+      const n = need.toLowerCase().replace(/[.\s]/g, "");
+      return profileSkills.some(ps => {
+        const p = ps.toLowerCase().replace(/[.\s]/g, "");
+        return p === n || p.includes(n) || n.includes(p);
+      });
+    });
+  };
+
+  // Apply recommendations: mark profiles whose skills match the user's collab needs
+  const withRecommendations = profiles.map(p => ({
+    ...p,
+    isRecommended: collabSkills.length > 0 && skillMatches(p.skills, collabSkills),
+  }));
+
+  // Sort: recommended first → open to collab → rest (stable within each group)
+  const filtered = [...withRecommendations].sort((a, b) => {
+    if (a.isRecommended && !b.isRecommended) return -1;
+    if (!a.isRecommended && b.isRecommended) return 1;
+    if (a.openToCollab && !b.openToCollab) return -1;
+    if (!a.openToCollab && b.openToCollab) return 1;
+    return 0;
+  });
 
   return (
     <Layout>
@@ -491,6 +541,11 @@ export default function Discover() {
                                 </span>
                               )}
                             </button>
+                            {p.isRecommended && (
+                              <span className="inline-flex items-center text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-300">
+                                ★ Recommended
+                              </span>
+                            )}
                             <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full border ${
                               p.openToCollab
                                 ? "bg-emerald-500 text-white border-emerald-500"

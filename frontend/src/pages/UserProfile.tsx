@@ -28,6 +28,7 @@ type ProfileData = {
   website: string;
   twitter: string;
   openToCollab: boolean;
+  startupStage: string;
   role: string;
 };
 
@@ -165,6 +166,7 @@ export default function UserProfile() {
           website: p.website || "",
           twitter: p.twitter || "",
           openToCollab: p.open_to_collab ?? true,
+          startupStage: p.startup_stage || "",
           role: p.role || "user",
         });
 
@@ -444,6 +446,15 @@ export default function UserProfile() {
             </div>
           )}
 
+          {profile.startupStage && profile.startupStage !== "None" && (
+            <div className="mb-4">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Startup Stage</p>
+              <span className="inline-flex items-center text-xs font-semibold px-2.5 py-1 rounded-full bg-primary/10 text-primary border border-primary/20">
+                {profile.startupStage}
+              </span>
+            </div>
+          )}
+
           {profile.lookingFor.length > 0 && (
             <div className="mb-4">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Looking for</p>
@@ -465,7 +476,7 @@ export default function UserProfile() {
           )}
 
           <div className="pt-4 border-t border-border grid grid-cols-3 text-center divide-x divide-border">
-            {[[String(posts.length), "Posts"], [String(collabs.length), "Collabs"], [String(connectionCount), "Connections"]].map(([n, l]) => (
+            {[[String(posts.length), "Posts"], [String(collabs.length), "Collab Posts"], [String(connectionCount), "Connections"]].map(([n, l]) => (
               <div key={l} className="px-2">
                 <p className="text-2xl font-bold text-foreground">{n}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">{l}</p>
@@ -507,7 +518,7 @@ export default function UserProfile() {
                 Posts ({posts.length})
               </TabsTrigger>
               <TabsTrigger value="collabs" className="flex-1 rounded-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:shadow-none">
-                Collabs ({collabs.length})
+                Collab Posts ({collabs.length})
               </TabsTrigger>
               <TabsTrigger value="connections" className="flex-1 rounded-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:shadow-none">
                 Connections ({connectionCount})

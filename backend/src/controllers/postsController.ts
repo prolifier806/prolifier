@@ -28,6 +28,7 @@ export const createCollabSchema = z.object({
   skills: z.array(z.string()).min(1).max(10),
   image_url: z.string().url().optional(),
   video_url: z.string().url().optional(),
+  candidate_location: z.string().max(100).optional(),
 });
 
 export const updateCollabSchema = createCollabSchema.partial();
@@ -58,7 +59,7 @@ export async function getFeed(req: AuthRequest, res: Response): Promise<void> {
   let collabsQuery = supabaseAdmin
     .from("collabs")
     .select(`
-      id, user_id, title, description, looking, skills, image_url, video_url, created_at,
+      id, user_id, title, description, looking, skills, image_url, video_url, created_at, candidate_location,
       profiles:user_id (id, name, avatar, color, avatar_url, location, skills, role, deleted_at)
     `)
     .order("created_at", { ascending: false })

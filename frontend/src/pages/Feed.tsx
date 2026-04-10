@@ -52,6 +52,7 @@ type Collab = {
   id: string; user_id: string; author: string; avatar: string; avatarUrl?: string; avatarColor: string; location: string;
   authorSkills?: string[]; authorDeleted?: boolean; authorRole?: string;
   title: string; looking: string; description: string; skills: string[]; image?: string; video?: string; createdAt: string;
+  candidateLocation?: string;
   isOwn: boolean;
 };
 
@@ -1100,6 +1101,58 @@ function EditPostDialog({ post, open, onClose, onSave, userId }: {
   );
 }
 
+// ── Collab Location Picker ─────────────────────────────────────────────────
+// Reuses the LOCATIONS list from lib/locations.ts — same dataset as onboarding
+import { LOCATIONS as ALL_LOCATIONS } from "@/lib/locations";
+
+function CollabLocationPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [query, setQuery] = useState(value);
+  const [show, setShow] = useState(false);
+
+  const suggestions = query.trim().length >= 1
+    ? ALL_LOCATIONS.filter(l => l.toLowerCase().includes(query.toLowerCase())).slice(0, 8)
+    : [];
+
+  const handleSelect = (loc: string) => { onChange(loc); setQuery(loc); setShow(false); };
+  const handleClear  = () => { onChange(""); setQuery(""); };
+
+  return (
+    <div className="relative">
+      <div className="relative">
+        <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+        <Input
+          value={query}
+          onChange={e => { setQuery(e.target.value); onChange(e.target.value); setShow(true); }}
+          onFocus={() => setShow(true)}
+          onBlur={() => setTimeout(() => setShow(false), 150)}
+          placeholder="No preference"
+          className="h-10 pl-9 pr-8"
+        />
+        {query && (
+          <button type="button" onClick={handleClear}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+      {show && suggestions.length > 0 && (
+        <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-card border border-border rounded-lg shadow-lg max-h-48 overflow-y-auto">
+          <button type="button" onMouseDown={() => handleSelect("")}
+            className="w-full text-left px-3 py-2.5 text-sm text-muted-foreground hover:bg-secondary transition-colors border-b border-border">
+            No preference
+          </button>
+          {suggestions.map(loc => (
+            <button key={loc} type="button" onMouseDown={() => handleSelect(loc)}
+              className="w-full text-left px-3 py-2.5 text-sm hover:bg-secondary transition-colors">
+              {loc}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Edit Collab Dialog ─────────────────────────────────────────────────────
 function EditCollabDialog({ collab, open, onClose, onSave }: {
   collab: Collab; open: boolean; onClose: () => void; onSave: (id: string, updates: Partial<Collab>) => void;
@@ -1108,6 +1161,7 @@ function EditCollabDialog({ collab, open, onClose, onSave }: {
   const [looking, setLooking] = useState(collab.looking);
   const [desc, setDesc] = useState(collab.description);
   const [skills, setSkills] = useState(collab.skills);
+  const [candidateLocation, setCandidateLocation] = useState(collab.candidateLocation || "");
   const [customSkillInput, setCustomSkillInput] = useState("");
   const toggle = (s: string) => setSkills((p) => p.includes(s)?p.filter((x)=>x!==s):[...p,s]);
 
@@ -1141,10 +1195,17 @@ function EditCollabDialog({ collab, open, onClose, onSave }: {
               <Button type="button" size="sm" variant="outline" className="h-8 px-3 shrink-0" onClick={addCustomSkill}>Add</Button>
             </div>
           </div>
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-sm font-medium">Preferred Candidate Location</label>
+              <span className="text-xs text-muted-foreground">Optional</span>
+            </div>
+            <CollabLocationPicker value={candidateLocation} onChange={setCandidateLocation} />
+          </div>
         </div>
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={()=>{onSave(collab.id,{title,looking,description:desc,skills});onClose();}} disabled={!title.trim()} className="gap-1.5">
+          <Button onClick={()=>{onSave(collab.id,{title,looking,description:desc,skills,candidateLocation:candidateLocation.trim()||undefined});onClose();}} disabled={!title.trim()} className="gap-1.5">
             <Check className="h-4 w-4"/> Save
           </Button>
         </DialogFooter>
@@ -1376,6 +1437,11 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
               {collab.skills.map((s)=><Badge key={s} variant="secondary" className="text-xs">{s}</Badge>)}
             </div>
           )}
+          {collab.candidateLocation && (
+            <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
+              <MapPin className="h-3 w-3 shrink-0 text-primary/60"/> Preferred location: <span className="font-medium text-foreground">{collab.candidateLocation}</span>
+            </p>
+          )}
         </div>
         {!collab.isOwn && (
           <div className="flex gap-2 px-5 pb-5 pt-1 border-t border-border mt-1">
@@ -1489,6 +1555,7 @@ export default function Feed() {
   });
   const [collabDialog, setCollabDialog] = useState({
     open: false, title: "", looking: "", desc: "", skills: [] as string[],
+    candidateLocation: "",
     image: undefined as string|undefined,
     video: undefined as string|undefined,
     uploading: false,
@@ -1594,6 +1661,7 @@ export default function Feed() {
       title: c.title, looking: c.looking, description: c.description, createdAt: c.created_at,
       skills: c.skills || [], image: c.image_url || c.image || undefined,
       video: c.video_url || c.video || undefined,
+      candidateLocation: c.candidate_location || c.candidateLocation || undefined,
       isOwn: c.isOwn ?? (c.user_id === user.id),
     }));
     setPosts(mappedPosts);
@@ -1719,6 +1787,7 @@ export default function Feed() {
         title: c.title, looking: c.looking, description: c.description, createdAt: c.created_at,
         skills: c.skills || [], image: c.image_url || c.image || undefined,
         video: c.video_url || c.video || undefined,
+        candidateLocation: c.candidate_location || c.candidateLocation || undefined,
         isOwn: c.isOwn ?? (c.user_id === user.id),
       }));
       setSavedCollabs(prev => {
@@ -2165,6 +2234,7 @@ export default function Feed() {
           looking: collabDialog.looking,
           description: collabDialog.desc,
           skills: collabDialog.skills,
+          candidate_location: collabDialog.candidateLocation.trim() || undefined,
           image: collabDialog.image || undefined,
           video: collabDialog.video || undefined,
         });
@@ -2181,10 +2251,11 @@ export default function Feed() {
         authorDeleted: false, authorRole: user.role,
         title: collabDialog.title,
         looking: collabDialog.looking, description: collabDialog.desc, skills: collabDialog.skills,
+        candidateLocation: collabDialog.candidateLocation.trim() || undefined,
         image: collabDialog.image, video: collabDialog.video, isOwn: true, createdAt: new Date().toISOString(),
       }, ...p]);
       setActiveTab("collabs");
-      setCollabDialog({ open: false, title: "", looking: "", desc: "", skills: [], image: undefined, video: undefined, uploading: false, publishing: false, customSkillInput: "" });
+      setCollabDialog({ open: false, title: "", looking: "", desc: "", skills: [], candidateLocation: "", image: undefined, video: undefined, uploading: false, publishing: false, customSkillInput: "" });
       localStorage.removeItem(FEED_CACHE_KEY);
       const { posts: rawPosts, collabs: rawCollabs } = await getFeed();
       applyFeedData(rawPosts, rawCollabs);
@@ -2264,11 +2335,11 @@ export default function Feed() {
   return (
     <Layout>
       <div className="max-w-2xl mx-auto px-4 py-6">
-        <h1 className="text-2xl font-bold mb-6 text-foreground">Community Feed</h1>
+        <h1 className="text-2xl font-bold mb-6 text-foreground">Prolifier Feed</h1>
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="w-full mb-6">
-            <TabsTrigger value="feed" className="flex-1">Feed</TabsTrigger>
-            <TabsTrigger value="collabs" className="flex-1">Collabs</TabsTrigger>
+            <TabsTrigger value="feed" className="flex-1">Posts</TabsTrigger>
+            <TabsTrigger value="collabs" className="flex-1">Collab</TabsTrigger>
           </TabsList>
 
           {/* ── FEED ── */}
@@ -2484,6 +2555,17 @@ export default function Feed() {
                         Add
                       </Button>
                     </div>
+                  </div>
+                  {/* Preferred Candidate Location */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-sm font-medium">Preferred Candidate Location</label>
+                      <span className="text-xs text-muted-foreground">Optional</span>
+                    </div>
+                    <CollabLocationPicker
+                      value={collabDialog.candidateLocation}
+                      onChange={v => setCollabDialog(d => ({ ...d, candidateLocation: v }))}
+                    />
                   </div>
                 </div>
                 <DialogFooter>

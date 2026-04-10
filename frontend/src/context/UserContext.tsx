@@ -30,6 +30,7 @@ export type CurrentUser = {
   twitter: string;
   primaryLang: string;
   openToCollab: boolean;
+  startupStage: string;
   profileSetupDone: boolean;
   updatedAt: string;
   nameChangedAt: string | null;
@@ -56,6 +57,7 @@ const DEFAULT_USER: CurrentUser = {
   twitter: "",
   primaryLang: "en",
   openToCollab: true,
+  startupStage: "",
   profileSetupDone: false,
   updatedAt: "",
   nameChangedAt: null,
@@ -149,6 +151,7 @@ function profileFromRow(userId: string, email: string, row: any): CurrentUser {
     twitter: row.twitter || "",
     primaryLang: row.primary_lang || "en",
     openToCollab: row.open_to_collab ?? true,
+    startupStage: row.startup_stage || "",
     profileSetupDone: row.profile_complete ?? false,
     updatedAt: row.updated_at || "",
     nameChangedAt: row.name_changed_at || null,

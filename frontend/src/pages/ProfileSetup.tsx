@@ -29,6 +29,7 @@ export default function ProfileSetup() {
   const [github, setGithub]     = useState("");
   const [website, setWebsite]   = useState("");
   const [twitter, setTwitter]   = useState("");
+  const [startupStage, setStartupStage] = useState("");
   const [finishing, setFinishing] = useState(false);
   const [customSkillInput, setCustomSkillInput] = useState("");
   const [avatarUrl, setAvatarUrl] = useState(user.avatarUrl || "");
@@ -104,6 +105,7 @@ export default function ProfileSetup() {
       skills, lookingFor: [], roles: [],
       github: github.trim(), website: website.trim(), twitter: twitter.trim(),
       openToCollab: available,
+      startupStage: startupStage || undefined,
     };
   };
 
@@ -232,6 +234,25 @@ export default function ProfileSetup() {
           <span className="text-xs text-muted-foreground">Optional</span>
         </div>
         <Input value={building} onChange={e => setBuilding(e.target.value)} placeholder="A ceramics shop, a podcast, an app…" className="h-11" maxLength={150} />
+      </div>
+      <div>
+        <div className="flex items-center justify-between mb-1.5">
+          <label className="text-sm font-medium text-foreground">Startup Stage</label>
+          <span className="text-xs text-muted-foreground">Optional</span>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {["Ideation","MVP","Traction","Scaling","None"].map(stage => (
+            <button key={stage} type="button"
+              onClick={() => setStartupStage(prev => prev === stage ? "" : stage)}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                startupStage === stage
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
+              }`}>
+              {stage}
+            </button>
+          ))}
+        </div>
       </div>
     </div>,
 
