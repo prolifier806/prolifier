@@ -37,80 +37,11 @@ export const createCommentSchema = z.object({
   parentId: z.string().uuid().optional().nullable(),
 });
 
-// ── Feed helpers ─────────────────────────────────────────────────────────────
-
-/**
- * Assign a priority tier to a post/collab for feed ranking.
- * Lower number = higher priority.
- *   0 – own content
- *   1 – connected users
- *   2 – skill/tag overlap
- *   3 – everything else
- */
-function feedPriority(
-  authorId: string,
-  userId: string,
-  connectedIds: Set<string>,
-  userSkills: string[],
-  itemSkillsOrTag: string[],
-): number {
-  if (authorId === userId || connectedIds.has(authorId)) return 1;
-  const hasOverlap = itemSkillsOrTag.some(s =>
-    userSkills.some(us => us.toLowerCase() === s.toLowerCase()),
-  );
-  if (hasOverlap) return 2;
-  return 3;
-}
-
-/**
- * Sort items within the same priority tier: higher engagement first,
- * then recency as a tiebreaker.
- */
-function withinTierSort(a: any, b: any): number {
-  const now = Date.now();
-  const ageA = now - new Date(a.created_at).getTime();
-  const ageB = now - new Date(b.created_at).getTime();
-  const ONE_HOUR = 60 * 60 * 1000;
-  // Posts newer than 1 hour always rank by recency first
-  const aNew = ageA < ONE_HOUR;
-  const bNew = ageB < ONE_HOUR;
-  if (aNew && bNew) return ageA - ageB;
-  if (aNew) return -1;
-  if (bNew) return 1;
-  // Older posts: engagement first, recency as tiebreaker
-  const engA = (a.likes ?? 0) + (a.comment_count ?? 0) * 2;
-  const engB = (b.likes ?? 0) + (b.comment_count ?? 0) * 2;
-  if (engB !== engA) return engB - engA;
-  return ageA - ageB;
-}
-
-/**
- * De-cluster: redistribute so no more than 2 consecutive items from the
- * same author appear together. Items are moved to the next safe slot.
- */
-function decluster<T extends { user_id: string }>(items: T[]): T[] {
-  const result: T[] = [];
-  const queue = [...items];
-  while (queue.length) {
-    const last2 = result.slice(-2).map(i => i.user_id);
-    const idx = queue.findIndex(i => last2[0] !== i.user_id || last2[1] !== i.user_id);
-    if (idx === -1) {
-      // Everything remaining is the same author; just append
-      result.push(...queue.splice(0));
-    } else {
-      result.push(...queue.splice(idx, 1));
-    }
-  }
-  return result;
-}
-
 // ── Feed ─────────────────────────────────────────────────────────────────────
 
 export async function getFeed(req: AuthRequest, res: Response): Promise<void> {
   const userId = req.user.id;
   const cursor = req.query.cursor as string | undefined;
-  // Fetch a pool 2× the page size — enough material for ranking without over-fetching
-  const POOL = PAGE_SIZE * 2;
 
   let postsQuery = supabaseAdmin
     .from("posts")
@@ -120,7 +51,7 @@ export async function getFeed(req: AuthRequest, res: Response): Promise<void> {
       profiles:user_id (id, name, avatar, color, avatar_url, location, skills, role, deleted_at)
     `)
     .order("created_at", { ascending: false })
-    .limit(POOL);
+    .limit(PAGE_SIZE);
 
   if (cursor) postsQuery = postsQuery.lt("created_at", cursor);
 
@@ -131,16 +62,14 @@ export async function getFeed(req: AuthRequest, res: Response): Promise<void> {
       profiles:user_id (id, name, avatar, color, avatar_url, location, skills, role, deleted_at)
     `)
     .order("created_at", { ascending: false })
-    .limit(POOL);
+    .limit(PAGE_SIZE);
 
   if (cursor) collabsQuery = collabsQuery.lt("created_at", cursor);
 
-  // Fire all queries in parallel — user's like/save sets fetched up-front
   const [
     blockedRes, blockerRes,
     postsRes, collabsRes,
     likesRes, savedPostsRes, savedCollabsRes, collabInterestsRes,
-    connectionsRes, profileRes,
   ] = await Promise.all([
     supabaseAdmin.from("blocks").select("blocked_id").eq("blocker_id", userId),
     supabaseAdmin.from("blocks").select("blocker_id").eq("blocked_id", userId),
@@ -150,12 +79,6 @@ export async function getFeed(req: AuthRequest, res: Response): Promise<void> {
     supabaseAdmin.from("saved_posts").select("post_id").eq("user_id", userId),
     supabaseAdmin.from("saved_collabs").select("collab_id").eq("user_id", userId),
     supabaseAdmin.from("collab_interests").select("collab_id").eq("user_id", userId),
-    supabaseAdmin
-      .from("connections")
-      .select("requester_id, receiver_id")
-      .eq("status", "accepted")
-      .or(`requester_id.eq.${userId},receiver_id.eq.${userId}`),
-    supabaseAdmin.from("profiles").select("skills").eq("id", userId).single(),
   ]);
 
   if (postsRes.error) { res.status(500).json({ success: false, error: postsRes.error.message }); return; }
@@ -166,97 +89,30 @@ export async function getFeed(req: AuthRequest, res: Response): Promise<void> {
     ...(blockerRes.data ?? []).map((r: any) => r.blocker_id),
   ]);
 
-  const connectedIds = new Set(
-    (connectionsRes.data ?? []).map((r: any) =>
-      r.requester_id === userId ? r.receiver_id : r.requester_id,
-    ),
-  );
-
-  const userSkills: string[] = (profileRes.data as any)?.skills ?? [];
-
   const posts = (postsRes.data ?? []).filter((p: any) => !blockedIds.has(p.user_id));
   const collabs = (collabsRes.data ?? []).filter((c: any) => !blockedIds.has(c.user_id));
 
-  // Rank posts — with recency injection so very new posts always appear
-  // regardless of tier. Top 5 most recent posts are guaranteed a slot; the
-  // remaining PAGE_SIZE-5 slots are filled by ranked content (deduped).
-  const RECENCY_SLOTS = 5;
-  const withPriorityPosts = posts.map((p: any) => ({
-    ...p,
-    _priority: feedPriority(p.user_id, userId, connectedIds, userSkills, [p.tag ?? ""]),
-  }));
-  const recentPosts = [...withPriorityPosts]
-    .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-    .slice(0, RECENCY_SLOTS);
-  const recentPostIds = new Set(recentPosts.map((p: any) => p.id));
-  const rankedRestPosts = withPriorityPosts
-    .filter((p: any) => !recentPostIds.has(p.id))
-    .sort((a: any, b: any) => {
-      if (a._priority !== b._priority) return a._priority - b._priority;
-      return withinTierSort(a, b);
-    })
-    .slice(0, PAGE_SIZE - RECENCY_SLOTS);
-  // Merge: recency posts first, then ranked. Re-sort recency slots by priority
-  // so own/connection posts still float above strangers within the recency group.
-  const rankedPosts = [
-    ...recentPosts.sort((a: any, b: any) => {
-      if (a._priority !== b._priority) return a._priority - b._priority;
-      return withinTierSort(a, b);
-    }),
-    ...rankedRestPosts,
-  ].slice(0, PAGE_SIZE);
-
-  // Rank collabs — same recency injection
-  const withPriorityCollabs = collabs.map((c: any) => ({
-    ...c,
-    _priority: feedPriority(c.user_id, userId, connectedIds, userSkills, c.skills ?? []),
-  }));
-  const recentCollabs = [...withPriorityCollabs]
-    .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-    .slice(0, RECENCY_SLOTS);
-  const recentCollabIds = new Set(recentCollabs.map((c: any) => c.id));
-  const rankedRestCollabs = withPriorityCollabs
-    .filter((c: any) => !recentCollabIds.has(c.id))
-    .sort((a: any, b: any) => {
-      if (a._priority !== b._priority) return a._priority - b._priority;
-      return withinTierSort(a, b);
-    })
-    .slice(0, PAGE_SIZE - RECENCY_SLOTS);
-  const rankedCollabs = [
-    ...recentCollabs.sort((a: any, b: any) => {
-      if (a._priority !== b._priority) return a._priority - b._priority;
-      return withinTierSort(a, b);
-    }),
-    ...rankedRestCollabs,
-  ].slice(0, PAGE_SIZE);
-
-  const postIds = new Set(rankedPosts.map((p: any) => p.id));
-  const collabIds = new Set(rankedCollabs.map((c: any) => c.id));
+  const postIds = new Set(posts.map((p: any) => p.id));
+  const collabIds = new Set(collabs.map((c: any) => c.id));
 
   const likedSet = new Set((likesRes.data ?? []).filter((r: any) => postIds.has(r.post_id)).map((r: any) => r.post_id));
   const savedPostSet = new Set((savedPostsRes.data ?? []).filter((r: any) => postIds.has(r.post_id)).map((r: any) => r.post_id));
   const savedCollabSet = new Set((savedCollabsRes.data ?? []).filter((r: any) => collabIds.has(r.collab_id)).map((r: any) => r.collab_id));
   const interestedSet = new Set((collabInterestsRes.data ?? []).filter((r: any) => collabIds.has(r.collab_id)).map((r: any) => r.collab_id));
 
-  const enrichedPosts = decluster(
-    rankedPosts.map((p: any) => ({
-      ...p,
-      _priority: undefined,
-      isLiked: likedSet.has(p.id),
-      isSaved: savedPostSet.has(p.id),
-      isOwn: p.user_id === userId,
-    })),
-  );
+  const enrichedPosts = posts.map((p: any) => ({
+    ...p,
+    isLiked: likedSet.has(p.id),
+    isSaved: savedPostSet.has(p.id),
+    isOwn: p.user_id === userId,
+  }));
 
-  const enrichedCollabs = decluster(
-    rankedCollabs.map((c: any) => ({
-      ...c,
-      _priority: undefined,
-      isInterested: interestedSet.has(c.id),
-      isSaved: savedCollabSet.has(c.id),
-      isOwn: c.user_id === userId,
-    })),
-  );
+  const enrichedCollabs = collabs.map((c: any) => ({
+    ...c,
+    isInterested: interestedSet.has(c.id),
+    isSaved: savedCollabSet.has(c.id),
+    isOwn: c.user_id === userId,
+  }));
 
   res.setHeader("Cache-Control", "no-store");
   res.json({ success: true, data: { posts: enrichedPosts, collabs: enrichedCollabs } });
