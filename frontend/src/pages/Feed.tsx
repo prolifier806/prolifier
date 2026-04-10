@@ -2025,11 +2025,30 @@ export default function Feed() {
         toast({ title: modMsg ?? "Failed to create post", variant: "destructive" });
         return;
       }
-      // Invalidate cache and reload feed from server so new post appears at top
-      localStorage.removeItem(FEED_CACHE_KEY);
-      const { posts: rawPosts, collabs: rawCollabs } = await getFeed();
-      applyFeedData(rawPosts, rawCollabs);
-      try { localStorage.setItem(FEED_CACHE_KEY, JSON.stringify({ ts: Date.now(), posts: rawPosts, collabs: rawCollabs })); } catch { /* ignore */ }
+      // Replace the optimistic post with the real post from server response
+      const realPost: Post = {
+        id: data.id, user_id: user.id, author: user.name, avatar: user.avatar,
+        avatarUrl: user.avatarUrl || undefined, avatarColor: user.color,
+        location: user.location, authorSkills: user.skills?.slice(0, 3) || [],
+        authorDeleted: false, authorRole: user.role,
+        tag, time: "Just now", createdAt: data.created_at || new Date().toISOString(),
+        content, images, video,
+        likes: 0, commentCount: 0, isOwn: true, comments: [],
+      };
+      setPosts(p => {
+        const updated = p.map(x => x.id === tempId ? realPost : x);
+        // Persist to cache so the post survives a refresh
+        try {
+          const cached = localStorage.getItem(FEED_CACHE_KEY);
+          const existing = cached ? JSON.parse(cached) : { ts: Date.now(), posts: [], collabs: [] };
+          // Build a raw-shaped entry for the cache
+          const rawEntry = { id: realPost.id, user_id: user.id, created_at: realPost.createdAt, content, tag, image_urls: images, video_url: video, likes: 0, comment_count: 0, isOwn: true, isSaved: false, isLiked: false, profiles: { name: user.name, avatar: user.avatar, avatar_url: user.avatarUrl, color: user.color, location: user.location, skills: user.skills, role: user.role } };
+          existing.posts = [rawEntry, ...(existing.posts || []).filter((r: any) => r.id !== realPost.id)];
+          existing.ts = Date.now();
+          localStorage.setItem(FEED_CACHE_KEY, JSON.stringify(existing));
+        } catch { /* ignore */ }
+        return updated;
+      });
       toast({ title: "Post published! 🎉" });
     } finally {
       setPostDialog(d => ({ ...d, publishing: false }));
