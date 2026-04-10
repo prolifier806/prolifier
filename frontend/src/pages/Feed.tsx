@@ -1596,8 +1596,13 @@ export default function Feed() {
       video: c.video_url || c.video || undefined,
       isOwn: c.isOwn ?? (c.user_id === user.id),
     }));
-    setPosts(mappedPosts);
-    setCollabs(mappedCollabs);
+    // Always pin own posts to the top sorted by newest first
+    const ownPosts = mappedPosts.filter(p => p.user_id === user.id).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const otherPosts = mappedPosts.filter(p => p.user_id !== user.id);
+    const ownCollabs = mappedCollabs.filter(c => c.user_id === user.id).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const otherCollabs = mappedCollabs.filter(c => c.user_id !== user.id);
+    setPosts([...ownPosts, ...otherPosts]);
+    setCollabs([...ownCollabs, ...otherCollabs]);
     setLikedPosts(new Set((rawPosts || []).filter((p: any) => p.isLiked).map((p: any) => p.id)));
     setSavedPosts(new Set((rawPosts || []).filter((p: any) => p.isSaved).map((p: any) => p.id)));
     setSavedCollabs(new Set((rawCollabs || []).filter((c: any) => c.isSaved).map((c: any) => c.id)));
