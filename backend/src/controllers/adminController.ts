@@ -112,16 +112,27 @@ export async function getReports(req: AuthRequest, res: Response): Promise<void>
 
   const { data, error, count } = await supabaseAdmin
     .from("reports")
-    .select(`
-      id, target_id, target_type, reason, details, status, created_at,
-      reporter:reporter_id (id, name),
-    `, { count: "exact" })
+    .select("id, target_id, target_type, reason, details, status, created_at, reporter_id", { count: "exact" })
     .eq("status", status)
     .order("created_at", { ascending: false })
     .range(offset, offset + limit - 1);
 
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
-  res.json({ success: true, data, total: count });
+
+  // Fetch reporter names from profiles
+  const reporterIds = [...new Set((data || []).map((r: any) => r.reporter_id).filter(Boolean))];
+  const { data: reporterProfiles } = reporterIds.length
+    ? await supabaseAdmin.from("profiles").select("id, name").in("id", reporterIds)
+    : { data: [] };
+  const reporterMap: Record<string, string> = {};
+  for (const p of reporterProfiles || []) reporterMap[p.id] = p.name;
+
+  const reports = (data || []).map((r: any) => ({
+    ...r,
+    reporter: r.reporter_id ? { id: r.reporter_id, name: reporterMap[r.reporter_id] || "Unknown" } : null,
+  }));
+
+  res.json({ success: true, data: reports, total: count });
 }
 
 export async function getModerationFlags(req: AuthRequest, res: Response): Promise<void> {
@@ -187,7 +198,7 @@ export async function getUsers(req: AuthRequest, res: Response): Promise<void> {
   let query = supabaseAdmin
     .from("profiles")
     .select(
-      "id, name, avatar, color, role, account_status, suspended_until, created_at, deleted_at",
+      "id, name, avatar, color, role, account_status, created_at, deleted_at",
       { count: "exact" }
     )
     .order("created_at", { ascending: false })
@@ -212,6 +223,7 @@ export async function getUsers(req: AuthRequest, res: Response): Promise<void> {
 
   const users = (data || []).map((u: any) => ({
     ...u,
+    suspended_until: null,
     postsCount: postCounts[u.id] || 0,
     reportsCount: reportCounts[u.id] || 0,
   }));
