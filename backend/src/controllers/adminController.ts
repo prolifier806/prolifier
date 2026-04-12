@@ -271,11 +271,7 @@ export async function getPosts(req: AuthRequest, res: Response): Promise<void> {
 
   let query = supabaseAdmin
     .from("posts")
-    .select(
-      "id, content, tag, created_at, likes, deleted_at, user_id, profiles:user_id(name, avatar)",
-      { count: "exact" }
-    )
-    .is("deleted_at", null)
+    .select("id, content, tag, created_at, user_id", { count: "exact" })
     .order("created_at", { ascending: false })
     .range(offset, offset + limit - 1);
 
@@ -285,13 +281,22 @@ export async function getPosts(req: AuthRequest, res: Response): Promise<void> {
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
 
   const postIds = (data || []).map((p: any) => p.id);
-  const { data: reportData } = await supabaseAdmin
-    .from("reports")
-    .select("target_id")
-    .in("target_id", postIds);
+  const userIds = [...new Set((data || []).map((p: any) => p.user_id).filter(Boolean))];
+
+  const [reportRes, profileRes] = await Promise.all([
+    postIds.length
+      ? supabaseAdmin.from("reports").select("target_id").in("target_id", postIds)
+      : Promise.resolve({ data: [] }),
+    userIds.length
+      ? supabaseAdmin.from("profiles").select("id, name, avatar").in("id", userIds)
+      : Promise.resolve({ data: [] }),
+  ]);
 
   const reportCounts: Record<string, number> = {};
-  for (const r of reportData || []) reportCounts[r.target_id] = (reportCounts[r.target_id] || 0) + 1;
+  for (const r of (reportRes as any).data || []) reportCounts[r.target_id] = (reportCounts[r.target_id] || 0) + 1;
+
+  const profileMap: Record<string, any> = {};
+  for (const p of (profileRes as any).data || []) profileMap[p.id] = p;
 
   const posts = (data || []).map((p: any) => ({
     id: p.id,
@@ -299,8 +304,8 @@ export async function getPosts(req: AuthRequest, res: Response): Promise<void> {
     tag: p.tag,
     createdAt: p.created_at,
     userId: p.user_id,
-    author: (p.profiles as any)?.name || "Unknown",
-    authorAvatar: (p.profiles as any)?.avatar || "?",
+    author: profileMap[p.user_id]?.name || "Unknown",
+    authorAvatar: profileMap[p.user_id]?.avatar || "?",
     reportsCount: reportCounts[p.id] || 0,
     status: (reportCounts[p.id] || 0) > 0 ? "flagged" : "published",
   }));
