@@ -43,13 +43,14 @@ const Feedback        = lazyWithReload(() => import("./pages/Feedback"));
 const AccountRecovery = lazyWithReload(() => import("./pages/AccountRecovery"));
 const NotFound        = lazyWithReload(() => import("./pages/NotFound"));
 
-// Admin pages (lazy-loaded, only downloaded when accessed)
-const AdminDashboard = lazyWithReload(() => import("./pages/admin/Dashboard"));
-const AdminUsers     = lazyWithReload(() => import("./pages/admin/Users"));
-const AdminPosts     = lazyWithReload(() => import("./pages/admin/Posts"));
-const AdminReports   = lazyWithReload(() => import("./pages/admin/Reports"));
-const AdminNotices   = lazyWithReload(() => import("./pages/admin/Notices"));
-const AdminActivity  = lazyWithReload(() => import("./pages/admin/Activity"));
+// Admin pages — imported directly (not lazy) to avoid chunk evaluation order
+// issues with the vendor-radix chunk under experimentalMinChunkSize merging.
+import AdminDashboard from "./pages/admin/Dashboard";
+import AdminUsers     from "./pages/admin/Users";
+import AdminPosts     from "./pages/admin/Posts";
+import AdminReports   from "./pages/admin/Reports";
+import AdminNotices   from "./pages/admin/Notices";
+import AdminActivity  from "./pages/admin/Activity";
 
 const queryClient = new QueryClient({
   defaultOptions: {
