@@ -7,13 +7,13 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/context/ThemeContext";
 import { UserProvider, useUser } from "@/context/UserContext";
 
-// Admin pages — direct imports (not lazy) to avoid vendor-radix chunk ordering issues
-import AdminDashboard from "./pages/admin/Dashboard";
-import AdminUsers     from "./pages/admin/Users";
-import AdminPosts     from "./pages/admin/Posts";
-import AdminReports   from "./pages/admin/Reports";
-import AdminNotices   from "./pages/admin/Notices";
-import AdminActivity  from "./pages/admin/Activity";
+// Admin pages
+const AdminDashboard = lazyWithReload(() => import("./pages/admin/Dashboard"));
+const AdminUsers     = lazyWithReload(() => import("./pages/admin/Users"));
+const AdminPosts     = lazyWithReload(() => import("./pages/admin/Posts"));
+const AdminReports   = lazyWithReload(() => import("./pages/admin/Reports"));
+const AdminNotices   = lazyWithReload(() => import("./pages/admin/Notices"));
+const AdminActivity  = lazyWithReload(() => import("./pages/admin/Activity"));
 
 // Wraps lazy() and auto-reloads once when a chunk fails to load after a deploy.
 function lazyWithReload(fn: () => Promise<{ default: any }>) {

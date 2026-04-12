@@ -27,9 +27,6 @@ export default defineConfig(({ mode }) => ({
     sourcemap: "hidden",
     rollupOptions: {
       output: {
-        // Prevent Rollup from creating hundreds of tiny icon files.
-        // Any chunk smaller than 20KB gets merged into its importer.
-        experimentalMinChunkSize: 20_000,
         // WHY: Content-hash filenames ensure CDN/browser caches are busted
         // automatically on deploy without needing a cache-invalidation step.
         chunkFileNames: "assets/[name]-[hash].js",
