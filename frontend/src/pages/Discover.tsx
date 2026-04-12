@@ -122,16 +122,29 @@ export default function Discover() {
     return () => clearTimeout(debounceRef.current);
   }, [search]);
 
-  // Fetch user's own collab posts to extract required skills for recommendations
+  // Fetch user's own collab posts to extract required skills for recommendations.
+  // We cache the result in localStorage so recommendations are applied on first paint
+  // (prevents profiles reordering after the initial render).
+  const SKILLS_CACHE_KEY = `prolifier:collab-skills:${user.id}`;
   useEffect(() => {
     if (!user.id) return;
+    // Load cached skills immediately so sort order is stable on first paint
+    try {
+      const raw = localStorage.getItem(SKILLS_CACHE_KEY);
+      if (raw) setCollabSkills(JSON.parse(raw));
+    } catch { /* ignore */ }
+
     (supabase as any)
       .from("collabs")
       .select("skills")
       .eq("user_id", user.id)
       .limit(10)
       .then(({ data }: any) => {
-        if (!data || data.length === 0) { setCollabSkills([]); return; }
+        if (!data || data.length === 0) {
+          setCollabSkills([]);
+          try { localStorage.removeItem(SKILLS_CACHE_KEY); } catch { /* ignore */ }
+          return;
+        }
         const all: string[] = [];
         for (const c of data) {
           for (const s of (c.skills || [])) {
@@ -140,6 +153,7 @@ export default function Discover() {
           }
         }
         setCollabSkills(all);
+        try { localStorage.setItem(SKILLS_CACHE_KEY, JSON.stringify(all)); } catch { /* quota */ }
       })
       .catch(() => setCollabSkills([]));
   }, [user.id]);
@@ -541,11 +555,6 @@ export default function Discover() {
                                 </span>
                               )}
                             </button>
-                            {p.isRecommended && (
-                              <span className="inline-flex items-center text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-300">
-                                ★ Recommended
-                              </span>
-                            )}
                             <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full border ${
                               p.openToCollab
                                 ? "bg-emerald-500 text-white border-emerald-500"

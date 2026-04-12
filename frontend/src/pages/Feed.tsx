@@ -1112,9 +1112,22 @@ function CollabLocationPicker({ value, onChange }: { value: string; onChange: (v
   const [dropdownStyle, setDropdownStyle] = useState<React.CSSProperties>({});
   const wrapRef = useRef<HTMLDivElement>(null);
 
-  const suggestions = query.trim().length >= 1
-    ? ALL_LOCATIONS.filter(l => l.toLowerCase().includes(query.toLowerCase())).slice(0, 20)
-    : [];
+  // Better matching: prefix matches first, then substring matches — all alphabetically sorted
+  const suggestions = (() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    const prefix: string[] = [];
+    const contains: string[] = [];
+    for (const loc of ALL_LOCATIONS) {
+      const l = loc.toLowerCase();
+      if (l.startsWith(q)) prefix.push(loc);
+      else if (l.includes(q)) contains.push(loc);
+    }
+    // Both groups are already alphabetical (LOCATIONS is sorted); merge prefix-first
+    return [...prefix, ...contains].slice(0, 20);
+  })();
+
+  const isValid = ALL_LOCATIONS.includes(query) || query === "";
 
   const handleSelect = (loc: string) => { onChange(loc); setQuery(loc); setShow(false); };
   const handleClear  = () => { onChange(""); setQuery(""); };
@@ -1127,17 +1140,27 @@ function CollabLocationPicker({ value, onChange }: { value: string; onChange: (v
     setShow(true);
   };
 
+  // On blur: if the typed text isn't a valid country, revert to the last committed value
+  const handleBlur = () => {
+    setTimeout(() => {
+      setShow(false);
+      if (!ALL_LOCATIONS.includes(query) && query !== "") {
+        setQuery(value); // revert to last valid committed value
+      }
+    }, 150);
+  };
+
   return (
     <div className="relative" ref={wrapRef}>
       <div className="relative">
         <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
         <Input
           value={query}
-          onChange={e => { setQuery(e.target.value); onChange(e.target.value); setShow(true); }}
+          onChange={e => { setQuery(e.target.value); setShow(true); }}
           onFocus={handleFocus}
-          onBlur={() => setTimeout(() => setShow(false), 150)}
+          onBlur={handleBlur}
           placeholder="No preference"
-          className="h-10 pl-9 pr-8"
+          className={`h-10 pl-9 pr-8 ${!isValid && query ? "border-destructive focus-visible:ring-destructive" : ""}`}
         />
         {query && (
           <button type="button" onClick={handleClear}
@@ -1146,6 +1169,9 @@ function CollabLocationPicker({ value, onChange }: { value: string; onChange: (v
           </button>
         )}
       </div>
+      {!isValid && query && (
+        <p className="text-xs text-destructive mt-1">Select a country from the list or leave blank.</p>
+      )}
       {show && suggestions.length > 0 && createPortal(
         <div style={dropdownStyle} className="bg-card border border-border rounded-lg shadow-lg max-h-48 overflow-y-auto">
           <button type="button" onMouseDown={() => handleSelect("")}
@@ -1428,7 +1454,14 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
           </DropdownMenu>
         </div>
         <div className="px-5 pb-4 space-y-2">
-          <p className="text-sm font-medium text-foreground/70 leading-snug truncate">{collab.title}</p>
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-sm font-medium text-foreground/70 leading-snug truncate flex-1">{collab.title}</p>
+            {collab.candidateLocation && (
+              <span className="shrink-0 inline-flex items-center gap-1 text-xs text-muted-foreground bg-secondary border border-border rounded-full px-2 py-0.5 whitespace-nowrap">
+                <MapPin className="h-3 w-3 text-primary/60 shrink-0"/> {collab.candidateLocation}
+              </span>
+            )}
+          </div>
           <p className="text-[15px] leading-snug">
             <span className="text-muted-foreground">Looking for </span>
             <span className="font-semibold text-primary">{collab.looking}</span>
@@ -1448,11 +1481,6 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
             <div className="flex flex-wrap gap-1.5">
               {collab.skills.map((s)=><Badge key={s} variant="secondary" className="text-xs">{s}</Badge>)}
             </div>
-          )}
-          {collab.candidateLocation && (
-            <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
-              <MapPin className="h-3 w-3 shrink-0 text-primary/60"/> Preferred location: <span className="font-medium text-foreground">{collab.candidateLocation}</span>
-            </p>
           )}
         </div>
         {!collab.isOwn && (
@@ -2497,7 +2525,7 @@ export default function Feed() {
                     <Input value={collabDialog.looking}
                       onChange={e => setCollabDialog(d => ({ ...d, looking: e.target.value }))}
                       maxLength={50}
-                      placeholder="e.g. Designer, Sound Engineer" className="h-10"/>
+                      placeholder="e.g Designer, Technical Co-founder" className="h-10"/>
                   </div>
                   <div>
                     <label className="text-sm font-medium mb-1.5 block">Describe your project</label>
