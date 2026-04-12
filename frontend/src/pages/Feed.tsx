@@ -1111,6 +1111,11 @@ function CollabLocationPicker({ value, onChange }: { value: string; onChange: (v
   const [show, setShow] = useState(false);
   const [dropdownStyle, setDropdownStyle] = useState<React.CSSProperties>({});
   const wrapRef = useRef<HTMLDivElement>(null);
+  // Ref tracks whether a dropdown item selection is in flight (mousedown fired but blur not yet handled)
+  const selectingRef = useRef(false);
+  // Ref always mirrors latest query so blur handler reads current value (avoids stale closure)
+  const queryRef = useRef(query);
+  useEffect(() => { queryRef.current = query; }, [query]);
 
   // Better matching: prefix matches first, then substring matches — all alphabetically sorted
   const suggestions = (() => {
@@ -1129,8 +1134,14 @@ function CollabLocationPicker({ value, onChange }: { value: string; onChange: (v
 
   const isValid = ALL_LOCATIONS.includes(query) || query === "";
 
-  const handleSelect = (loc: string) => { onChange(loc); setQuery(loc); setShow(false); };
-  const handleClear  = () => { onChange(""); setQuery(""); };
+  const handleSelect = (loc: string) => {
+    selectingRef.current = false;
+    onChange(loc);
+    setQuery(loc);
+    queryRef.current = loc;
+    setShow(false);
+  };
+  const handleClear  = () => { onChange(""); setQuery(""); queryRef.current = ""; };
 
   const handleFocus = () => {
     if (wrapRef.current) {
@@ -1140,12 +1151,16 @@ function CollabLocationPicker({ value, onChange }: { value: string; onChange: (v
     setShow(true);
   };
 
-  // On blur: if the typed text isn't a valid country, revert to the last committed value
+  // On blur: if the typed text isn't a valid country, revert to the last committed value.
+  // Guard against running when a mousedown on a dropdown item is in progress.
   const handleBlur = () => {
     setTimeout(() => {
+      if (selectingRef.current) return; // selection mousedown is handling it
       setShow(false);
-      if (!ALL_LOCATIONS.includes(query) && query !== "") {
+      const current = queryRef.current;
+      if (!ALL_LOCATIONS.includes(current) && current !== "") {
         setQuery(value); // revert to last valid committed value
+        queryRef.current = value;
       }
     }, 150);
   };
@@ -1174,12 +1189,14 @@ function CollabLocationPicker({ value, onChange }: { value: string; onChange: (v
       )}
       {show && suggestions.length > 0 && createPortal(
         <div style={dropdownStyle} className="bg-card border border-border rounded-lg shadow-lg max-h-48 overflow-y-auto">
-          <button type="button" onMouseDown={() => handleSelect("")}
+          <button type="button"
+            onMouseDown={() => { selectingRef.current = true; handleSelect(""); }}
             className="w-full text-left px-3 py-2.5 text-sm text-muted-foreground hover:bg-secondary transition-colors border-b border-border">
             No preference
           </button>
           {suggestions.map(loc => (
-            <button key={loc} type="button" onMouseDown={() => handleSelect(loc)}
+            <button key={loc} type="button"
+              onMouseDown={() => { selectingRef.current = true; handleSelect(loc); }}
               className="w-full text-left px-3 py-2.5 text-sm hover:bg-secondary transition-colors">
               {loc}
             </button>

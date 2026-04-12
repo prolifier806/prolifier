@@ -460,6 +460,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       twitter: next.twitter,
       primary_lang: next.primaryLang,
       open_to_collab: next.openToCollab,
+      startup_stage: next.startupStage || null,
       updated_at: now,
       avatar_url: next.avatarUrl || null,
       ...(nameChanged && patch.name !== undefined ? { name_changed_at: now } : {}),

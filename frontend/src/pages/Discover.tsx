@@ -58,7 +58,7 @@ type Request = {
 
 function DiscoverSkeleton() {
   return (
-    <div className="grid gap-4 sm:grid-cols-2">
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
       {[1,2,3,4].map(i => (
         <div key={i} className="p-5 rounded-xl border border-border bg-card animate-pulse flex flex-col">
           <div className="flex items-start gap-3 mb-3">
@@ -96,7 +96,12 @@ export default function Discover() {
 
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [connected, setConnected] = useState<Set<string>>(new Set());
-  const [loading, setLoading] = useState(true);
+  // Lazy-init: skip skeleton entirely if we already have cached profiles to show
+  const [loading, setLoading] = useState(() => {
+    try {
+      return !localStorage.getItem(`prolifier:discover:${user.id}`);
+    } catch { return true; }
+  });
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [search, setSearch] = useState("");
@@ -455,7 +460,7 @@ export default function Discover() {
 
   return (
     <Layout>
-      <div className="max-w-3xl mx-auto px-4 py-6">
+      <div className="max-w-6xl mx-auto px-4 py-6">
         <h1 className="font-display text-2xl font-bold mb-6">Discover</h1>
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -515,7 +520,7 @@ export default function Discover() {
                 )}
               </div>
             ) : (
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 {filtered.map((p) => {
                   const isConnected = connected.has(p.id);
                   const isPending = pending.has(p.id);
