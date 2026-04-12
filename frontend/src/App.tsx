@@ -43,6 +43,14 @@ const Feedback        = lazyWithReload(() => import("./pages/Feedback"));
 const AccountRecovery = lazyWithReload(() => import("./pages/AccountRecovery"));
 const NotFound        = lazyWithReload(() => import("./pages/NotFound"));
 
+// Admin pages (lazy-loaded, only downloaded when accessed)
+const AdminDashboard = lazyWithReload(() => import("./pages/admin/Dashboard"));
+const AdminUsers     = lazyWithReload(() => import("./pages/admin/Users"));
+const AdminPosts     = lazyWithReload(() => import("./pages/admin/Posts"));
+const AdminReports   = lazyWithReload(() => import("./pages/admin/Reports"));
+const AdminNotices   = lazyWithReload(() => import("./pages/admin/Notices"));
+const AdminActivity  = lazyWithReload(() => import("./pages/admin/Activity"));
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -83,6 +91,15 @@ const SuspendedScreen = () => {
     </div>
   );
 };
+
+// Requires admin or moderator role — redirects others to /feed
+function AdminRoute({ children }: { children: React.ReactNode }) {
+  const { session, loading, user } = useUser();
+  if (loading || (session && !user.id)) return <PageLoader />;
+  if (!session) return <Navigate to="/" replace />;
+  if (!["admin", "moderator"].includes(user.role)) return <Navigate to="/feed" replace />;
+  return <>{children}</>;
+}
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { session, loading, user } = useUser();
@@ -149,6 +166,15 @@ function AppRoutes() {
         <Route path="/profile/:id"   element={<ProtectedRoute><UserProfile /></ProtectedRoute>} />
         <Route path="/feedback"      element={<ProtectedRoute><Feedback /></ProtectedRoute>} />
         <Route path="/recover"       element={<RecoverRoute><AccountRecovery /></RecoverRoute>} />
+
+        {/* Admin panel — /admin/* only for admin/moderator roles */}
+        <Route path="/admin"          element={<AdminRoute><AdminDashboard /></AdminRoute>} />
+        <Route path="/admin/users"    element={<AdminRoute><AdminUsers /></AdminRoute>} />
+        <Route path="/admin/posts"    element={<AdminRoute><AdminPosts /></AdminRoute>} />
+        <Route path="/admin/reports"  element={<AdminRoute><AdminReports /></AdminRoute>} />
+        <Route path="/admin/notices"  element={<AdminRoute><AdminNotices /></AdminRoute>} />
+        <Route path="/admin/activity" element={<AdminRoute><AdminActivity /></AdminRoute>} />
+
         <Route path="*"              element={<NotFound />} />
       </Routes>
     </Suspense>
