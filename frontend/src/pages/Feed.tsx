@@ -1109,15 +1109,10 @@ import { LOCATIONS as ALL_LOCATIONS } from "@/lib/locations";
 function CollabLocationPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const [query, setQuery] = useState(value);
   const [show, setShow] = useState(false);
-  const [dropdownStyle, setDropdownStyle] = useState<React.CSSProperties>({});
-  const wrapRef = useRef<HTMLDivElement>(null);
-  // Ref tracks whether a dropdown item selection is in flight (mousedown fired but blur not yet handled)
+  // Ref: true while a list item mousedown is in progress so blur doesn't revert the selection
   const selectingRef = useRef(false);
-  // Ref always mirrors latest query so blur handler reads current value (avoids stale closure)
-  const queryRef = useRef(query);
-  useEffect(() => { queryRef.current = query; }, [query]);
 
-  // Better matching: prefix matches first, then substring matches — all alphabetically sorted
+  // Better matching: prefix matches first, then substring — both groups alphabetically sorted
   const suggestions = (() => {
     const q = query.trim().toLowerCase();
     if (!q) return [];
@@ -1128,7 +1123,6 @@ function CollabLocationPicker({ value, onChange }: { value: string; onChange: (v
       if (l.startsWith(q)) prefix.push(loc);
       else if (l.includes(q)) contains.push(loc);
     }
-    // Both groups are already alphabetical (LOCATIONS is sorted); merge prefix-first
     return [...prefix, ...contains].slice(0, 20);
   })();
 
@@ -1138,47 +1132,36 @@ function CollabLocationPicker({ value, onChange }: { value: string; onChange: (v
     selectingRef.current = false;
     onChange(loc);
     setQuery(loc);
-    queryRef.current = loc;
     setShow(false);
   };
-  const handleClear  = () => { onChange(""); setQuery(""); queryRef.current = ""; };
+  const handleClear = () => { onChange(""); setQuery(""); setShow(false); };
 
-  const handleFocus = () => {
-    if (wrapRef.current) {
-      const rect = wrapRef.current.getBoundingClientRect();
-      setDropdownStyle({ position: "fixed", top: rect.bottom + 4, left: rect.left, width: rect.width, zIndex: 9999 });
-    }
-    setShow(true);
-  };
-
-  // On blur: if the typed text isn't a valid country, revert to the last committed value.
-  // Guard against running when a mousedown on a dropdown item is in progress.
   const handleBlur = () => {
+    // Short delay so the list item's mousedown can finish before we hide / revert
     setTimeout(() => {
-      if (selectingRef.current) return; // selection mousedown is handling it
+      if (selectingRef.current) return;
       setShow(false);
-      const current = queryRef.current;
-      if (!ALL_LOCATIONS.includes(current) && current !== "") {
-        setQuery(value); // revert to last valid committed value
-        queryRef.current = value;
+      if (!ALL_LOCATIONS.includes(query) && query !== "") {
+        setQuery(value);
       }
-    }, 150);
+    }, 200);
   };
 
   return (
-    <div className="relative" ref={wrapRef}>
+    // No portal — rendering inside the Dialog DOM prevents Radix from swallowing pointer events
+    <div className="relative">
       <div className="relative">
         <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
         <Input
           value={query}
           onChange={e => { setQuery(e.target.value); setShow(true); }}
-          onFocus={handleFocus}
+          onFocus={() => setShow(true)}
           onBlur={handleBlur}
           placeholder="No preference"
           className={`h-10 pl-9 pr-8 ${!isValid && query ? "border-destructive focus-visible:ring-destructive" : ""}`}
         />
         {query && (
-          <button type="button" onClick={handleClear}
+          <button type="button" onMouseDown={e => { e.preventDefault(); handleClear(); }}
             className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
             <X className="h-3.5 w-3.5" />
           </button>
@@ -1187,22 +1170,21 @@ function CollabLocationPicker({ value, onChange }: { value: string; onChange: (v
       {!isValid && query && (
         <p className="text-xs text-destructive mt-1">Select a country from the list or leave blank.</p>
       )}
-      {show && suggestions.length > 0 && createPortal(
-        <div style={dropdownStyle} className="bg-card border border-border rounded-lg shadow-lg max-h-48 overflow-y-auto">
+      {show && suggestions.length > 0 && (
+        <div className="mt-1 bg-card border border-border rounded-lg shadow-lg max-h-44 overflow-y-auto">
           <button type="button"
-            onMouseDown={() => { selectingRef.current = true; handleSelect(""); }}
+            onMouseDown={e => { e.preventDefault(); selectingRef.current = true; handleSelect(""); }}
             className="w-full text-left px-3 py-2.5 text-sm text-muted-foreground hover:bg-secondary transition-colors border-b border-border">
             No preference
           </button>
           {suggestions.map(loc => (
             <button key={loc} type="button"
-              onMouseDown={() => { selectingRef.current = true; handleSelect(loc); }}
+              onMouseDown={e => { e.preventDefault(); selectingRef.current = true; handleSelect(loc); }}
               className="w-full text-left px-3 py-2.5 text-sm hover:bg-secondary transition-colors">
               {loc}
             </button>
           ))}
-        </div>,
-        document.body
+        </div>
       )}
     </div>
   );
