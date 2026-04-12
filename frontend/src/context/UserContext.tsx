@@ -273,6 +273,17 @@ export function UserProvider({ children }: { children: ReactNode }) {
         writeCache(next);
         return next;
       });
+
+      // One-time backfill: startup_stage was previously never saved to the DB.
+      // If the local cache has a value but the DB row doesn't, silently persist it now
+      // so other users can see it on the public profile.
+      const cached = readCache(userId);
+      if (cached?.startupStage && !row.startup_stage) {
+        (supabase.from("profiles") as any)
+          .update({ startup_stage: cached.startupStage, updated_at: new Date().toISOString() })
+          .eq("id", userId)
+          .then(() => {});
+      }
     } catch {
       // Network error — keep current state
     }
