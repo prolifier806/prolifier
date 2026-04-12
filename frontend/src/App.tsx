@@ -7,6 +7,14 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/context/ThemeContext";
 import { UserProvider, useUser } from "@/context/UserContext";
 
+// Admin pages — direct imports (not lazy) to avoid vendor-radix chunk ordering issues
+import AdminDashboard from "./pages/admin/Dashboard";
+import AdminUsers     from "./pages/admin/Users";
+import AdminPosts     from "./pages/admin/Posts";
+import AdminReports   from "./pages/admin/Reports";
+import AdminNotices   from "./pages/admin/Notices";
+import AdminActivity  from "./pages/admin/Activity";
+
 // Wraps lazy() and auto-reloads once when a chunk fails to load after a deploy.
 function lazyWithReload(fn: () => Promise<{ default: any }>) {
   return lazy(async () => {
@@ -43,21 +51,12 @@ const Feedback        = lazyWithReload(() => import("./pages/Feedback"));
 const AccountRecovery = lazyWithReload(() => import("./pages/AccountRecovery"));
 const NotFound        = lazyWithReload(() => import("./pages/NotFound"));
 
-// Admin pages — imported directly (not lazy) to avoid chunk evaluation order
-// issues with the vendor-radix chunk under experimentalMinChunkSize merging.
-import AdminDashboard from "./pages/admin/Dashboard";
-import AdminUsers     from "./pages/admin/Users";
-import AdminPosts     from "./pages/admin/Posts";
-import AdminReports   from "./pages/admin/Reports";
-import AdminNotices   from "./pages/admin/Notices";
-import AdminActivity  from "./pages/admin/Activity";
-
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 60_000,          // data stays fresh for 1 min — prevents refetch spam
-      refetchOnWindowFocus: false, // don't refetch on every tab switch
-      retry: 1,                   // only retry once on failure (default 3 is too slow)
+      staleTime: 60_000,
+      refetchOnWindowFocus: false,
+      retry: 1,
     },
   },
 });
@@ -104,7 +103,6 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { session, loading, user } = useUser();
-  // Also hold the loader while session is set but user data hasn't populated yet
   if (loading || (session && !user.id)) return <PageLoader />;
   if (!session) return <Navigate to="/" replace />;
   if (user.deletedAt) return <Navigate to="/recover" replace />;
@@ -112,7 +110,6 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-// Only accessible when the account is in the soft-delete grace period
 function RecoverRoute({ children }: { children: React.ReactNode }) {
   const { session, loading, user } = useUser();
   if (loading) return <PageLoader />;
@@ -121,18 +118,14 @@ function RecoverRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-// Redirects to /feed if profile is already complete (prevents re-entering setup)
 function SetupRoute({ children }: { children: React.ReactNode }) {
   const { session, loading, profileComplete, user } = useUser();
-  // Keep loader up until user data is populated — prevents flash of setup page
-  // when returning user lands here after OAuth redirect
   if (loading || (session && !user.id)) return <PageLoader />;
   if (!session) return <Navigate to="/" replace />;
   if (profileComplete) return <Navigate to="/feed" replace />;
   return <>{children}</>;
 }
 
-// Redirects already-authenticated users away from auth pages
 function AuthRoute({ children }: { children: React.ReactNode }) {
   const { session, loading, profileComplete, user } = useUser();
   if (loading) return <PageLoader />;
@@ -141,7 +134,6 @@ function AuthRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-// Redirects to / (→ feed/setup) if user already has a session
 function GuestOnlyRoute({ children }: { children: React.ReactNode }) {
   const { session, loading } = useUser();
   if (loading) return <PageLoader />;
