@@ -58,25 +58,48 @@ const DETAILS_LIMIT = 160;
 
 function ImagePreview({ src }: { src: string }) {
   const [failed, setFailed] = useState(false);
-  return failed ? (
-    <a
-      href={src}
-      target="_blank"
-      rel="noreferrer"
-      className="flex items-center justify-center rounded-md border border-border bg-muted h-24 text-xs text-primary underline hover:bg-muted/80 transition-colors px-2 text-center"
-    >
-      Image failed to load — click to open ↗
-    </a>
-  ) : (
-    <a href={src} target="_blank" rel="noreferrer" className="block">
-      <img
-        src={src}
-        alt="reported media"
-        referrerPolicy="no-referrer"
-        className="w-full rounded-md object-cover max-h-64 cursor-pointer hover:opacity-90 transition-opacity bg-muted"
-        onError={() => setFailed(true)}
-      />
-    </a>
+
+  if (!src) return null;
+
+  // Always show a clickable link to the image — as primary display when loaded,
+  // or as fallback with prominent open-button when the inline render fails.
+  return (
+    <div className="relative rounded-md overflow-hidden border border-border bg-muted">
+      {!failed && (
+        <img
+          src={src}
+          alt="reported media"
+          className="w-full object-cover max-h-72 block"
+          onLoad={() => {}} // keep alive
+          onError={() => setFailed(true)}
+        />
+      )}
+      {failed && (
+        <div className="flex flex-col items-center justify-center gap-2 py-8 px-4 text-center">
+          <span className="text-xs text-muted-foreground">Image could not load inline</span>
+          <a
+            href={src}
+            target="_blank"
+            rel="noreferrer"
+            className="text-xs font-medium text-primary underline underline-offset-2 hover:opacity-80"
+          >
+            Open image in new tab ↗
+          </a>
+        </div>
+      )}
+      {/* Always show open-in-tab overlay on hover */}
+      {!failed && (
+        <a
+          href={src}
+          target="_blank"
+          rel="noreferrer"
+          className="absolute inset-0 flex items-end justify-end p-2 opacity-0 hover:opacity-100 transition-opacity bg-black/20"
+          title="Open full size"
+        >
+          <span className="text-[10px] text-white bg-black/50 rounded px-1.5 py-0.5">Open ↗</span>
+        </a>
+      )}
+    </div>
   );
 }
 

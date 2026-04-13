@@ -143,7 +143,7 @@ export async function getReports(req: AuthRequest, res: Response): Promise<void>
       byType[r.target_type].push(r.target_id);
     }
     const selectMap: Record<string, string> = {
-      post:          "id, content, image_url, image_urls, video_url, user_id",
+      post:          "id, content, image_url, image_urls, video_url, user_id, deleted_at",
       collab:        "id, title, description, image, user_id",
       message:       "id, body, media_url, media_type, sender_id",
       group_message: "id, content, media_url, media_type, user_id",
@@ -170,7 +170,8 @@ export async function getReports(req: AuthRequest, res: Response): Promise<void>
           return `${supabaseUrl}/storage/v1/object/public/${bucket}/${path.replace(/^[^/]+\//, "")}`;
         };
         for (const row of rows || []) {
-          const text   = row.content ?? row.body ?? row.title ?? "";
+          const deleted = row.deleted_at ? " [deleted]" : "";
+          const text   = (row.content ?? row.body ?? row.title ?? "") + deleted;
           const images: string[] = [];
           if (Array.isArray(row.image_urls) && row.image_urls.length) {
             images.push(...row.image_urls.map(toFullUrl).filter(Boolean) as string[]);
