@@ -61,18 +61,18 @@ const DETAILS_LIMIT = 160;
 function AuthorAvatar({ avatar, name }: { avatar: string | null; name: string }) {
   const [failed, setFailed] = useState(false);
   const initials = name?.[0]?.toUpperCase() ?? "?";
-  if (!avatar || failed) {
-    return (
-      <div className="h-8 w-8 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0 text-sm font-semibold">
-        {initials}
-      </div>
-    );
-  }
+  const fallback = (
+    <div className="h-8 w-8 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0 text-sm font-semibold select-none">
+      {initials}
+    </div>
+  );
+  if (!avatar) return fallback;
+  if (failed) return fallback;
   return (
     <img
       src={avatar}
       alt={name}
-      className="h-8 w-8 rounded-full object-cover shrink-0"
+      className="h-8 w-8 rounded-full object-cover shrink-0 bg-muted"
       onError={() => setFailed(true)}
     />
   );

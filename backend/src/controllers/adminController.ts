@@ -129,8 +129,16 @@ export async function getReports(req: AuthRequest, res: Response): Promise<void>
   const { data: profiles } = allUserIds.length
     ? await supabaseAdmin.from("profiles").select("id, name, avatar").in("id", allUserIds)
     : { data: [] };
+
+  const supabasePublicUrl = process.env.SUPABASE_URL!;
+  const toAvatarUrl = (avatar: string | null): string | null => {
+    if (!avatar) return null;
+    if (avatar.startsWith("http")) return avatar;
+    return `${supabasePublicUrl}/storage/v1/object/public/avatars/${avatar}`;
+  };
+
   const profileMap: Record<string, any> = {};
-  for (const p of profiles || []) profileMap[p.id] = p;
+  for (const p of profiles || []) profileMap[p.id] = { ...p, avatar: toAvatarUrl(p.avatar) };
 
   // Fetch content (text + media) for non-user reports
   interface ContentEntry { text: string; images: string[]; video: string | null; authorId?: string }
@@ -198,7 +206,7 @@ export async function getReports(req: AuthRequest, res: Response): Promise<void>
     const missingIds = contentAuthorIds.filter((id) => !profileMap[id]);
     if (missingIds.length) {
       const { data: extra } = await supabaseAdmin.from("profiles").select("id, name, avatar").in("id", [...new Set(missingIds)]);
-      for (const p of extra || []) profileMap[p.id] = p;
+      for (const p of extra || []) profileMap[p.id] = { ...p, avatar: toAvatarUrl(p.avatar) };
     }
   }
 
