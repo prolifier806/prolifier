@@ -1861,7 +1861,7 @@ export default function Feed() {
     if (!el) return;
     const observer = new IntersectionObserver(
       ([entry]) => { if (entry.isIntersecting && postsHasMoreRef.current && !loadingMorePostsRef.current) fetchMorePosts(); },
-      { rootMargin: "200px", threshold: 0 }
+      { rootMargin: "600px", threshold: 0 }
     );
     observer.observe(el);
     return () => observer.disconnect();
