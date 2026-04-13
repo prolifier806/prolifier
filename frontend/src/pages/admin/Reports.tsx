@@ -8,9 +8,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
-import { MoreHorizontal, XCircle, Trash2, Eye, Ban, ShieldOff, ChevronLeft, ChevronRight, AlertTriangle } from "lucide-react";
+import { Eye, Ban, ShieldOff, ChevronLeft, ChevronRight, AlertTriangle, Trash2, XCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiGet, apiPatch, apiDelete } from "@/api/client";
 
@@ -25,14 +24,8 @@ interface Report {
 }
 
 const typeLabels: Record<string, string> = {
-  post:          "Post",
-  user:          "User",
-  profile:       "User",
-  comment:       "Comment",
-  message:       "Message",
-  group_message: "Community Msg",
-  community:     "Community",
-  collab:        "Collab",
+  post: "Post", user: "User", profile: "User", comment: "Comment",
+  message: "Message", group_message: "Community Msg", community: "Community", collab: "Collab",
 };
 const typeColors: Record<string, string> = {
   post:          "bg-primary/10 text-primary",
@@ -51,9 +44,17 @@ const statusColors: Record<string, string> = {
   escalated: "bg-red-100 text-red-700",
 };
 
+// "Post by John", "Comment by Jane", "User: John"
+function contentByLabel(type: string, author: string): string {
+  if (type === "user" || type === "profile") return `User: ${author}`;
+  return `${typeLabels[type] || type} by ${author}`;
+}
+
 type SuspendDuration = "1h" | "24h" | "3d" | "7d" | "30d";
 const durationLabels: Record<SuspendDuration, string> = { "1h": "1 Hour", "24h": "24 Hours", "3d": "3 Days", "7d": "7 Days", "30d": "30 Days" };
 const durationMs: Record<SuspendDuration, number> = { "1h": 3600000, "24h": 86400000, "3d": 259200000, "7d": 604800000, "30d": 2592000000 };
+
+const DETAILS_LIMIT = 160;
 
 export default function AdminReports() {
   const [reports, setReports]           = useState<Report[]>([]);
@@ -62,15 +63,13 @@ export default function AdminReports() {
   const [statusFilter, setStatusFilter] = useState("pending");
   const [loading, setLoading]           = useState(true);
 
-  // Review dialog
-  const [reviewing, setReviewing]   = useState<Report | null>(null);
+  const [reviewing, setReviewing]           = useState<Report | null>(null);
+  const [detailsExpanded, setDetailsExpanded] = useState(false);
 
-  // Ban dialog
   const [banTarget, setBanTarget]   = useState<{ reportId: string; userId: string; name: string } | null>(null);
   const [banReason, setBanReason]   = useState("");
   const [banning, setBanning]       = useState(false);
 
-  // Suspend dialog
   const [suspendTarget, setSuspendTarget]     = useState<{ reportId: string; userId: string; name: string } | null>(null);
   const [suspendDuration, setSuspendDuration] = useState<SuspendDuration>("24h");
   const [suspending, setSuspending]           = useState(false);
@@ -81,7 +80,6 @@ export default function AdminReports() {
     setLoading(true);
     try {
       const res = await apiGet<any>(`/api/admin/reports?status=${statusFilter}&page=${page}`);
-      // Backend wraps as { items, total }
       setReports(res.items ?? res.data ?? res ?? []);
       setTotal(res.total ?? 0);
     } catch (e: any) {
@@ -110,9 +108,9 @@ export default function AdminReports() {
 
   const removeContent = async (report: Report) => {
     try {
-      if (report.target_type === "post") {
-        await apiDelete(`/api/admin/content/posts/${report.target_id}`);
-      }
+      const tableMap: Record<string, string> = { post: "posts", comment: "comments", collab: "collabs" };
+      const table = tableMap[report.target_type];
+      if (table) await apiDelete(`/api/admin/content/${table}/${report.target_id}`);
       await resolve(report.id, "actioned");
       toast({ title: "Content removed" });
     } catch (e: any) {
@@ -147,11 +145,15 @@ export default function AdminReports() {
     } finally { setSuspending(false); }
   };
 
-  // Get the user ID to act on from a report
   const getUserIdFromReport = (r: Report): string | null => {
     if (r.target_type === "user" || r.target_type === "profile") return r.target_id;
     if (r.content?.authorId) return r.content.authorId;
     return null;
+  };
+
+  const openReview = (r: Report) => {
+    setDetailsExpanded(false);
+    setReviewing(r);
   };
 
   const totalPages = Math.ceil(total / 25);
@@ -170,7 +172,6 @@ export default function AdminReports() {
               <SelectItem value="pending">Pending</SelectItem>
               <SelectItem value="actioned">Actioned</SelectItem>
               <SelectItem value="dismissed">Dismissed</SelectItem>
-              <SelectItem value="escalated">Escalated</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -189,12 +190,14 @@ export default function AdminReports() {
                     <TableHead>Reported By</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Date</TableHead>
-                    <TableHead className="w-10"></TableHead>
+                    <TableHead className="w-20 text-right">Action</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {reports.length === 0 ? (
-                    <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">No reports found</TableCell></TableRow>
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-center text-muted-foreground py-8">No reports found</TableCell>
+                    </TableRow>
                   ) : reports.map(r => (
                     <TableRow key={r.id}>
                       <TableCell>
@@ -203,7 +206,7 @@ export default function AdminReports() {
                         </Badge>
                       </TableCell>
                       <TableCell className="text-sm font-medium capitalize">{r.reason?.replace(/_/g, " ") || "—"}</TableCell>
-                      <TableCell className="text-xs text-muted-foreground max-w-[200px]">
+                      <TableCell className="text-xs text-muted-foreground max-w-[180px]">
                         <span className="line-clamp-2">{r.details || "—"}</span>
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">{r.reporter?.name ?? "Unknown"}</TableCell>
@@ -211,47 +214,10 @@ export default function AdminReports() {
                         <Badge variant="outline" className={`capitalize text-xs ${statusColors[r.status] || ""}`}>{r.status}</Badge>
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">{new Date(r.created_at).toLocaleDateString()}</TableCell>
-                      <TableCell>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="h-4 w-4" /></Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => setReviewing(r)}>
-                              <Eye className="mr-2 h-4 w-4" /> Review
-                            </DropdownMenuItem>
-                            {r.status === "pending" && (
-                              <>
-                                <DropdownMenuSeparator />
-                                {(r.target_type === "post" || r.target_type === "comment") && (
-                                  <DropdownMenuItem onClick={() => removeContent(r)} className="text-destructive">
-                                    <Trash2 className="mr-2 h-4 w-4" /> Remove Content
-                                  </DropdownMenuItem>
-                                )}
-                                {getUserIdFromReport(r) && (
-                                  <>
-                                    <DropdownMenuItem onClick={() => {
-                                      const uid = getUserIdFromReport(r)!;
-                                      setSuspendTarget({ reportId: r.id, userId: uid, name: r.content?.author || "User" });
-                                    }}>
-                                      <ShieldOff className="mr-2 h-4 w-4" /> Suspend User
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem onClick={() => {
-                                      const uid = getUserIdFromReport(r)!;
-                                      setBanTarget({ reportId: r.id, userId: uid, name: r.content?.author || "User" });
-                                    }} className="text-destructive">
-                                      <Ban className="mr-2 h-4 w-4" /> Ban User
-                                    </DropdownMenuItem>
-                                  </>
-                                )}
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem onClick={() => resolve(r.id, "dismissed")}>
-                                  <XCircle className="mr-2 h-4 w-4" /> Dismiss
-                                </DropdownMenuItem>
-                              </>
-                            )}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+                      <TableCell className="text-right">
+                        <Button variant="outline" size="sm" onClick={() => openReview(r)} className="h-7 text-xs px-3">
+                          <Eye className="mr-1.5 h-3 w-3" /> Review
+                        </Button>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -271,7 +237,7 @@ export default function AdminReports() {
         </Card>
       </div>
 
-      {/* Review Dialog */}
+      {/* ── Review Dialog ───────────────────────────────────────── */}
       <Dialog open={!!reviewing} onOpenChange={open => !open && setReviewing(null)}>
         <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -281,7 +247,8 @@ export default function AdminReports() {
           </DialogHeader>
           {reviewing && (
             <div className="space-y-4 py-1">
-              {/* Meta row */}
+
+              {/* Meta grid */}
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div>
                   <p className="text-xs text-muted-foreground mb-1">Type</p>
@@ -303,38 +270,64 @@ export default function AdminReports() {
                 </div>
               </div>
 
+              {/* Details with Read More */}
+              {reviewing.details && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Details</p>
+                  <div className="text-sm bg-muted rounded-md p-3">
+                    {detailsExpanded || reviewing.details.length <= DETAILS_LIMIT
+                      ? <span className="whitespace-pre-wrap break-words">{reviewing.details}</span>
+                      : <span className="whitespace-pre-wrap break-words">{reviewing.details.slice(0, DETAILS_LIMIT)}…</span>
+                    }
+                    {reviewing.details.length > DETAILS_LIMIT && (
+                      <button
+                        className="ml-1 text-primary text-xs font-medium hover:underline"
+                        onClick={() => setDetailsExpanded(v => !v)}
+                      >
+                        {detailsExpanded ? "Show less" : "Read more"}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* Reported content */}
               {reviewing.content && (
                 <div>
                   <p className="text-xs text-muted-foreground mb-2">
-                    Reported Content
-                    {reviewing.content.author && <span className="ml-1">· by <span className="font-medium text-foreground">{reviewing.content.author}</span></span>}
+                    {contentByLabel(reviewing.target_type, reviewing.content.author)}
                   </p>
                   <div className="rounded-lg border border-border bg-muted/40 overflow-hidden">
-                    {/* Author avatar row */}
-                    {reviewing.content.avatar && (
-                      <div className="flex items-center gap-2 p-3 pb-0">
-                        <img src={reviewing.content.avatar} alt="" className="h-7 w-7 rounded-full object-cover" />
-                        <span className="text-sm font-medium">{reviewing.content.author}</span>
-                      </div>
-                    )}
+                    {/* Author row */}
+                    <div className="flex items-center gap-2 p-3 pb-2">
+                      {reviewing.content.avatar
+                        ? <img src={reviewing.content.avatar} alt="" className="h-7 w-7 rounded-full object-cover shrink-0" />
+                        : <div className="h-7 w-7 rounded-full bg-muted-foreground/20 flex items-center justify-center shrink-0 text-xs font-semibold">{reviewing.content.author?.[0]?.toUpperCase()}</div>
+                      }
+                      <span className="text-sm font-medium">{reviewing.content.author}</span>
+                    </div>
                     {/* Text */}
-                    {reviewing.content.text && (
-                      <p className="text-sm p-3 whitespace-pre-wrap break-words">{reviewing.content.text}</p>
+                    {reviewing.content.text && !(reviewing.target_type === "user" || reviewing.target_type === "profile") && (
+                      <p className="text-sm px-3 pb-3 whitespace-pre-wrap break-words">{reviewing.content.text}</p>
                     )}
                     {/* Images */}
                     {reviewing.content.images && reviewing.content.images.length > 0 && (
-                      <div className={`grid gap-1 p-3 pt-0 ${reviewing.content.images.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
+                      <div className={`grid gap-1 px-3 pb-3 ${reviewing.content.images.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
                         {reviewing.content.images.map((src, i) => (
                           <a key={i} href={src} target="_blank" rel="noreferrer">
-                            <img src={src} alt={`media-${i}`} className="w-full rounded-md object-cover max-h-64 cursor-pointer hover:opacity-90 transition-opacity" />
+                            <img
+                              src={src}
+                              alt={`media-${i}`}
+                              className="w-full rounded-md object-cover max-h-64 cursor-pointer hover:opacity-90 transition-opacity"
+                              onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
+                            />
                           </a>
                         ))}
                       </div>
                     )}
                     {/* Video */}
                     {reviewing.content.video && (
-                      <div className="p-3 pt-0">
+                      <div className="px-3 pb-3">
                         <video src={reviewing.content.video} controls className="w-full rounded-md max-h-64" />
                       </div>
                     )}
@@ -343,51 +336,49 @@ export default function AdminReports() {
               )}
 
               {/* Action buttons */}
-              <div className="border-t border-border pt-4 space-y-2">
-                <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide mb-3">Actions</p>
-                <div className="flex flex-wrap gap-2">
-                  {/* Remove Content — only for content-type reports */}
-                  {(reviewing.target_type === "post" || reviewing.target_type === "comment") && (
-                    <Button size="sm" variant="outline" className="text-destructive border-destructive/30 hover:bg-destructive/10"
-                      onClick={() => { removeContent(reviewing); }}>
-                      <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Remove Content
+              {reviewing.status === "pending" && (
+                <div className="border-t border-border pt-4">
+                  <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide mb-3">Actions</p>
+                  <div className="flex flex-wrap gap-2">
+                    {(reviewing.target_type === "post" || reviewing.target_type === "comment" || reviewing.target_type === "collab") && (
+                      <Button size="sm" variant="outline" className="text-destructive border-destructive/30 hover:bg-destructive/10"
+                        onClick={() => removeContent(reviewing)}>
+                        <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Remove Content
+                      </Button>
+                    )}
+                    {getUserIdFromReport(reviewing) && (
+                      <>
+                        <Button size="sm" variant="outline" className="text-amber-600 border-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/30"
+                          onClick={() => {
+                            const uid = getUserIdFromReport(reviewing)!;
+                            setReviewing(null);
+                            setSuspendTarget({ reportId: reviewing.id, userId: uid, name: reviewing.content?.author || "User" });
+                          }}>
+                          <ShieldOff className="mr-1.5 h-3.5 w-3.5" /> Suspend User
+                        </Button>
+                        <Button size="sm" variant="outline" className="text-destructive border-destructive/30 hover:bg-destructive/10"
+                          onClick={() => {
+                            const uid = getUserIdFromReport(reviewing)!;
+                            setReviewing(null);
+                            setBanTarget({ reportId: reviewing.id, userId: uid, name: reviewing.content?.author || "User" });
+                          }}>
+                          <Ban className="mr-1.5 h-3.5 w-3.5" /> Ban User
+                        </Button>
+                      </>
+                    )}
+                    <Button size="sm" variant="ghost" className="text-muted-foreground ml-auto"
+                      onClick={() => resolve(reviewing.id, "dismissed")}>
+                      <XCircle className="mr-1.5 h-3.5 w-3.5" /> Dismiss
                     </Button>
-                  )}
-                  {/* Suspend User */}
-                  {getUserIdFromReport(reviewing) && (
-                    <Button size="sm" variant="outline" className="text-amber-600 border-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/30"
-                      onClick={() => {
-                        const uid = getUserIdFromReport(reviewing)!;
-                        setReviewing(null);
-                        setSuspendTarget({ reportId: reviewing.id, userId: uid, name: reviewing.content?.author || "User" });
-                      }}>
-                      <ShieldOff className="mr-1.5 h-3.5 w-3.5" /> Suspend User
-                    </Button>
-                  )}
-                  {/* Ban User */}
-                  {getUserIdFromReport(reviewing) && (
-                    <Button size="sm" variant="outline" className="text-destructive border-destructive/30 hover:bg-destructive/10"
-                      onClick={() => {
-                        const uid = getUserIdFromReport(reviewing)!;
-                        setReviewing(null);
-                        setBanTarget({ reportId: reviewing.id, userId: uid, name: reviewing.content?.author || "User" });
-                      }}>
-                      <Ban className="mr-1.5 h-3.5 w-3.5" /> Ban User
-                    </Button>
-                  )}
-                  {/* Dismiss */}
-                  <Button size="sm" variant="ghost" className="text-muted-foreground ml-auto"
-                    onClick={() => { resolve(reviewing.id, "dismissed"); }}>
-                    <XCircle className="mr-1.5 h-3.5 w-3.5" /> Dismiss
-                  </Button>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           )}
         </DialogContent>
       </Dialog>
 
-      {/* Suspend Dialog */}
+      {/* ── Suspend Dialog ──────────────────────────────────────── */}
       <Dialog open={!!suspendTarget} onOpenChange={open => !open && setSuspendTarget(null)}>
         <DialogContent>
           <DialogHeader>
@@ -410,7 +401,7 @@ export default function AdminReports() {
         </DialogContent>
       </Dialog>
 
-      {/* Ban Dialog */}
+      {/* ── Ban Dialog ──────────────────────────────────────────── */}
       <Dialog open={!!banTarget} onOpenChange={open => !open && setBanTarget(null)}>
         <DialogContent>
           <DialogHeader>
