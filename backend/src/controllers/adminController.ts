@@ -105,24 +105,26 @@ export async function deleteContent(req: AuthRequest, res: Response): Promise<vo
 
 export async function getReports(req: AuthRequest, res: Response): Promise<void> {
   const status = (req.query.status as string) ?? "pending";
-  const page = parseInt(req.query.page as string ?? "1");
+  const page = Math.max(1, parseInt((req.query.page as string) ?? "1"));
   const limit = 25;
   const offset = (page - 1) * limit;
 
-  // reports table: id, reporter_id, reported_id, reason, created_at, content_type, content_id
-  const { data, error, count } = await supabaseAdmin
+  // Real columns: id, reporter_id, target_id, target_type, reason, details, status, created_at
+  let query = supabaseAdmin
     .from("reports")
-    .select("id, reporter_id, reported_id, reason, created_at, content_type, content_id", { count: "exact" })
+    .select("id, reporter_id, target_id, target_type, reason, details, status, created_at", { count: "exact" })
     .order("created_at", { ascending: false })
     .range(offset, offset + limit - 1);
 
+  if (status !== "all") query = (query as any).eq("status", status);
+
+  const { data, error, count } = await query;
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
 
-  // Fetch reporter + reported user names
-  const allUserIds = [...new Set([
-    ...(data || []).map((r: any) => r.reporter_id),
-    ...(data || []).map((r: any) => r.reported_id),
-  ].filter(Boolean))];
+  // Collect all user IDs (reporters + users who are the target when target_type=user)
+  const reporterIds = (data || []).map((r: any) => r.reporter_id).filter(Boolean);
+  const userTargetIds = (data || []).filter((r: any) => r.target_type === "user").map((r: any) => r.target_id).filter(Boolean);
+  const allUserIds = [...new Set([...reporterIds, ...userTargetIds])];
 
   const { data: profiles } = allUserIds.length
     ? await supabaseAdmin.from("profiles").select("id, name, avatar").in("id", allUserIds)
@@ -130,77 +132,93 @@ export async function getReports(req: AuthRequest, res: Response): Promise<void>
   const profileMap: Record<string, any> = {};
   for (const p of profiles || []) profileMap[p.id] = p;
 
-  // Fetch content (text + media) for reports that have content_type + content_id
-  interface ContentEntry { text: string; images: string[]; video: string | null }
+  // Fetch content (text + media) for non-user reports
+  interface ContentEntry { text: string; images: string[]; video: string | null; authorId?: string }
   const contentMap: Record<string, ContentEntry> = {};
-  const contentReports = (data || []).filter((r: any) => r.content_type && r.content_id);
+  const contentReports = (data || []).filter((r: any) => r.target_type !== "user" && r.target_id);
   if (contentReports.length) {
     const byType: Record<string, string[]> = {};
     for (const r of contentReports) {
-      if (!byType[r.content_type]) byType[r.content_type] = [];
-      byType[r.content_type].push(r.content_id);
+      if (!byType[r.target_type]) byType[r.target_type] = [];
+      byType[r.target_type].push(r.target_id);
     }
-    // Select media columns too — posts have image_url, image_urls[], video_url; messages have media_url/media_type
     const selectMap: Record<string, string> = {
-      post:          "id, content, image_url, image_urls, video_url",
-      message:       "id, body, media_url, media_type",
-      group_message: "id, content, media_url, media_type",
-      comment:       "id, content",
-      community:     "id, name",
+      post:          "id, content, image_url, image_urls, video_url, user_id",
+      collab:        "id, title, description, image, user_id",
+      message:       "id, body, media_url, media_type, sender_id",
+      group_message: "id, content, media_url, media_type, user_id",
+      comment:       "id, content, user_id",
     };
     const tableMap: Record<string, string> = {
-      post: "posts", message: "messages", group_message: "group_messages",
-      comment: "comments", community: "groups",
+      post: "posts", collab: "collabs", message: "messages",
+      group_message: "group_messages", comment: "comments",
     };
     await Promise.all(
       Object.entries(byType).map(async ([type, ids]) => {
-        const table = tableMap[type];
+        const table = selectMap[type] ? tableMap[type] : null;
         const sel   = selectMap[type];
         if (!table || !sel) return;
         const { data: rows } = await supabaseAdmin.from(table).select(sel).in("id", ids).limit(ids.length);
         for (const row of rows || []) {
-          const text   = row.content ?? row.body ?? row.name ?? "";
-          // Collect image URLs
+          const text   = row.content ?? row.body ?? row.title ?? "";
           const images: string[] = [];
-          if (row.image_urls && Array.isArray(row.image_urls)) images.push(...row.image_urls);
+          if (Array.isArray(row.image_urls) && row.image_urls.length) images.push(...row.image_urls);
           else if (row.image_url) images.push(row.image_url);
+          else if (row.image) images.push(row.image);
           else if (row.media_url && (row.media_type ?? "").startsWith("image")) images.push(row.media_url);
-          // Video URL
-          const video: string | null = row.video_url ?? (row.media_url && (row.media_type ?? "").startsWith("video") ? row.media_url : null) ?? null;
-          contentMap[row.id] = { text, images, video };
+          const video: string | null =
+            row.video_url ??
+            (row.media_url && (row.media_type ?? "").startsWith("video") ? row.media_url : null) ??
+            null;
+          const authorId = row.user_id ?? row.sender_id ?? null;
+          contentMap[row.id] = { text, images, video, authorId };
         }
       })
     );
+
+    // Fetch content authors
+    const contentAuthorIds = Object.values(contentMap).map((c) => c.authorId).filter(Boolean) as string[];
+    const missingIds = contentAuthorIds.filter((id) => !profileMap[id]);
+    if (missingIds.length) {
+      const { data: extra } = await supabaseAdmin.from("profiles").select("id, name, avatar").in("id", [...new Set(missingIds)]);
+      for (const p of extra || []) profileMap[p.id] = p;
+    }
   }
 
-  // Resolve target_type: use content_type if set, otherwise "user"
   const reports = (data || []).map((r: any) => {
-    const targetType = r.content_type || "user";
-    const targetId   = r.content_id   || r.reported_id;
-    const reportedProfile = r.reported_id ? profileMap[r.reported_id] : null;
-    const cm = r.content_id ? contentMap[r.content_id] : null;
+    const isUserReport = r.target_type === "user";
+    const cm = !isUserReport && r.target_id ? contentMap[r.target_id] : null;
+    const targetProfile = isUserReport && r.target_id ? profileMap[r.target_id] : null;
+    const contentAuthor = cm?.authorId ? profileMap[cm.authorId] : null;
 
     return {
       id: r.id,
-      target_id: targetId,
-      target_type: targetType,
+      target_id: r.target_id,
+      target_type: r.target_type,
       reason: r.reason,
-      details: r.reason ?? null,
-      status: "pending",
+      details: r.details ?? null,
+      status: r.status ?? "pending",
       created_at: r.created_at,
-      reporter: r.reporter_id ? { id: r.reporter_id, name: profileMap[r.reporter_id]?.name || "Unknown" } : null,
-      content: cm || reportedProfile ? {
-        text:      cm?.text ?? (reportedProfile ? `Reported user: ${reportedProfile.name}` : ""),
-        images:    cm?.images ?? [],
-        video:     cm?.video ?? null,
-        author:    reportedProfile?.name ?? "Unknown",
-        avatar:    reportedProfile?.avatar ?? null,
-        authorId:  r.reported_id,
+      reporter: r.reporter_id ? { id: r.reporter_id, name: profileMap[r.reporter_id]?.name ?? "Unknown" } : null,
+      content: cm ? {
+        text:     cm.text,
+        images:   cm.images,
+        video:    cm.video,
+        author:   contentAuthor?.name ?? "Unknown",
+        avatar:   contentAuthor?.avatar ?? null,
+        authorId: cm.authorId,
+      } : targetProfile ? {
+        text:     `Reported user: ${targetProfile.name}`,
+        images:   [],
+        video:    null,
+        author:   targetProfile.name,
+        avatar:   targetProfile.avatar ?? null,
+        authorId: r.target_id,
       } : null,
     };
   });
 
-  res.json({ success: true, data: reports, total: count });
+  res.json({ success: true, data: { items: reports, total: count ?? 0 } });
 }
 
 export async function getModerationFlags(req: AuthRequest, res: Response): Promise<void> {
@@ -239,8 +257,10 @@ export async function resolveReport(req: AuthRequest, res: Response): Promise<vo
   const { id } = req.params;
   const body = req.body as z.infer<typeof resolveReportSchema>;
 
-  // reports table has no status column — delete the report on resolve
-  const { error } = await supabaseAdmin.from("reports").delete().eq("id", id);
+  const { error } = await supabaseAdmin
+    .from("reports")
+    .update({ status: body.resolution, resolved_by: req.user.id, resolved_at: new Date().toISOString() })
+    .eq("id", id);
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
   res.json({ success: true, data: { id, resolution: body.resolution } });
 }
@@ -271,13 +291,13 @@ export async function getUsers(req: AuthRequest, res: Response): Promise<void> {
   const userIds = (data || []).map((u: any) => u.id);
   const [postsRes, reportsRes] = await Promise.all([
     supabaseAdmin.from("posts").select("user_id").in("user_id", userIds).is("deleted_at", null),
-    supabaseAdmin.from("reports").select("reported_id").in("reported_id", userIds),
+    supabaseAdmin.from("reports").select("target_id").in("target_id", userIds),
   ]);
 
   const postCounts: Record<string, number> = {};
   const reportCounts: Record<string, number> = {};
   for (const p of postsRes.data || []) postCounts[p.user_id] = (postCounts[p.user_id] || 0) + 1;
-  for (const r of reportsRes.data || []) reportCounts[r.reported_id] = (reportCounts[r.reported_id] || 0) + 1;
+  for (const r of reportsRes.data || []) reportCounts[r.target_id] = (reportCounts[r.target_id] || 0) + 1;
 
   const users = (data || []).map((u: any) => ({
     ...u,
@@ -299,7 +319,7 @@ export async function getStats(_req: AuthRequest, res: Response): Promise<void> 
     supabaseAdmin.from("profiles").select("*", { count: "exact", head: true }).is("deleted_at", null),
     supabaseAdmin.from("profiles").select("*", { count: "exact", head: true }).eq("account_status", "active").is("deleted_at", null),
     supabaseAdmin.from("posts").select("*", { count: "exact", head: true }).is("deleted_at", null),
-    supabaseAdmin.from("reports").select("*", { count: "exact", head: true }),
+    supabaseAdmin.from("reports").select("*", { count: "exact", head: true }).eq("status", "pending"),
     supabaseAdmin.from("profiles").select("*", { count: "exact", head: true }).eq("account_status", "banned"),
     supabaseAdmin.from("profiles").select("*", { count: "exact", head: true }).eq("account_status", "suspended"),
     supabaseAdmin.from("profiles").select("*", { count: "exact", head: true }).gte("created_at", yesterday),

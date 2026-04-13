@@ -81,7 +81,8 @@ export default function AdminReports() {
     setLoading(true);
     try {
       const res = await apiGet<any>(`/api/admin/reports?status=${statusFilter}&page=${page}`);
-      setReports(res.data ?? res);
+      // Backend wraps as { items, total }
+      setReports(res.items ?? res.data ?? res ?? []);
       setTotal(res.total ?? 0);
     } catch (e: any) {
       toast({ title: "Failed to load reports", description: e.message, variant: "destructive" });
