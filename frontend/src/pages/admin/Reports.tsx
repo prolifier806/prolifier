@@ -275,27 +275,24 @@ export default function AdminReports() {
                 <div>
                   <p className="text-xs text-muted-foreground mb-1">Details</p>
                   <div className="text-sm bg-muted rounded-md p-3 overflow-hidden">
-                    <p className="break-all whitespace-pre-wrap">
-                      {reviewing.details.length <= DETAILS_LIMIT
-                        ? reviewing.details
-                        : reviewing.details.slice(0, DETAILS_LIMIT) + "…"}
-                    </p>
+                    {detailsExpanded ? (
+                      <div className="max-h-40 overflow-y-auto overflow-x-hidden">
+                        <p className="break-all whitespace-pre-wrap">{reviewing.details}</p>
+                      </div>
+                    ) : (
+                      <p className="break-all whitespace-pre-wrap">
+                        {reviewing.details.length <= DETAILS_LIMIT
+                          ? reviewing.details
+                          : reviewing.details.slice(0, DETAILS_LIMIT) + "…"}
+                      </p>
+                    )}
                     {reviewing.details.length > DETAILS_LIMIT && (
-                      <>
-                        <button
-                          className="mt-1.5 text-primary text-xs font-medium hover:underline flex items-center gap-1"
-                          onClick={() => setDetailsExpanded(v => !v)}
-                        >
-                          {detailsExpanded ? "▲ Show less" : "▼ Read more"}
-                        </button>
-                        {detailsExpanded && (
-                          <div className="mt-2 border-t border-border/50 pt-2 max-h-32 overflow-y-auto overflow-x-hidden">
-                            <p className="break-all whitespace-pre-wrap text-muted-foreground">
-                              {reviewing.details.slice(DETAILS_LIMIT)}
-                            </p>
-                          </div>
-                        )}
-                      </>
+                      <button
+                        className="mt-1.5 text-primary text-xs font-medium hover:underline flex items-center gap-1"
+                        onClick={() => setDetailsExpanded(v => !v)}
+                      >
+                        {detailsExpanded ? "▲ Show less" : "▼ Read more"}
+                      </button>
                     )}
                   </div>
                 </div>
@@ -321,15 +318,25 @@ export default function AdminReports() {
                       <p className="text-sm px-3 pb-3 whitespace-pre-wrap break-words">{reviewing.content.text}</p>
                     )}
                     {/* Images */}
-                    {reviewing.content.images && reviewing.content.images.length > 0 && (
+                    {Array.isArray(reviewing.content.images) && reviewing.content.images.length > 0 && (
                       <div className={`grid gap-1 px-3 pb-3 ${reviewing.content.images.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
                         {reviewing.content.images.map((src, i) => (
-                          <a key={i} href={src} target="_blank" rel="noreferrer">
+                          <a key={i} href={src} target="_blank" rel="noreferrer" className="block">
                             <img
                               src={src}
                               alt={`media-${i}`}
-                              className="w-full rounded-md object-cover max-h-64 cursor-pointer hover:opacity-90 transition-opacity"
-                              onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
+                              className="w-full rounded-md object-cover max-h-64 cursor-pointer hover:opacity-90 transition-opacity bg-muted"
+                              onError={e => {
+                                const el = e.target as HTMLImageElement;
+                                el.style.display = "none";
+                                const link = document.createElement("a");
+                                link.href = src;
+                                link.target = "_blank";
+                                link.rel = "noreferrer";
+                                link.textContent = "View image ↗";
+                                link.className = "text-xs text-primary underline";
+                                el.parentElement?.appendChild(link);
+                              }}
                             />
                           </a>
                         ))}

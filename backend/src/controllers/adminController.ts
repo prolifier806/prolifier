@@ -159,13 +159,28 @@ export async function getReports(req: AuthRequest, res: Response): Promise<void>
         const sel   = selectMap[type];
         if (!table || !sel) return;
         const { data: rows } = await supabaseAdmin.from(table).select(sel).in("id", ids).limit(ids.length);
+        const supabaseUrl = process.env.SUPABASE_URL!;
+        const toFullUrl = (path: string | null | undefined): string | null => {
+          if (!path) return null;
+          if (path.startsWith("http")) return path;
+          // Relative storage path — construct public URL
+          const bucket = path.startsWith("posts/") || path.startsWith("avatars/") || path.startsWith("messages/")
+            ? path.split("/")[0]
+            : "posts";
+          return `${supabaseUrl}/storage/v1/object/public/${bucket}/${path.replace(/^[^/]+\//, "")}`;
+        };
         for (const row of rows || []) {
           const text   = row.content ?? row.body ?? row.title ?? "";
           const images: string[] = [];
-          if (Array.isArray(row.image_urls) && row.image_urls.length) images.push(...row.image_urls);
-          else if (row.image_url) images.push(row.image_url);
-          else if (row.image) images.push(row.image);
-          else if (row.media_url && (row.media_type ?? "").startsWith("image")) images.push(row.media_url);
+          if (Array.isArray(row.image_urls) && row.image_urls.length) {
+            images.push(...row.image_urls.map(toFullUrl).filter(Boolean) as string[]);
+          } else if (row.image_url) {
+            const u = toFullUrl(row.image_url); if (u) images.push(u);
+          } else if (row.image) {
+            const u = toFullUrl(row.image); if (u) images.push(u);
+          } else if (row.media_url && (row.media_type ?? "").startsWith("image")) {
+            const u = toFullUrl(row.media_url); if (u) images.push(u);
+          }
           const video: string | null =
             row.video_url ??
             (row.media_url && (row.media_type ?? "").startsWith("video") ? row.media_url : null) ??
