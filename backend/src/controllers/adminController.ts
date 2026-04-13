@@ -11,8 +11,7 @@ export const updateUserStatusSchema = z.object({
 });
 
 export const resolveReportSchema = z.object({
-  resolution: z.enum(["dismissed", "actioned", "escalated"]),
-  notes: z.string().max(500).optional(),
+  resolution: z.enum(["dismissed", "actioned"]),
 });
 
 // ── User moderation ───────────────────────────────────────────────────────────
@@ -112,7 +111,7 @@ export async function getReports(req: AuthRequest, res: Response): Promise<void>
 
   const { data, error, count } = await supabaseAdmin
     .from("reports")
-    .select("id, target_id, target_type, reason, details, status, created_at, reporter_id", { count: "exact" })
+    .select("id, content_id, content_type, reason, details, status, created_at, reporter_id", { count: "exact" })
     .eq("status", status)
     .order("created_at", { ascending: false })
     .range(offset, offset + limit - 1);
@@ -127,9 +126,22 @@ export async function getReports(req: AuthRequest, res: Response): Promise<void>
   const reporterMap: Record<string, string> = {};
   for (const p of reporterProfiles || []) reporterMap[p.id] = p.name;
 
+  // Fetch actual content for posts
+  const postIds = (data || []).filter((r: any) => r.content_type === "post").map((r: any) => r.content_id);
+  const { data: posts } = postIds.length
+    ? await supabaseAdmin.from("posts").select("id, content, user_id, profiles:user_id(name)").in("id", postIds)
+    : { data: [] };
+  const postMap: Record<string, any> = {};
+  for (const p of posts || []) postMap[p.id] = p;
+
   const reports = (data || []).map((r: any) => ({
     ...r,
+    target_id: r.content_id,
+    target_type: r.content_type,
     reporter: r.reporter_id ? { id: r.reporter_id, name: reporterMap[r.reporter_id] || "Unknown" } : null,
+    content: r.content_type === "post" && postMap[r.content_id]
+      ? { text: postMap[r.content_id].content, author: (postMap[r.content_id].profiles as any)?.name || "Unknown" }
+      : null,
   }));
 
   res.json({ success: true, data: reports, total: count });
