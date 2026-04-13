@@ -514,24 +514,3 @@ export async function deleteNotice(req: AuthRequest, res: Response): Promise<voi
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
   res.json({ success: true, data: null });
 }
-
-export async function getPendingDeletions(req: AuthRequest, res: Response): Promise<void> {
-  const { data, error } = await supabaseAdmin
-    .from("profiles")
-    .select("id, name, email, deleted_at, avatar, avatar_url, role")
-    .not("deleted_at", "is", null)
-    .order("deleted_at", { ascending: false });
-
-  if (error) { res.status(500).json({ success: false, error: error.message }); return; }
-  res.json({ success: true, data: data ?? [] });
-}
-
-export async function cancelPendingDeletion(req: AuthRequest, res: Response): Promise<void> {
-  const { id } = req.params;
-  const { error } = await supabaseAdmin
-    .from("profiles")
-    .update({ deleted_at: null })
-    .eq("id", id);
-  if (error) { res.status(500).json({ success: false, error: error.message }); return; }
-  res.json({ success: true, data: null });
-}

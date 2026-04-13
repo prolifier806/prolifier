@@ -13,8 +13,7 @@ const AdminUsers     = lazyWithReload(() => import("./pages/admin/Users"));
 const AdminPosts     = lazyWithReload(() => import("./pages/admin/Posts"));
 const AdminReports   = lazyWithReload(() => import("./pages/admin/Reports"));
 const AdminNotices   = lazyWithReload(() => import("./pages/admin/Notices"));
-const AdminActivity   = lazyWithReload(() => import("./pages/admin/Activity"));
-const AdminDeletions  = lazyWithReload(() => import("./pages/admin/Deletions"));
+const AdminActivity  = lazyWithReload(() => import("./pages/admin/Activity"));
 
 // Wraps lazy() and auto-reloads once when a chunk fails to load after a deploy.
 function lazyWithReload(fn: () => Promise<{ default: any }>) {
@@ -167,7 +166,6 @@ function AppRoutes() {
         <Route path="/admin/posts"    element={<AdminRoute><AdminPosts /></AdminRoute>} />
         <Route path="/admin/reports"  element={<AdminRoute><AdminReports /></AdminRoute>} />
         <Route path="/admin/notices"  element={<AdminRoute><AdminNotices /></AdminRoute>} />
-        <Route path="/admin/deletions" element={<AdminRoute><AdminDeletions /></AdminRoute>} />
         <Route path="/admin/activity" element={<AdminRoute><AdminActivity /></AdminRoute>} />
 
         <Route path="*"              element={<NotFound />} />

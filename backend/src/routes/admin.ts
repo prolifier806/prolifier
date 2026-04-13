@@ -9,7 +9,6 @@ import {
   getUsers, getStats, getPosts, getActivity,
   getNotices, createNotice, updateNotice, deleteNotice,
   createNoticeSchema, updateNoticeSchema,
-  getPendingDeletions, cancelPendingDeletion,
 } from "../controllers/adminController";
 
 const router = Router();
@@ -35,7 +34,5 @@ router.get("/notices",                           getNotices as any);
 router.post("/notices",                          validate(createNoticeSchema), createNotice as any);
 router.patch("/notices/:id",                     validate(updateNoticeSchema), updateNotice as any);
 router.delete("/notices/:id",                    deleteNotice as any);
-router.get("/deletions",                         getPendingDeletions as any);
-router.patch("/deletions/:id/cancel",            cancelPendingDeletion as any);
 
 export default router;
