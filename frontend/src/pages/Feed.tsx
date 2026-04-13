@@ -1856,9 +1856,27 @@ export default function Feed() {
   useEffect(() => { collabsHasMoreRef.current = collabsHasMore; }, [collabsHasMore]);
   useEffect(() => { loadingMoreCollabsRef.current = loadingMoreCollabs; }, [loadingMoreCollabs]);
 
-  // Posts load more is manual (button), not auto-scroll
+  useEffect(() => {
+    const el = postsEndRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting && postsHasMoreRef.current && !loadingMorePostsRef.current) fetchMorePosts(); },
+      { rootMargin: "200px", threshold: 0 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [fetchMorePosts]);
 
-  // Collabs load more is manual (button), not auto-scroll
+  useEffect(() => {
+    const el = collabsEndRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting && collabsHasMoreRef.current && !loadingMoreCollabsRef.current) fetchMoreCollabs(); },
+      { rootMargin: "200px", threshold: 0 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [fetchMoreCollabs]);
 
   // Real-time removed to reduce Supabase Disk IO.
   // Feed refreshes on tab focus (90s throttle) and after own post/collab actions.
@@ -2471,13 +2489,10 @@ export default function Feed() {
                   onShare={id => openShareWithContent("post", id)}
                 />
               ))}
-            {postsHasMore && (
-              <div className="flex justify-center pb-4 pt-2">
-                <Button variant="outline" onClick={fetchMorePosts} disabled={loadingMorePosts} className="gap-2">
-                  {loadingMorePosts ? (
-                    <><div className="h-4 w-4 rounded-full border-2 border-primary border-t-transparent animate-spin" /> Loading...</>
-                  ) : "Load More Posts"}
-                </Button>
+            <div ref={postsEndRef} className="h-4" />
+            {loadingMorePosts && (
+              <div className="flex justify-center pb-4">
+                <div className="h-5 w-5 rounded-full border-2 border-primary border-t-transparent animate-spin" />
               </div>
             )}
           </TabsContent>
@@ -2635,13 +2650,10 @@ export default function Feed() {
                 ))}
               </>
             )}
-            {collabsHasMore && (
-              <div className="flex justify-center pb-4 pt-2">
-                <Button variant="outline" onClick={fetchMoreCollabs} disabled={loadingMoreCollabs} className="gap-2">
-                  {loadingMoreCollabs ? (
-                    <><div className="h-4 w-4 rounded-full border-2 border-primary border-t-transparent animate-spin" /> Loading...</>
-                  ) : "Load More Collabs"}
-                </Button>
+            <div ref={collabsEndRef} className="h-4" />
+            {loadingMoreCollabs && (
+              <div className="flex justify-center pb-4">
+                <div className="h-5 w-5 rounded-full border-2 border-primary border-t-transparent animate-spin" />
               </div>
             )}
           </TabsContent>
