@@ -1709,8 +1709,8 @@ export default function Feed() {
     setSavedPosts(new Set((rawPosts || []).filter((p: any) => p.isSaved).map((p: any) => p.id)));
     setSavedCollabs(new Set((rawCollabs || []).filter((c: any) => c.isSaved).map((c: any) => c.id)));
     setInterestedCollabs(new Set((rawCollabs || []).filter((c: any) => c.isInterested).map((c: any) => c.id)));
-    setPostsHasMore((rawPosts || []).length >= 8);
-    setCollabsHasMore((rawCollabs || []).length >= 8);
+    setPostsHasMore((rawPosts || []).length >= 15);
+    setCollabsHasMore((rawCollabs || []).length >= 15);
     if ((rawPosts || []).length > 0) postsCursorRef.current = rawPosts[rawPosts.length - 1].created_at;
     if ((rawCollabs || []).length > 0) collabsCursorRef.current = rawCollabs[rawCollabs.length - 1].created_at;
   }, [user.id]);
@@ -1802,7 +1802,7 @@ export default function Feed() {
         return n;
       });
       setPosts(prev => [...prev, ...more.filter(p => !blockedUserIds.has(p.user_id))]);
-      setPostsHasMore((rawPosts || []).length >= 8);
+      setPostsHasMore((rawPosts || []).length >= 15);
       if ((rawPosts || []).length > 0) postsCursorRef.current = rawPosts[rawPosts.length - 1].created_at;
     } catch (e) { console.error("[fetchMorePosts]", e); }
     setLoadingMorePosts(false);
@@ -1840,7 +1840,7 @@ export default function Feed() {
         return n;
       });
       setCollabs(prev => [...prev, ...more.filter(c => !blockedUserIds.has(c.user_id))]);
-      setCollabsHasMore((rawCollabs || []).length >= 8);
+      setCollabsHasMore((rawCollabs || []).length >= 15);
       if ((rawCollabs || []).length > 0) collabsCursorRef.current = rawCollabs[rawCollabs.length - 1].created_at;
     } catch { /* silent */ }
     setLoadingMoreCollabs(false);
