@@ -2,7 +2,9 @@ import { useParams, useNavigate } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, MapPin, Github, Globe, Twitter, MessageCircle, UserPlus, Heart, Handshake, Check, UserX, ShieldOff, X } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { ArrowLeft, MapPin, Github, Globe, Twitter, MessageCircle, UserPlus, Heart, Handshake, Check, UserX, ShieldOff, X, Flag } from "lucide-react";
 import Layout from "@/components/Layout";
 import { toast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
@@ -11,6 +13,18 @@ import { supabase } from "@/lib/supabase";
 import { createNotification } from "@/api/notifications";
 import { blockUser, unblockUser } from "@/api/users";
 import { sendRequest, removeConnection } from "@/api/connections";
+import { createReport } from "@/api/reports";
+
+const PROFILE_REPORT_REASONS = [
+  "Fake or impersonation account",
+  "Harassment or bullying",
+  "Hate speech or discrimination",
+  "Spam or self-promotion",
+  "Inappropriate profile content",
+  "Scam or fraudulent activity",
+  "Underage user",
+  "Other",
+];
 
 
 type ProfileData = {
@@ -129,6 +143,11 @@ export default function UserProfile() {
   const [connectionLoading, setConnectionLoading] = useState(false);
   const [isBlocked, setIsBlocked] = useState(false);
   const [isBlockedByOwner, setIsBlockedByOwner] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportReason, setReportReason] = useState("");
+  const [reportDetails, setReportDetails] = useState("");
+  const [reportSubmitted, setReportSubmitted] = useState(false);
+  const [reportSubmitting, setReportSubmitting] = useState(false);
   const [avatarLightbox, setAvatarLightbox] = useState(false);
 
   useEffect(() => {
@@ -249,6 +268,21 @@ export default function UserProfile() {
         toast({ title: "User blocked" });
       }
     } catch { /* ignore */ }
+  };
+
+  const handleReport = async () => {
+    if (!reportReason || !profile) return;
+    setReportSubmitting(true);
+    try {
+      await createReport({ targetId: profile.id, targetType: "user", reason: reportReason, details: reportDetails.trim() || undefined });
+    } catch { /* non-fatal */ }
+    setReportSubmitting(false);
+    setReportSubmitted(true);
+  };
+
+  const closeReport = () => {
+    setReportOpen(false);
+    setTimeout(() => { setReportReason(""); setReportDetails(""); setReportSubmitted(false); }, 300);
   };
 
   const handleConnect = async () => {
@@ -418,6 +452,10 @@ export default function UserProfile() {
                   {isBlocked
                     ? <><ShieldOff className="h-3.5 w-3.5" /> Unblock</>
                     : <><UserX className="h-3.5 w-3.5" /> Block</>}
+                </Button>
+                <Button size="sm" variant="outline" className="gap-1.5 h-8 text-xs text-muted-foreground"
+                  onClick={() => setReportOpen(true)}>
+                  <Flag className="h-3.5 w-3.5" /> Report
                 </Button>
               </div>
             </div>
@@ -641,6 +679,53 @@ export default function UserProfile() {
           )}
         </div>
       )}
+
+      {/* Report Profile Dialog */}
+      <Dialog open={reportOpen} onOpenChange={v => !v && closeReport()}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{reportSubmitted ? "Report submitted" : `Report ${profile?.name ?? "this user"}`}</DialogTitle>
+            {!reportSubmitted && <DialogDescription>Help us understand what's wrong. Your report is anonymous.</DialogDescription>}
+          </DialogHeader>
+          {reportSubmitted ? (
+            <div className="py-6 text-center space-y-3">
+              <div className="h-14 w-14 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
+                <Check className="h-7 w-7 text-primary" />
+              </div>
+              <p className="text-sm text-foreground font-medium">Thanks for letting us know</p>
+              <p className="text-xs text-muted-foreground leading-relaxed">We review all reports carefully and will take action within 24 hours if the profile violates our guidelines.</p>
+              <Button className="w-full mt-2" onClick={closeReport}>Done</Button>
+            </div>
+          ) : (
+            <>
+              <div className="space-y-2 py-2">
+                {PROFILE_REPORT_REASONS.map(r => (
+                  <button key={r} onClick={() => setReportReason(r)}
+                    className={`w-full text-left px-4 py-3 rounded-xl text-sm transition-colors border ${reportReason === r ? "border-primary bg-primary/5 text-foreground font-medium" : "border-transparent hover:bg-muted text-foreground"}`}>
+                    {r}
+                  </button>
+                ))}
+                {reportReason && (
+                  <Textarea
+                    value={reportDetails}
+                    onChange={e => setReportDetails(e.target.value)}
+                    placeholder="Add more details (optional)"
+                    rows={2}
+                    className="mt-2 text-sm"
+                  />
+                )}
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={closeReport}>Cancel</Button>
+                <Button onClick={handleReport} disabled={!reportReason || reportSubmitting}
+                  className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">
+                  {reportSubmitting ? "Submitting…" : "Submit report"}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </Layout>
   );
 }
