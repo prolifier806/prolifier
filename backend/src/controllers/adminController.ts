@@ -130,8 +130,9 @@ export async function getReports(req: AuthRequest, res: Response): Promise<void>
   const profileMap: Record<string, any> = {};
   for (const p of profiles || []) profileMap[p.id] = p;
 
-  // Fetch content text for reports that have content_type + content_id
-  const contentMap: Record<string, string> = {};
+  // Fetch content (text + media) for reports that have content_type + content_id
+  interface ContentEntry { text: string; images: string[]; video: string | null }
+  const contentMap: Record<string, ContentEntry> = {};
   const contentReports = (data || []).filter((r: any) => r.content_type && r.content_id);
   if (contentReports.length) {
     const byType: Record<string, string[]> = {};
@@ -139,14 +140,34 @@ export async function getReports(req: AuthRequest, res: Response): Promise<void>
       if (!byType[r.content_type]) byType[r.content_type] = [];
       byType[r.content_type].push(r.content_id);
     }
-    const tableMap: Record<string, string> = { post: "posts", message: "messages", group_message: "group_messages", comment: "comments", community: "groups" };
+    // Select media columns too — posts have image_url, image_urls[], video_url; messages have media_url/media_type
+    const selectMap: Record<string, string> = {
+      post:          "id, content, image_url, image_urls, video_url",
+      message:       "id, body, media_url, media_type",
+      group_message: "id, content, media_url, media_type",
+      comment:       "id, content",
+      community:     "id, name",
+    };
+    const tableMap: Record<string, string> = {
+      post: "posts", message: "messages", group_message: "group_messages",
+      comment: "comments", community: "groups",
+    };
     await Promise.all(
       Object.entries(byType).map(async ([type, ids]) => {
         const table = tableMap[type];
-        if (!table) return;
-        const { data: rows } = await supabaseAdmin.from(table).select("id, content, body, text, name").in("id", ids).limit(ids.length);
+        const sel   = selectMap[type];
+        if (!table || !sel) return;
+        const { data: rows } = await supabaseAdmin.from(table).select(sel).in("id", ids).limit(ids.length);
         for (const row of rows || []) {
-          contentMap[row.id] = row.content ?? row.body ?? row.text ?? row.name ?? "";
+          const text   = row.content ?? row.body ?? row.name ?? "";
+          // Collect image URLs
+          const images: string[] = [];
+          if (row.image_urls && Array.isArray(row.image_urls)) images.push(...row.image_urls);
+          else if (row.image_url) images.push(row.image_url);
+          else if (row.media_url && (row.media_type ?? "").startsWith("image")) images.push(row.media_url);
+          // Video URL
+          const video: string | null = row.video_url ?? (row.media_url && (row.media_type ?? "").startsWith("video") ? row.media_url : null) ?? null;
+          contentMap[row.id] = { text, images, video };
         }
       })
     );
@@ -157,9 +178,7 @@ export async function getReports(req: AuthRequest, res: Response): Promise<void>
     const targetType = r.content_type || "user";
     const targetId   = r.content_id   || r.reported_id;
     const reportedProfile = r.reported_id ? profileMap[r.reported_id] : null;
-    const contentText = r.content_id && contentMap[r.content_id]
-      ? contentMap[r.content_id]
-      : reportedProfile ? `Reported user: ${reportedProfile.name}` : null;
+    const cm = r.content_id ? contentMap[r.content_id] : null;
 
     return {
       id: r.id,
@@ -170,9 +189,14 @@ export async function getReports(req: AuthRequest, res: Response): Promise<void>
       status: "pending",
       created_at: r.created_at,
       reporter: r.reporter_id ? { id: r.reporter_id, name: profileMap[r.reporter_id]?.name || "Unknown" } : null,
-      content: contentText
-        ? { text: contentText, author: reportedProfile?.name ?? "Unknown", authorId: r.reported_id }
-        : null,
+      content: cm || reportedProfile ? {
+        text:      cm?.text ?? (reportedProfile ? `Reported user: ${reportedProfile.name}` : ""),
+        images:    cm?.images ?? [],
+        video:     cm?.video ?? null,
+        author:    reportedProfile?.name ?? "Unknown",
+        avatar:    reportedProfile?.avatar ?? null,
+        authorId:  r.reported_id,
+      } : null,
     };
   });
 

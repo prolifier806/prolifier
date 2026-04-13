@@ -18,7 +18,10 @@ interface Report {
   id: string; target_id: string; target_type: string; reason: string;
   details: string | null; status: string; created_at: string;
   reporter: { id: string; name: string } | null;
-  content: { text: string; author: string; authorId?: string } | null;
+  content: {
+    text: string; author: string; authorId?: string;
+    images?: string[]; video?: string | null; avatar?: string | null;
+  } | null;
 }
 
 const typeLabels: Record<string, string> = {
@@ -269,44 +272,115 @@ export default function AdminReports() {
 
       {/* Review Dialog */}
       <Dialog open={!!reviewing} onOpenChange={open => !open && setReviewing(null)}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader><DialogTitle>Review Report</DialogTitle></DialogHeader>
+        <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Eye className="h-4 w-4" /> Review Report
+            </DialogTitle>
+          </DialogHeader>
           {reviewing && (
             <div className="space-y-4 py-1">
+              {/* Meta row */}
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div>
                   <p className="text-xs text-muted-foreground mb-1">Type</p>
-                  <Badge variant="outline" className={`capitalize text-xs ${typeColors[reviewing.target_type] || ""}`}>{typeLabels[reviewing.target_type] || reviewing.target_type || "—"}</Badge>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground mb-1">Status</p>
-                  <Badge variant="outline" className={`capitalize text-xs ${statusColors[reviewing.status] || ""}`}>{reviewing.status}</Badge>
+                  <Badge variant="outline" className={`capitalize text-xs ${typeColors[reviewing.target_type] || ""}`}>
+                    {typeLabels[reviewing.target_type] || reviewing.target_type || "—"}
+                  </Badge>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground mb-1">Reported By</p>
-                  <p className="font-medium">{reviewing.reporter?.name ?? "Unknown"}</p>
+                  <p className="font-medium text-sm">{reviewing.reporter?.name ?? "Unknown"}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Reason</p>
+                  <p className="text-sm font-medium capitalize">{reviewing.reason?.replace(/_/g, " ") || "—"}</p>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground mb-1">Date</p>
-                  <p>{new Date(reviewing.created_at).toLocaleDateString()}</p>
+                  <p className="text-sm">{new Date(reviewing.created_at).toLocaleDateString()}</p>
                 </div>
               </div>
-              <div>
-                <p className="text-xs text-muted-foreground mb-1">Reason</p>
-                <p className="text-sm font-medium capitalize">{reviewing.reason?.replace(/_/g, " ") || "—"}</p>
+
+              {/* Reported content */}
+              {reviewing.content && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-2">
+                    Reported Content
+                    {reviewing.content.author && <span className="ml-1">· by <span className="font-medium text-foreground">{reviewing.content.author}</span></span>}
+                  </p>
+                  <div className="rounded-lg border border-border bg-muted/40 overflow-hidden">
+                    {/* Author avatar row */}
+                    {reviewing.content.avatar && (
+                      <div className="flex items-center gap-2 p-3 pb-0">
+                        <img src={reviewing.content.avatar} alt="" className="h-7 w-7 rounded-full object-cover" />
+                        <span className="text-sm font-medium">{reviewing.content.author}</span>
+                      </div>
+                    )}
+                    {/* Text */}
+                    {reviewing.content.text && (
+                      <p className="text-sm p-3 whitespace-pre-wrap break-words">{reviewing.content.text}</p>
+                    )}
+                    {/* Images */}
+                    {reviewing.content.images && reviewing.content.images.length > 0 && (
+                      <div className={`grid gap-1 p-3 pt-0 ${reviewing.content.images.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
+                        {reviewing.content.images.map((src, i) => (
+                          <a key={i} href={src} target="_blank" rel="noreferrer">
+                            <img src={src} alt={`media-${i}`} className="w-full rounded-md object-cover max-h-64 cursor-pointer hover:opacity-90 transition-opacity" />
+                          </a>
+                        ))}
+                      </div>
+                    )}
+                    {/* Video */}
+                    {reviewing.content.video && (
+                      <div className="p-3 pt-0">
+                        <video src={reviewing.content.video} controls className="w-full rounded-md max-h-64" />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Action buttons */}
+              <div className="border-t border-border pt-4 space-y-2">
+                <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide mb-3">Actions</p>
+                <div className="flex flex-wrap gap-2">
+                  {/* Remove Content — only for content-type reports */}
+                  {(reviewing.target_type === "post" || reviewing.target_type === "comment") && (
+                    <Button size="sm" variant="outline" className="text-destructive border-destructive/30 hover:bg-destructive/10"
+                      onClick={() => { removeContent(reviewing); }}>
+                      <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Remove Content
+                    </Button>
+                  )}
+                  {/* Suspend User */}
+                  {getUserIdFromReport(reviewing) && (
+                    <Button size="sm" variant="outline" className="text-amber-600 border-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/30"
+                      onClick={() => {
+                        const uid = getUserIdFromReport(reviewing)!;
+                        setReviewing(null);
+                        setSuspendTarget({ reportId: reviewing.id, userId: uid, name: reviewing.content?.author || "User" });
+                      }}>
+                      <ShieldOff className="mr-1.5 h-3.5 w-3.5" /> Suspend User
+                    </Button>
+                  )}
+                  {/* Ban User */}
+                  {getUserIdFromReport(reviewing) && (
+                    <Button size="sm" variant="outline" className="text-destructive border-destructive/30 hover:bg-destructive/10"
+                      onClick={() => {
+                        const uid = getUserIdFromReport(reviewing)!;
+                        setReviewing(null);
+                        setBanTarget({ reportId: reviewing.id, userId: uid, name: reviewing.content?.author || "User" });
+                      }}>
+                      <Ban className="mr-1.5 h-3.5 w-3.5" /> Ban User
+                    </Button>
+                  )}
+                  {/* Dismiss */}
+                  <Button size="sm" variant="ghost" className="text-muted-foreground ml-auto"
+                    onClick={() => { resolve(reviewing.id, "dismissed"); }}>
+                    <XCircle className="mr-1.5 h-3.5 w-3.5" /> Dismiss
+                  </Button>
+                </div>
               </div>
-              {reviewing.details && (
-                <div>
-                  <p className="text-xs text-muted-foreground mb-1">Reporter's Note</p>
-                  <p className="text-sm text-muted-foreground bg-muted rounded-md p-3">{reviewing.details}</p>
-                </div>
-              )}
-              {reviewing.content?.text && (
-                <div>
-                  <p className="text-xs text-muted-foreground mb-1">Reported Content · by {reviewing.content.author}</p>
-                  <div className="text-sm bg-muted rounded-md p-3 border border-border">{reviewing.content.text}</div>
-                </div>
-              )}
             </div>
           )}
         </DialogContent>
