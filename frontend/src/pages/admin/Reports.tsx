@@ -270,22 +270,30 @@ export default function AdminReports() {
                 </div>
               </div>
 
-              {/* Details with Read More */}
+              {/* Details with Read More dropdown */}
               {reviewing.details && (
                 <div>
                   <p className="text-xs text-muted-foreground mb-1">Details</p>
                   <div className="text-sm bg-muted rounded-md p-3">
-                    {detailsExpanded || reviewing.details.length <= DETAILS_LIMIT
-                      ? <span className="whitespace-pre-wrap break-words">{reviewing.details}</span>
-                      : <span className="whitespace-pre-wrap break-words">{reviewing.details.slice(0, DETAILS_LIMIT)}…</span>
-                    }
+                    <span className="whitespace-pre-wrap break-words">
+                      {reviewing.details.length <= DETAILS_LIMIT || detailsExpanded
+                        ? reviewing.details
+                        : reviewing.details.slice(0, DETAILS_LIMIT) + "…"}
+                    </span>
                     {reviewing.details.length > DETAILS_LIMIT && (
-                      <button
-                        className="ml-1 text-primary text-xs font-medium hover:underline"
-                        onClick={() => setDetailsExpanded(v => !v)}
-                      >
-                        {detailsExpanded ? "Show less" : "Read more"}
-                      </button>
+                      <>
+                        {detailsExpanded && (
+                          <div className="mt-2 border-t border-border/50 pt-2 whitespace-pre-wrap break-words text-muted-foreground" />
+                        )}
+                        <div className="mt-2">
+                          <button
+                            className="text-primary text-xs font-medium hover:underline flex items-center gap-1"
+                            onClick={() => setDetailsExpanded(v => !v)}
+                          >
+                            {detailsExpanded ? "▲ Show less" : "▼ Read more"}
+                          </button>
+                        </div>
+                      </>
                     )}
                   </div>
                 </div>
@@ -366,7 +374,7 @@ export default function AdminReports() {
                         </Button>
                       </>
                     )}
-                    <Button size="sm" variant="ghost" className="text-muted-foreground ml-auto"
+                    <Button size="sm" variant="outline" className="text-muted-foreground border-border hover:bg-muted"
                       onClick={() => resolve(reviewing.id, "dismissed")}>
                       <XCircle className="mr-1.5 h-3.5 w-3.5" /> Dismiss
                     </Button>
