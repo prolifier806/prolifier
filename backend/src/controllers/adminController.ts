@@ -215,13 +215,13 @@ export async function getUsers(req: AuthRequest, res: Response): Promise<void> {
   const userIds = (data || []).map((u: any) => u.id);
   const [postsRes, reportsRes] = await Promise.all([
     supabaseAdmin.from("posts").select("user_id").in("user_id", userIds).is("deleted_at", null),
-    supabaseAdmin.from("reports").select("target_id").in("target_id", userIds),
+    supabaseAdmin.from("reports").select("reported_id").in("reported_id", userIds),
   ]);
 
   const postCounts: Record<string, number> = {};
   const reportCounts: Record<string, number> = {};
   for (const p of postsRes.data || []) postCounts[p.user_id] = (postCounts[p.user_id] || 0) + 1;
-  for (const r of reportsRes.data || []) reportCounts[r.target_id] = (reportCounts[r.target_id] || 0) + 1;
+  for (const r of reportsRes.data || []) reportCounts[r.reported_id] = (reportCounts[r.reported_id] || 0) + 1;
 
   const users = (data || []).map((u: any) => ({
     ...u,
@@ -243,7 +243,7 @@ export async function getStats(_req: AuthRequest, res: Response): Promise<void> 
     supabaseAdmin.from("profiles").select("*", { count: "exact", head: true }).is("deleted_at", null),
     supabaseAdmin.from("profiles").select("*", { count: "exact", head: true }).eq("account_status", "active").is("deleted_at", null),
     supabaseAdmin.from("posts").select("*", { count: "exact", head: true }).is("deleted_at", null),
-    supabaseAdmin.from("reports").select("*", { count: "exact", head: true }).eq("status", "pending"),
+    supabaseAdmin.from("reports").select("*", { count: "exact", head: true }),
     supabaseAdmin.from("profiles").select("*", { count: "exact", head: true }).eq("account_status", "banned"),
     supabaseAdmin.from("profiles").select("*", { count: "exact", head: true }).eq("account_status", "suspended"),
     supabaseAdmin.from("profiles").select("*", { count: "exact", head: true }).gte("created_at", yesterday),
