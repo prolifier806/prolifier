@@ -109,38 +109,38 @@ export async function getReports(req: AuthRequest, res: Response): Promise<void>
   const limit = 25;
   const offset = (page - 1) * limit;
 
+  // reports table schema: id, reporter_id, reported_id, reason, created_at (no status column)
   const { data, error, count } = await supabaseAdmin
     .from("reports")
-    .select("id, content_id, content_type, reason, details, status, created_at, reporter_id", { count: "exact" })
-    .eq("status", status)
+    .select("id, reporter_id, reported_id, reason, created_at", { count: "exact" })
     .order("created_at", { ascending: false })
     .range(offset, offset + limit - 1);
 
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
 
-  // Fetch reporter names from profiles
-  const reporterIds = [...new Set((data || []).map((r: any) => r.reporter_id).filter(Boolean))];
-  const { data: reporterProfiles } = reporterIds.length
-    ? await supabaseAdmin.from("profiles").select("id, name").in("id", reporterIds)
-    : { data: [] };
-  const reporterMap: Record<string, string> = {};
-  for (const p of reporterProfiles || []) reporterMap[p.id] = p.name;
+  // Fetch reporter + reported user names
+  const allUserIds = [...new Set([
+    ...(data || []).map((r: any) => r.reporter_id),
+    ...(data || []).map((r: any) => r.reported_id),
+  ].filter(Boolean))];
 
-  // Fetch actual content for posts
-  const postIds = (data || []).filter((r: any) => r.content_type === "post").map((r: any) => r.content_id);
-  const { data: posts } = postIds.length
-    ? await supabaseAdmin.from("posts").select("id, content, user_id, profiles:user_id(name)").in("id", postIds)
+  const { data: profiles } = allUserIds.length
+    ? await supabaseAdmin.from("profiles").select("id, name, avatar").in("id", allUserIds)
     : { data: [] };
-  const postMap: Record<string, any> = {};
-  for (const p of posts || []) postMap[p.id] = p;
+  const profileMap: Record<string, any> = {};
+  for (const p of profiles || []) profileMap[p.id] = p;
 
   const reports = (data || []).map((r: any) => ({
-    ...r,
-    target_id: r.content_id,
-    target_type: r.content_type,
-    reporter: r.reporter_id ? { id: r.reporter_id, name: reporterMap[r.reporter_id] || "Unknown" } : null,
-    content: r.content_type === "post" && postMap[r.content_id]
-      ? { text: postMap[r.content_id].content, author: (postMap[r.content_id].profiles as any)?.name || "Unknown", authorId: postMap[r.content_id].user_id }
+    id: r.id,
+    target_id: r.reported_id,
+    target_type: "user",
+    reason: r.reason,
+    details: null,
+    status: "pending",
+    created_at: r.created_at,
+    reporter: r.reporter_id ? { id: r.reporter_id, name: profileMap[r.reporter_id]?.name || "Unknown" } : null,
+    content: r.reported_id && profileMap[r.reported_id]
+      ? { text: `Reported user: ${profileMap[r.reported_id].name}`, author: profileMap[r.reported_id].name, authorId: r.reported_id }
       : null,
   }));
 
@@ -183,15 +183,10 @@ export async function resolveReport(req: AuthRequest, res: Response): Promise<vo
   const { id } = req.params;
   const body = req.body as z.infer<typeof resolveReportSchema>;
 
-  const { data, error } = await supabaseAdmin
-    .from("reports")
-    .update({ status: body.resolution })
-    .eq("id", id)
-    .select()
-    .single();
-
+  // reports table has no status column — delete the report on resolve
+  const { error } = await supabaseAdmin.from("reports").delete().eq("id", id);
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
-  res.json({ success: true, data });
+  res.json({ success: true, data: { id, resolution: body.resolution } });
 }
 
 // ── User list ─────────────────────────────────────────────────────────────────
