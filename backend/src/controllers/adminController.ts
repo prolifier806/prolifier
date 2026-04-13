@@ -142,43 +142,44 @@ export async function getReports(req: AuthRequest, res: Response): Promise<void>
       if (!byType[r.target_type]) byType[r.target_type] = [];
       byType[r.target_type].push(r.target_id);
     }
-    const selectMap: Record<string, string> = {
-      post:          "id, content, image_url, image_urls, video_url, user_id, deleted_at",
-      collab:        "id, title, description, image, user_id",
-      message:       "id, body, media_url, media_type, sender_id",
-      group_message: "id, content, media_url, media_type, user_id",
-      comment:       "id, content, user_id",
+    const supabaseUrl = process.env.SUPABASE_URL!;
+    const toFullUrl = (path: string | null | undefined): string | null => {
+      if (!path) return null;
+      if (path.startsWith("http")) return path;
+      return `${supabaseUrl}/storage/v1/object/public/posts/${path}`;
     };
+
     const tableMap: Record<string, string> = {
       post: "posts", collab: "collabs", message: "messages",
       group_message: "group_messages", comment: "comments",
     };
+
     await Promise.all(
       Object.entries(byType).map(async ([type, ids]) => {
-        const table = selectMap[type] ? tableMap[type] : null;
-        const sel   = selectMap[type];
-        if (!table || !sel) return;
-        const { data: rows } = await supabaseAdmin.from(table).select(sel).in("id", ids).limit(ids.length);
-        const supabaseUrl = process.env.SUPABASE_URL!;
-        const toFullUrl = (path: string | null | undefined): string | null => {
-          if (!path) return null;
-          if (path.startsWith("http")) return path;
-          // Relative storage path — construct public URL
-          const bucket = path.startsWith("posts/") || path.startsWith("avatars/") || path.startsWith("messages/")
-            ? path.split("/")[0]
-            : "posts";
-          return `${supabaseUrl}/storage/v1/object/public/${bucket}/${path.replace(/^[^/]+\//, "")}`;
-        };
+        const table = tableMap[type];
+        if (!table) return;
+
+        // Use minimal safe select per type — avoid columns that may not exist
+        let sel = "id, user_id";
+        if (type === "post")          sel = "id, content, image_urls, video_url, user_id";
+        if (type === "collab")        sel = "id, title, description, user_id";
+        if (type === "comment")       sel = "id, content, user_id";
+        if (type === "message")       sel = "id, body, media_url, media_type, sender_id";
+        if (type === "group_message") sel = "id, content, media_url, media_type, user_id";
+
+        const { data: rows, error: rowErr } = await supabaseAdmin
+          .from(table).select(sel).in("id", ids);
+
+        if (rowErr) {
+          console.error(`[admin] getReports content fetch error (${type}):`, rowErr.message);
+          return;
+        }
+
         for (const row of rows || []) {
-          const deleted = row.deleted_at ? " [deleted]" : "";
-          const text   = (row.content ?? row.body ?? row.title ?? "") + deleted;
+          const text  = row.content ?? row.body ?? row.title ?? "";
           const images: string[] = [];
           if (Array.isArray(row.image_urls) && row.image_urls.length) {
-            images.push(...row.image_urls.map(toFullUrl).filter(Boolean) as string[]);
-          } else if (row.image_url) {
-            const u = toFullUrl(row.image_url); if (u) images.push(u);
-          } else if (row.image) {
-            const u = toFullUrl(row.image); if (u) images.push(u);
+            images.push(...(row.image_urls.map(toFullUrl).filter(Boolean) as string[]));
           } else if (row.media_url && (row.media_type ?? "").startsWith("image")) {
             const u = toFullUrl(row.media_url); if (u) images.push(u);
           }
