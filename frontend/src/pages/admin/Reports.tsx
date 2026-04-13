@@ -56,6 +56,30 @@ const durationMs: Record<SuspendDuration, number> = { "1h": 3600000, "24h": 8640
 
 const DETAILS_LIMIT = 160;
 
+function ImagePreview({ src }: { src: string }) {
+  const [failed, setFailed] = useState(false);
+  return failed ? (
+    <a
+      href={src}
+      target="_blank"
+      rel="noreferrer"
+      className="flex items-center justify-center rounded-md border border-border bg-muted h-24 text-xs text-primary underline hover:bg-muted/80 transition-colors px-2 text-center"
+    >
+      Image failed to load — click to open ↗
+    </a>
+  ) : (
+    <a href={src} target="_blank" rel="noreferrer" className="block">
+      <img
+        src={src}
+        alt="reported media"
+        referrerPolicy="no-referrer"
+        className="w-full rounded-md object-cover max-h-64 cursor-pointer hover:opacity-90 transition-opacity bg-muted"
+        onError={() => setFailed(true)}
+      />
+    </a>
+  );
+}
+
 export default function AdminReports() {
   const [reports, setReports]           = useState<Report[]>([]);
   const [total, setTotal]               = useState(0);
@@ -319,26 +343,9 @@ export default function AdminReports() {
                     )}
                     {/* Images */}
                     {Array.isArray(reviewing.content.images) && reviewing.content.images.length > 0 && (
-                      <div className={`grid gap-1 px-3 pb-3 ${reviewing.content.images.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
+                      <div className={`grid gap-2 px-3 pb-3 ${reviewing.content.images.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
                         {reviewing.content.images.map((src, i) => (
-                          <a key={i} href={src} target="_blank" rel="noreferrer" className="block">
-                            <img
-                              src={src}
-                              alt={`media-${i}`}
-                              className="w-full rounded-md object-cover max-h-64 cursor-pointer hover:opacity-90 transition-opacity bg-muted"
-                              onError={e => {
-                                const el = e.target as HTMLImageElement;
-                                el.style.display = "none";
-                                const link = document.createElement("a");
-                                link.href = src;
-                                link.target = "_blank";
-                                link.rel = "noreferrer";
-                                link.textContent = "View image ↗";
-                                link.className = "text-xs text-primary underline";
-                                el.parentElement?.appendChild(link);
-                              }}
-                            />
-                          </a>
+                          <ImagePreview key={i} src={src} />
                         ))}
                       </div>
                     )}
