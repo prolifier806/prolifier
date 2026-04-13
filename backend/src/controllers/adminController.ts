@@ -207,6 +207,12 @@ export async function getReports(req: AuthRequest, res: Response): Promise<void>
     const targetProfile = isUserReport && r.target_id ? profileMap[r.target_id] : null;
     const contentAuthor = cm?.authorId ? profileMap[cm.authorId] : null;
 
+    // subject_user_id = the user to ban/suspend:
+    // user reports → the reported user; content reports → the content author
+    const subjectUserId: string | null =
+      isUserReport ? (r.target_id ?? null) : (cm?.authorId ?? null);
+    const subjectProfile = subjectUserId ? profileMap[subjectUserId] : null;
+
     return {
       id: r.id,
       target_id: r.target_id,
@@ -215,6 +221,8 @@ export async function getReports(req: AuthRequest, res: Response): Promise<void>
       details: r.details ?? null,
       status: r.status ?? "pending",
       created_at: r.created_at,
+      subject_user_id: subjectUserId,
+      subject_name: subjectProfile?.name ?? null,
       reporter: r.reporter_id ? { id: r.reporter_id, name: profileMap[r.reporter_id]?.name ?? "Unknown" } : null,
       content: cm ? {
         text:     cm.text,

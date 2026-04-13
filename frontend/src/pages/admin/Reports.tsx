@@ -16,6 +16,8 @@ import { apiGet, apiPatch, apiDelete } from "@/api/client";
 interface Report {
   id: string; target_id: string; target_type: string; reason: string;
   details: string | null; status: string; created_at: string;
+  subject_user_id: string | null;
+  subject_name: string | null;
   reporter: { id: string; name: string } | null;
   content: {
     text: string; author: string; authorId?: string;
@@ -58,47 +60,30 @@ const DETAILS_LIMIT = 160;
 
 function ImagePreview({ src }: { src: string }) {
   const [failed, setFailed] = useState(false);
-
   if (!src) return null;
-
-  // Always show a clickable link to the image — as primary display when loaded,
-  // or as fallback with prominent open-button when the inline render fails.
   return (
-    <div className="relative rounded-md overflow-hidden border border-border bg-muted">
-      {!failed && (
-        <img
-          src={src}
-          alt="reported media"
-          className="w-full object-cover max-h-72 block"
-          onLoad={() => {}} // keep alive
-          onError={() => setFailed(true)}
-        />
-      )}
-      {failed && (
-        <div className="flex flex-col items-center justify-center gap-2 py-8 px-4 text-center">
-          <span className="text-xs text-muted-foreground">Image could not load inline</span>
-          <a
-            href={src}
-            target="_blank"
-            rel="noreferrer"
-            className="text-xs font-medium text-primary underline underline-offset-2 hover:opacity-80"
-          >
-            Open image in new tab ↗
-          </a>
-        </div>
-      )}
-      {/* Always show open-in-tab overlay on hover */}
-      {!failed && (
-        <a
-          href={src}
-          target="_blank"
-          rel="noreferrer"
-          className="absolute inset-0 flex items-end justify-end p-2 opacity-0 hover:opacity-100 transition-opacity bg-black/20"
-          title="Open full size"
-        >
-          <span className="text-[10px] text-white bg-black/50 rounded px-1.5 py-0.5">Open ↗</span>
+    <div className="rounded-md overflow-hidden border border-border bg-muted">
+      {failed ? (
+        <a href={src} target="_blank" rel="noreferrer"
+          className="flex items-center justify-center py-6 px-3 text-xs text-primary underline underline-offset-2 hover:bg-muted/80 text-center">
+          Could not load inline — click to open ↗
+        </a>
+      ) : (
+        <a href={src} target="_blank" rel="noreferrer" className="block">
+          <img
+            src={src}
+            alt="reported media"
+            className="w-full object-cover max-h-72 block hover:opacity-95 transition-opacity"
+            onError={() => setFailed(true)}
+          />
         </a>
       )}
+      <div className="px-2 py-1 border-t border-border/50 bg-background/50">
+        <a href={src} target="_blank" rel="noreferrer"
+          className="text-[10px] text-muted-foreground hover:text-primary truncate block">
+          Open full size ↗
+        </a>
+      </div>
     </div>
   );
 }
@@ -192,11 +177,8 @@ export default function AdminReports() {
     } finally { setSuspending(false); }
   };
 
-  const getUserIdFromReport = (r: Report): string | null => {
-    if (r.target_type === "user" || r.target_type === "profile") return r.target_id;
-    if (r.content?.authorId) return r.content.authorId;
-    return null;
-  };
+  const getSubjectName = (r: Report) =>
+    r.subject_name ?? r.content?.author ?? "User";
 
   const openReview = (r: Report) => {
     setDetailsExpanded(false);
@@ -393,21 +375,19 @@ export default function AdminReports() {
                         <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Remove Content
                       </Button>
                     )}
-                    {getUserIdFromReport(reviewing) && (
+                    {reviewing.subject_user_id && (
                       <>
                         <Button size="sm" variant="outline" className="text-amber-600 border-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/30"
                           onClick={() => {
-                            const uid = getUserIdFromReport(reviewing)!;
                             setReviewing(null);
-                            setSuspendTarget({ reportId: reviewing.id, userId: uid, name: reviewing.content?.author || "User" });
+                            setSuspendTarget({ reportId: reviewing.id, userId: reviewing.subject_user_id!, name: getSubjectName(reviewing) });
                           }}>
                           <ShieldOff className="mr-1.5 h-3.5 w-3.5" /> Suspend User
                         </Button>
                         <Button size="sm" variant="outline" className="text-destructive border-destructive/30 hover:bg-destructive/10"
                           onClick={() => {
-                            const uid = getUserIdFromReport(reviewing)!;
                             setReviewing(null);
-                            setBanTarget({ reportId: reviewing.id, userId: uid, name: reviewing.content?.author || "User" });
+                            setBanTarget({ reportId: reviewing.id, userId: reviewing.subject_user_id!, name: getSubjectName(reviewing) });
                           }}>
                           <Ban className="mr-1.5 h-3.5 w-3.5" /> Ban User
                         </Button>
