@@ -100,11 +100,12 @@ export async function updateMyProfile(req: AuthRequest, res: Response): Promise<
 
 export async function discoverProfiles(req: AuthRequest, res: Response): Promise<void> {
   const userId = req.user.id;
-  const cursor     = req.query.cursor     as string | undefined;
-  const skills     = req.query.skills     as string | undefined; // hard filter
-  const rankSkills = req.query.rankSkills as string | undefined; // soft rank
-  const location   = req.query.location   as string | undefined;
-  const search     = req.query.search     as string | undefined;
+  const cursor      = req.query.cursor      as string | undefined;
+  const skills      = req.query.skills      as string | undefined; // hard filter
+  const rankSkills  = req.query.rankSkills  as string | undefined; // soft rank
+  const location    = req.query.location    as string | undefined;
+  const search      = req.query.search      as string | undefined;
+  const collabOnly  = req.query.collabOnly  === "true";
 
   // WHY: When ranking by skills we need a larger pool to sort from so that
   // high-match profiles aren't cut off by the page limit before ranking.
@@ -119,6 +120,7 @@ export async function discoverProfiles(req: AuthRequest, res: Response): Promise
     .limit(fetchLimit);
 
   if (cursor) query = query.lt("created_at", cursor);
+  if (collabOnly) query = query.eq("open_to_collab", true);
   if (location) query = query.eq("location", location);
   if (skills) query = query.overlaps("skills", skills.split(","));
   if (search) {
