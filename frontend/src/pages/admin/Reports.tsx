@@ -276,16 +276,13 @@ export default function AdminReports() {
                   <p className="text-xs text-muted-foreground mb-1">Details</p>
                   <div className="text-sm bg-muted rounded-md p-3">
                     <span className="whitespace-pre-wrap break-words">
-                      {reviewing.details.length <= DETAILS_LIMIT || detailsExpanded
+                      {reviewing.details.length <= DETAILS_LIMIT
                         ? reviewing.details
                         : reviewing.details.slice(0, DETAILS_LIMIT) + "…"}
                     </span>
                     {reviewing.details.length > DETAILS_LIMIT && (
                       <>
-                        {detailsExpanded && (
-                          <div className="mt-2 border-t border-border/50 pt-2 whitespace-pre-wrap break-words text-muted-foreground" />
-                        )}
-                        <div className="mt-2">
+                        <div className="mt-1.5">
                           <button
                             className="text-primary text-xs font-medium hover:underline flex items-center gap-1"
                             onClick={() => setDetailsExpanded(v => !v)}
@@ -293,6 +290,13 @@ export default function AdminReports() {
                             {detailsExpanded ? "▲ Show less" : "▼ Read more"}
                           </button>
                         </div>
+                        {detailsExpanded && (
+                          <div className="mt-2 border-t border-border/50 pt-2 max-h-36 overflow-y-auto">
+                            <span className="whitespace-pre-wrap break-words text-muted-foreground">
+                              {reviewing.details.slice(DETAILS_LIMIT)}
+                            </span>
+                          </div>
+                        )}
                       </>
                     )}
                   </div>
