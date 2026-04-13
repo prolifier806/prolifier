@@ -11,7 +11,7 @@ export const updateUserStatusSchema = z.object({
 });
 
 export const resolveReportSchema = z.object({
-  resolution: z.enum(["dismissed", "actioned"]),
+  resolution: z.enum(["dismissed", "actioned", "escalated"]),
 });
 
 // ── User moderation ───────────────────────────────────────────────────────────
@@ -140,7 +140,7 @@ export async function getReports(req: AuthRequest, res: Response): Promise<void>
     target_type: r.content_type,
     reporter: r.reporter_id ? { id: r.reporter_id, name: reporterMap[r.reporter_id] || "Unknown" } : null,
     content: r.content_type === "post" && postMap[r.content_id]
-      ? { text: postMap[r.content_id].content, author: (postMap[r.content_id].profiles as any)?.name || "Unknown" }
+      ? { text: postMap[r.content_id].content, author: (postMap[r.content_id].profiles as any)?.name || "Unknown", authorId: postMap[r.content_id].user_id }
       : null,
   }));
 
