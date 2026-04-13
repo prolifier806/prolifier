@@ -73,11 +73,14 @@ export async function updateMyProfile(req: AuthRequest, res: Response): Promise<
       .single();
 
     if (current?.name_changed_at) {
-      const daysSince = (Date.now() - new Date(current.name_changed_at).getTime()) / 86_400_000;
-      if (daysSince < 30) {
+      const hoursSince = (Date.now() - new Date(current.name_changed_at).getTime()) / 3_600_000;
+      if (hoursSince < 24) {
+        const hoursLeft = Math.ceil(24 - hoursSince);
         res.status(429).json({
           success: false,
-          error: `Name can only be changed every 30 days. ${Math.ceil(30 - daysSince)} days remaining.`,
+          error: `Name can only be changed once every 24 hours. ${hoursLeft} hour${hoursLeft === 1 ? "" : "s"} remaining.`,
+          hoursLeft,
+          nameChangedAt: current.name_changed_at,
         });
         return;
       }

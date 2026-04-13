@@ -150,6 +150,24 @@ export default function Profile() {
   const [draftTwitter, setDraftTwitter]   = useState("");
   const [draftStartupStage, setDraftStartupStage] = useState("");
 
+  // Name change cooldown timer (real-time countdown)
+  const [nameCountdown, setNameCountdown] = useState<string | null>(null);
+  useEffect(() => {
+    if (!user.nameChangedAt) { setNameCountdown(null); return; }
+    const update = () => {
+      const elapsed = Date.now() - new Date(user.nameChangedAt!).getTime();
+      const remaining = 24 * 60 * 60 * 1000 - elapsed;
+      if (remaining <= 0) { setNameCountdown(null); return; }
+      const h = Math.floor(remaining / 3_600_000);
+      const m = Math.floor((remaining % 3_600_000) / 60_000);
+      const s = Math.floor((remaining % 60_000) / 1_000);
+      setNameCountdown(`${h}h ${m}m ${s}s`);
+    };
+    update();
+    const id = setInterval(update, 1000);
+    return () => clearInterval(id);
+  }, [user.nameChangedAt]);
+
   // Location autocomplete
   const [locationQuery, setLocationQuery]               = useState("");
   const [showLocationDropdown, setShowLocationDropdown] = useState(false);
@@ -345,14 +363,10 @@ export default function Profile() {
     if (draftLocation.trim() && !LOCATIONS.includes(draftLocation.trim())) {
       toast({ title: "Please select a valid location from the list", variant: "destructive" }); return;
     }
-    // 7-day name change cooldown
-    if (draftName.trim() !== user.name && user.nameChangedAt) {
-      const daysSince = (Date.now() - new Date(user.nameChangedAt).getTime()) / (1000 * 60 * 60 * 24);
-      if (daysSince < 7) {
-        const daysLeft = Math.ceil(7 - daysSince);
-        toast({ title: "Name change too soon", description: `You can change your name again in ${daysLeft} day${daysLeft === 1 ? "" : "s"}.`, variant: "destructive" });
-        return;
-      }
+    // 24-hour name change cooldown
+    if (draftName.trim() !== user.name && user.nameChangedAt && nameCountdown) {
+      toast({ title: "Name change too soon", description: `You can change your name again in ${nameCountdown}.`, variant: "destructive" });
+      return;
     }
     setSaving(true);
     await updateUser({
@@ -1027,7 +1041,12 @@ export default function Profile() {
             <div className="flex-1 min-w-0">
               {editing ? (
                 <div className="space-y-2">
-                  <Input value={draftName} onChange={e => setDraftName(e.target.value)} className="h-9 font-semibold" placeholder="Your name" maxLength={20} />
+                  <Input value={draftName} onChange={e => setDraftName(e.target.value)} className="h-9 font-semibold" placeholder="Your name" maxLength={20} disabled={!!nameCountdown} />
+                  {nameCountdown && (
+                    <p className="text-xs text-destructive flex items-center gap-1">
+                      <span className="font-mono">{nameCountdown}</span> until you can change your name
+                    </p>
+                  )}
                   {/* Location autocomplete */}
                   <div ref={locationRef} className="relative">
                     <Input

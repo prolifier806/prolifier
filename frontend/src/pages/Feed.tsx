@@ -1232,17 +1232,10 @@ function EditCollabDialog({ collab, open, onClose, onSave }: {
               <Button type="button" size="sm" variant="outline" className="h-8 px-3 shrink-0" onClick={addCustomSkill}>Add</Button>
             </div>
           </div>
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="text-sm font-medium">Preferred Candidate Location</label>
-              <span className="text-xs text-muted-foreground">Optional</span>
-            </div>
-            <CollabLocationPicker value={candidateLocation} onChange={setCandidateLocation} />
-          </div>
         </div>
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={()=>{onSave(collab.id,{title,looking,description:desc,skills,candidateLocation:candidateLocation.trim()||undefined});onClose();}} disabled={!title.trim()} className="gap-1.5">
+          <Button onClick={()=>{onSave(collab.id,{title,looking,description:desc,skills});onClose();}} disabled={!title.trim()} className="gap-1.5">
             <Check className="h-4 w-4"/> Save
           </Button>
         </DialogFooter>
@@ -1455,11 +1448,6 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
         <div className="px-5 pb-4 space-y-2">
           <div className="flex items-start justify-between gap-2">
             <p className="text-sm font-medium text-foreground/70 leading-snug truncate flex-1">{collab.title}</p>
-            {collab.candidateLocation && (
-              <span className="shrink-0 inline-flex items-center gap-1 text-xs text-muted-foreground bg-secondary border border-border rounded-full px-2 py-0.5 whitespace-nowrap">
-                <MapPin className="h-3 w-3 text-primary/60 shrink-0"/> {collab.candidateLocation}
-              </span>
-            )}
           </div>
           <p className="text-[15px] leading-snug">
             <span className="text-muted-foreground">Looking for </span>
@@ -2532,14 +2520,6 @@ export default function Feed() {
                       onChange={e => setCollabDialog(d => ({ ...d, desc: e.target.value }))}
                       maxLength={500}
                       placeholder="What are you building? What kind of help do you need?" rows={3}/>
-                  </div>
-                  {/* Preferred Candidate Location */}
-                  <div>
-                    <label className="text-sm font-medium mb-1.5 block">Preferred Candidate Location</label>
-                    <CollabLocationPicker
-                      value={collabDialog.candidateLocation}
-                      onChange={v => setCollabDialog(d => ({ ...d, candidateLocation: v }))}
-                    />
                   </div>
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
