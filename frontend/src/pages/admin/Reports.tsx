@@ -21,12 +21,25 @@ interface Report {
   content: { text: string; author: string; authorId?: string } | null;
 }
 
+const typeLabels: Record<string, string> = {
+  post:          "Post",
+  user:          "User",
+  profile:       "User",
+  comment:       "Comment",
+  message:       "Message",
+  group_message: "Community Msg",
+  community:     "Community",
+  collab:        "Collab",
+};
 const typeColors: Record<string, string> = {
-  post:    "bg-primary/10 text-primary",
-  user:    "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
-  profile: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
-  comment: "bg-muted text-muted-foreground",
-  collab:  "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400",
+  post:          "bg-primary/10 text-primary",
+  user:          "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+  profile:       "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+  comment:       "bg-muted text-muted-foreground",
+  message:       "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+  group_message: "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400",
+  community:     "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
+  collab:        "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400",
 };
 const statusColors: Record<string, string> = {
   pending:   "bg-amber-100 text-amber-700",
@@ -182,7 +195,7 @@ export default function AdminReports() {
                     <TableRow key={r.id}>
                       <TableCell>
                         <Badge variant="outline" className={`capitalize text-xs ${typeColors[r.target_type] || "bg-muted text-muted-foreground"}`}>
-                          {r.target_type || "—"}
+                          {typeLabels[r.target_type] || r.target_type || "—"}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-sm font-medium capitalize">{r.reason?.replace(/_/g, " ") || "—"}</TableCell>
@@ -263,7 +276,7 @@ export default function AdminReports() {
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div>
                   <p className="text-xs text-muted-foreground mb-1">Type</p>
-                  <Badge variant="outline" className={`capitalize text-xs ${typeColors[reviewing.target_type] || ""}`}>{reviewing.target_type || "—"}</Badge>
+                  <Badge variant="outline" className={`capitalize text-xs ${typeColors[reviewing.target_type] || ""}`}>{typeLabels[reviewing.target_type] || reviewing.target_type || "—"}</Badge>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground mb-1">Status</p>

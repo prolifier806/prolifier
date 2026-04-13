@@ -109,10 +109,10 @@ export async function getReports(req: AuthRequest, res: Response): Promise<void>
   const limit = 25;
   const offset = (page - 1) * limit;
 
-  // reports table schema: id, reporter_id, reported_id, reason, created_at (no status column)
+  // reports table: id, reporter_id, reported_id, reason, created_at, content_type, content_id
   const { data, error, count } = await supabaseAdmin
     .from("reports")
-    .select("id, reporter_id, reported_id, reason, created_at", { count: "exact" })
+    .select("id, reporter_id, reported_id, reason, created_at, content_type, content_id", { count: "exact" })
     .order("created_at", { ascending: false })
     .range(offset, offset + limit - 1);
 
@@ -130,19 +130,51 @@ export async function getReports(req: AuthRequest, res: Response): Promise<void>
   const profileMap: Record<string, any> = {};
   for (const p of profiles || []) profileMap[p.id] = p;
 
-  const reports = (data || []).map((r: any) => ({
-    id: r.id,
-    target_id: r.reported_id,
-    target_type: "user",
-    reason: r.reason,
-    details: null,
-    status: "pending",
-    created_at: r.created_at,
-    reporter: r.reporter_id ? { id: r.reporter_id, name: profileMap[r.reporter_id]?.name || "Unknown" } : null,
-    content: r.reported_id && profileMap[r.reported_id]
-      ? { text: `Reported user: ${profileMap[r.reported_id].name}`, author: profileMap[r.reported_id].name, authorId: r.reported_id }
-      : null,
-  }));
+  // Fetch content text for reports that have content_type + content_id
+  const contentMap: Record<string, string> = {};
+  const contentReports = (data || []).filter((r: any) => r.content_type && r.content_id);
+  if (contentReports.length) {
+    const byType: Record<string, string[]> = {};
+    for (const r of contentReports) {
+      if (!byType[r.content_type]) byType[r.content_type] = [];
+      byType[r.content_type].push(r.content_id);
+    }
+    const tableMap: Record<string, string> = { post: "posts", message: "messages", group_message: "group_messages", comment: "comments", community: "groups" };
+    await Promise.all(
+      Object.entries(byType).map(async ([type, ids]) => {
+        const table = tableMap[type];
+        if (!table) return;
+        const { data: rows } = await supabaseAdmin.from(table).select("id, content, body, text, name").in("id", ids).limit(ids.length);
+        for (const row of rows || []) {
+          contentMap[row.id] = row.content ?? row.body ?? row.text ?? row.name ?? "";
+        }
+      })
+    );
+  }
+
+  // Resolve target_type: use content_type if set, otherwise "user"
+  const reports = (data || []).map((r: any) => {
+    const targetType = r.content_type || "user";
+    const targetId   = r.content_id   || r.reported_id;
+    const reportedProfile = r.reported_id ? profileMap[r.reported_id] : null;
+    const contentText = r.content_id && contentMap[r.content_id]
+      ? contentMap[r.content_id]
+      : reportedProfile ? `Reported user: ${reportedProfile.name}` : null;
+
+    return {
+      id: r.id,
+      target_id: targetId,
+      target_type: targetType,
+      reason: r.reason,
+      details: r.reason ?? null,
+      status: "pending",
+      created_at: r.created_at,
+      reporter: r.reporter_id ? { id: r.reporter_id, name: profileMap[r.reporter_id]?.name || "Unknown" } : null,
+      content: contentText
+        ? { text: contentText, author: reportedProfile?.name ?? "Unknown", authorId: r.reported_id }
+        : null,
+    };
+  });
 
   res.json({ success: true, data: reports, total: count });
 }
