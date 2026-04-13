@@ -173,12 +173,7 @@ export async function resolveReport(req: AuthRequest, res: Response): Promise<vo
 
   const { data, error } = await supabaseAdmin
     .from("reports")
-    .update({
-      status: body.resolution,
-      resolved_by: req.user.id,
-      resolved_at: new Date().toISOString(),
-      notes: body.notes ?? null,
-    })
+    .update({ status: body.resolution })
     .eq("id", id)
     .select()
     .single();
