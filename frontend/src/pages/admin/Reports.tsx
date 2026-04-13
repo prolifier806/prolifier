@@ -58,6 +58,26 @@ const durationMs: Record<SuspendDuration, number> = { "1h": 3600000, "24h": 8640
 
 const DETAILS_LIMIT = 160;
 
+function AuthorAvatar({ avatar, name }: { avatar: string | null; name: string }) {
+  const [failed, setFailed] = useState(false);
+  const initials = name?.[0]?.toUpperCase() ?? "?";
+  if (!avatar || failed) {
+    return (
+      <div className="h-8 w-8 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0 text-sm font-semibold">
+        {initials}
+      </div>
+    );
+  }
+  return (
+    <img
+      src={avatar}
+      alt={name}
+      className="h-8 w-8 rounded-full object-cover shrink-0"
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
 function ImagePreview({ src }: { src: string }) {
   const [failed, setFailed] = useState(false);
   if (!src) return null;
@@ -336,10 +356,7 @@ export default function AdminReports() {
                   <div className="rounded-lg border border-border bg-muted/40 overflow-hidden">
                     {/* Author row */}
                     <div className="flex items-center gap-2 p-3 pb-2">
-                      {reviewing.content.avatar
-                        ? <img src={reviewing.content.avatar} alt="" className="h-7 w-7 rounded-full object-cover shrink-0" />
-                        : <div className="h-7 w-7 rounded-full bg-muted-foreground/20 flex items-center justify-center shrink-0 text-xs font-semibold">{reviewing.content.author?.[0]?.toUpperCase()}</div>
-                      }
+                      <AuthorAvatar avatar={reviewing.content.avatar ?? null} name={reviewing.content.author} />
                       <span className="text-sm font-medium">{reviewing.content.author}</span>
                     </div>
                     {/* Text */}
