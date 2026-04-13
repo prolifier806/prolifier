@@ -4,7 +4,7 @@ import { supabaseAdmin } from "../lib/supabase";
 import { AuthRequest } from "../lib/types";
 import { checkFields, recordModerationFlag } from "../services/moderation";
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 8;
 
 // ── Schemas ──────────────────────────────────────────────────────────────────
 

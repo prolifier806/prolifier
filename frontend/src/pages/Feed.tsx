@@ -1709,8 +1709,8 @@ export default function Feed() {
     setSavedPosts(new Set((rawPosts || []).filter((p: any) => p.isSaved).map((p: any) => p.id)));
     setSavedCollabs(new Set((rawCollabs || []).filter((c: any) => c.isSaved).map((c: any) => c.id)));
     setInterestedCollabs(new Set((rawCollabs || []).filter((c: any) => c.isInterested).map((c: any) => c.id)));
-    setPostsHasMore((rawPosts || []).length === 20);
-    setCollabsHasMore((rawCollabs || []).length === 20);
+    setPostsHasMore((rawPosts || []).length >= 8);
+    setCollabsHasMore((rawCollabs || []).length >= 8);
     if ((rawPosts || []).length > 0) postsCursorRef.current = rawPosts[rawPosts.length - 1].created_at;
     if ((rawCollabs || []).length > 0) collabsCursorRef.current = rawCollabs[rawCollabs.length - 1].created_at;
   }, [user.id]);
@@ -1802,9 +1802,9 @@ export default function Feed() {
         return n;
       });
       setPosts(prev => [...prev, ...more.filter(p => !blockedUserIds.has(p.user_id))]);
-      setPostsHasMore((rawPosts || []).length === 30);
+      setPostsHasMore((rawPosts || []).length >= 8);
       if ((rawPosts || []).length > 0) postsCursorRef.current = rawPosts[rawPosts.length - 1].created_at;
-    } catch { /* silent */ }
+    } catch (e) { console.error("[fetchMorePosts]", e); }
     setLoadingMorePosts(false);
   }, [loadingMorePosts, user.id]);
 
@@ -1840,7 +1840,7 @@ export default function Feed() {
         return n;
       });
       setCollabs(prev => [...prev, ...more.filter(c => !blockedUserIds.has(c.user_id))]);
-      setCollabsHasMore((rawCollabs || []).length === 30);
+      setCollabsHasMore((rawCollabs || []).length >= 8);
       if ((rawCollabs || []).length > 0) collabsCursorRef.current = rawCollabs[rawCollabs.length - 1].created_at;
     } catch { /* silent */ }
     setLoadingMoreCollabs(false);
@@ -1856,27 +1856,9 @@ export default function Feed() {
   useEffect(() => { collabsHasMoreRef.current = collabsHasMore; }, [collabsHasMore]);
   useEffect(() => { loadingMoreCollabsRef.current = loadingMoreCollabs; }, [loadingMoreCollabs]);
 
-  useEffect(() => {
-    const el = postsEndRef.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => { if (entry.isIntersecting && postsHasMoreRef.current && !loadingMorePostsRef.current) fetchMorePosts(); },
-      { rootMargin: "200px", threshold: 0 }
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [fetchMorePosts]);
+  // Posts load more is manual (button), not auto-scroll
 
-  useEffect(() => {
-    const el = collabsEndRef.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => { if (entry.isIntersecting && collabsHasMoreRef.current && !loadingMoreCollabsRef.current) fetchMoreCollabs(); },
-      { rootMargin: "200px", threshold: 0 }
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [fetchMoreCollabs]);
+  // Collabs load more is manual (button), not auto-scroll
 
   // Real-time removed to reduce Supabase Disk IO.
   // Feed refreshes on tab focus (90s throttle) and after own post/collab actions.
@@ -2489,10 +2471,13 @@ export default function Feed() {
                   onShare={id => openShareWithContent("post", id)}
                 />
               ))}
-            <div ref={postsEndRef} className="h-4" />
-            {loadingMorePosts && (
-              <div className="flex justify-center pb-4">
-                <div className="h-5 w-5 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+            {postsHasMore && (
+              <div className="flex justify-center pb-4 pt-2">
+                <Button variant="outline" onClick={fetchMorePosts} disabled={loadingMorePosts} className="gap-2">
+                  {loadingMorePosts ? (
+                    <><div className="h-4 w-4 rounded-full border-2 border-primary border-t-transparent animate-spin" /> Loading...</>
+                  ) : "Load More Posts"}
+                </Button>
               </div>
             )}
           </TabsContent>
@@ -2650,10 +2635,13 @@ export default function Feed() {
                 ))}
               </>
             )}
-            <div ref={collabsEndRef} className="h-4" />
-            {loadingMoreCollabs && (
-              <div className="flex justify-center pb-4">
-                <div className="h-5 w-5 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+            {collabsHasMore && (
+              <div className="flex justify-center pb-4 pt-2">
+                <Button variant="outline" onClick={fetchMoreCollabs} disabled={loadingMoreCollabs} className="gap-2">
+                  {loadingMoreCollabs ? (
+                    <><div className="h-4 w-4 rounded-full border-2 border-primary border-t-transparent animate-spin" /> Loading...</>
+                  ) : "Load More Collabs"}
+                </Button>
               </div>
             )}
           </TabsContent>
