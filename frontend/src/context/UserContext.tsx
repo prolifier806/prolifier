@@ -190,56 +190,28 @@ export function UserProvider({ children }: { children: ReactNode }) {
       if (thisVersion !== syncVersionRef.current) return;
       if (rowError && rowError.code !== "PGRST116") return;
 
-      if (row?.permanently_deleted) {
-        localStorage.removeItem(cacheKey(userId));
-        localStorage.setItem("prolifier_perm_deleted", "true");
-        await supabase.auth.signOut();
-        return;
-      }
-
       if (row?.deleted_at) {
         const elapsed = Date.now() - new Date(row.deleted_at).getTime();
         const sevenDays = 7 * 24 * 60 * 60 * 1000;
         if (elapsed > sevenDays) {
-          const storagePath = (url: string, bucket: string) => {
-            try {
-              const m = url.match(new RegExp(`/storage/v1/object/public/${bucket}/(.+?)(?:\\?|$)`));
-              return m ? m[1] : null;
-            } catch { return null; }
-          };
-          const [{ data: userPosts }, { data: userCollabs }] = await Promise.all([
-            (supabase as any).from("posts").select("image_url,video_url").eq("user_id", userId),
-            (supabase as any).from("collabs").select("image_url,video_url").eq("user_id", userId),
-          ]);
-          const mediaPaths = [...(userPosts ?? []), ...(userCollabs ?? [])]
-            .flatMap((r: any) => [r.image_url, r.video_url])
-            .filter(Boolean)
-            .map((url: string) => storagePath(url, "posts"))
-            .filter(Boolean) as string[];
-          if (mediaPaths.length > 0) {
-            await (supabase as any).storage.from("posts").remove(mediaPaths);
-          }
-          const { data: avatarFiles } = await (supabase as any).storage.from("avatars").list(userId);
-          if (avatarFiles?.length > 0) {
-            await (supabase as any).storage.from("avatars")
-              .remove(avatarFiles.map((f: any) => `${userId}/${f.name}`));
-          }
-          await Promise.all([
-            (supabase as any).from("post_likes").delete().eq("user_id", userId),
-            (supabase as any).from("comments").delete().eq("user_id", userId),
-            (supabase as any).from("connections").delete().eq("requester_id", userId),
-            (supabase as any).from("connections").delete().eq("receiver_id", userId),
-            (supabase as any).from("notifications").delete().eq("user_id", userId),
-            (supabase as any).from("messages").delete().eq("sender_id", userId),
-            (supabase as any).from("messages").delete().eq("receiver_id", userId),
-          ]);
-          await (supabase as any).from("posts").delete().eq("user_id", userId);
-          await (supabase as any).from("collabs").delete().eq("user_id", userId);
-          await (supabase as any).from("profiles").delete().eq("id", userId);
+          // 7-day window expired — ask backend to permanently purge
+          try {
+            const { data: purgeResult } = await import("@/api/users").then(m => m.purgeCheckAccount());
+            if ((purgeResult as any)?.purged) {
+              localStorage.removeItem(cacheKey(userId));
+              await supabase.auth.signOut();
+              return;
+            }
+          } catch { /* backend purge failed — sign out anyway */ }
           localStorage.removeItem(cacheKey(userId));
           await supabase.auth.signOut();
           return;
         }
+        // Still within 7-day window — redirect to recovery page
+        const next = { ...DEFAULT_USER, id: userId, deletedAt: row.deleted_at };
+        writeCache(next);
+        setUser(next);
+        return;
       }
 
       if (!row) {
@@ -500,9 +472,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
   const recoverAccount = useCallback(async () => {
     if (!authUser) return;
-    await (supabase.from("profiles") as any)
-      .update({ deleted_at: null })
-      .eq("id", authUser.id);
+    const { recoverMyAccount } = await import("@/api/users");
+    await recoverMyAccount();
     setUser(prev => {
       const next = { ...prev, deletedAt: null };
       writeCache(next);

@@ -26,6 +26,8 @@ export const updateMyProfile = (body: {
   color?: string;
 }) => apiPatch<any>("/api/users/me", body);
 
-export const deleteMyAccount = () => apiDelete("/api/users/me");
-export const blockUser       = (blockedId: string) => apiPost("/api/users/me/block", { blockedId });
-export const unblockUser     = (id: string) => apiDelete(`/api/users/me/block/${id}`);
+export const deleteMyAccount  = () => apiDelete("/api/users/me");
+export const recoverMyAccount = () => apiPost("/api/users/me/recover", {});
+export const purgeCheckAccount = () => apiPost("/api/users/me/purge-check", {});
+export const blockUser        = (blockedId: string) => apiPost("/api/users/me/block", { blockedId });
+export const unblockUser      = (id: string) => apiDelete(`/api/users/me/block/${id}`);

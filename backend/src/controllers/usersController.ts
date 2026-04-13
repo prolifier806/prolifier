@@ -224,12 +224,78 @@ export async function unblockUser(req: AuthRequest, res: Response): Promise<void
 export async function deleteMyAccount(req: AuthRequest, res: Response): Promise<void> {
   const userId = req.user.id;
 
-  // Disable the auth account
-  const { error } = await supabaseAdmin.auth.admin.updateUserById(userId, { ban_duration: "876600h" })
-    .then((r) => r)
-    .catch((e) => ({ error: e })) as { error: any };
+  // Set deleted_at to start the 7-day cooldown. Do NOT ban auth so the user
+  // can still log back in and recover within the window.
+  const { error } = await supabaseAdmin
+    .from("profiles")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("id", userId);
 
-  if (error) { res.status(500).json({ success: false, error: "Failed to disable account" }); return; }
+  if (error) { res.status(500).json({ success: false, error: error.message }); return; }
 
   res.json({ success: true, data: null });
+}
+
+export async function recoverAccount(req: AuthRequest, res: Response): Promise<void> {
+  const userId = req.user.id;
+
+  const { data: profile } = await supabaseAdmin
+    .from("profiles")
+    .select("deleted_at")
+    .eq("id", userId)
+    .single();
+
+  if (!profile?.deleted_at) {
+    res.status(400).json({ success: false, error: "Account is not scheduled for deletion" });
+    return;
+  }
+
+  const elapsed = Date.now() - new Date(profile.deleted_at).getTime();
+  if (elapsed > 7 * 24 * 60 * 60 * 1000) {
+    res.status(410).json({ success: false, error: "Recovery window has expired" });
+    return;
+  }
+
+  const { error } = await supabaseAdmin
+    .from("profiles")
+    .update({ deleted_at: null })
+    .eq("id", userId);
+
+  if (error) { res.status(500).json({ success: false, error: error.message }); return; }
+
+  res.json({ success: true, data: null });
+}
+
+export async function purgeExpiredAccount(req: AuthRequest, res: Response): Promise<void> {
+  const userId = req.user.id;
+
+  const { data: profile } = await supabaseAdmin
+    .from("profiles")
+    .select("deleted_at")
+    .eq("id", userId)
+    .single();
+
+  if (!profile?.deleted_at) { res.json({ success: true, data: { purged: false } }); return; }
+
+  const elapsed = Date.now() - new Date(profile.deleted_at).getTime();
+  if (elapsed <= 7 * 24 * 60 * 60 * 1000) { res.json({ success: true, data: { purged: false } }); return; }
+
+  // 7 days have passed — permanently delete everything
+  await Promise.all([
+    supabaseAdmin.from("post_likes").delete().eq("user_id", userId),
+    supabaseAdmin.from("comments").delete().eq("user_id", userId),
+    supabaseAdmin.from("connections").delete().or(`requester_id.eq.${userId},receiver_id.eq.${userId}`),
+    supabaseAdmin.from("notifications").delete().eq("user_id", userId),
+    supabaseAdmin.from("messages").delete().or(`sender_id.eq.${userId},receiver_id.eq.${userId}`),
+    supabaseAdmin.from("blocks").delete().or(`blocker_id.eq.${userId},blocked_id.eq.${userId}`),
+    supabaseAdmin.from("saved_posts").delete().eq("user_id", userId),
+    supabaseAdmin.from("saved_collabs").delete().eq("user_id", userId),
+    supabaseAdmin.from("collab_interests").delete().eq("user_id", userId),
+  ]);
+  await supabaseAdmin.from("posts").delete().eq("user_id", userId);
+  await supabaseAdmin.from("collabs").delete().eq("user_id", userId);
+  await supabaseAdmin.from("profiles").delete().eq("id", userId);
+  await supabaseAdmin.auth.admin.deleteUser(userId);
+
+  res.json({ success: true, data: { purged: true } });
 }

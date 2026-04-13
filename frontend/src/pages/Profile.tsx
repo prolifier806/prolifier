@@ -425,9 +425,10 @@ export default function Profile() {
     setDeleteLoading(true);
     try {
       await deleteMyAccount();
-      await signOut();
-      navigate("/");
-      toast({ title: "Account scheduled for deletion", description: "You can recover it within 7 days by logging back in." });
+      // Don't sign out — redirect to recovery page so user sees the cooldown info.
+      // UserContext will detect deleted_at on next sync and keep them on /recover.
+      navigate("/recover");
+      toast({ title: "Account scheduled for deletion", description: "You have 7 days to recover it before permanent deletion." });
     } catch (err: any) {
       if (!isAbortError(err)) toast({ title: "Failed to delete account", description: err.message, variant: "destructive" });
       setDeleteLoading(false);

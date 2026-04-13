@@ -3,7 +3,7 @@ import { requireAuth } from "../middleware/requireAuth";
 import { validate } from "../middleware/validate";
 import {
   getProfile, getMyProfile, updateMyProfile, discoverProfiles,
-  blockUser, unblockUser, deleteMyAccount,
+  blockUser, unblockUser, deleteMyAccount, recoverAccount, purgeExpiredAccount,
   updateProfileSchema, blockUserSchema,
 } from "../controllers/usersController";
 import { supabaseAdmin } from "../lib/supabase";
@@ -15,6 +15,8 @@ router.get("/discover", discoverProfiles as any);
 router.get("/me", getMyProfile as any);
 router.patch("/me", validate(updateProfileSchema), updateMyProfile as any);
 router.delete("/me", deleteMyAccount as any);
+router.post("/me/recover", recoverAccount as any);
+router.post("/me/purge-check", purgeExpiredAccount as any);
 router.post("/me/block", validate(blockUserSchema), blockUser as any);
 router.delete("/me/block/:id", unblockUser as any);
 
