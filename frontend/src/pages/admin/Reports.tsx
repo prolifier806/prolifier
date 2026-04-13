@@ -5,11 +5,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
-import { MoreHorizontal, CheckCircle, XCircle, Eye, ChevronLeft, ChevronRight } from "lucide-react";
+import { MoreHorizontal, XCircle, Trash2, Eye, ChevronLeft, ChevronRight } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { apiGet, apiPatch } from "@/api/client";
+import { apiGet, apiPatch, apiDelete } from "@/api/client";
 
 interface Report {
   id: string; target_id: string; target_type: string; reason: string;
@@ -27,15 +28,16 @@ const statusColors: Record<string, string> = {
   pending:   "bg-amber-100 text-amber-700",
   actioned:  "bg-emerald-100 text-emerald-700",
   dismissed: "bg-muted text-muted-foreground",
-  escalated: "bg-red-100 text-red-700",
 };
 
 export default function AdminReports() {
-  const [reports, setReports]   = useState<Report[]>([]);
-  const [total, setTotal]       = useState(0);
-  const [page, setPage]         = useState(1);
+  const [reports, setReports]         = useState<Report[]>([]);
+  const [total, setTotal]             = useState(0);
+  const [page, setPage]               = useState(1);
   const [statusFilter, setStatusFilter] = useState("pending");
-  const [loading, setLoading]   = useState(true);
+  const [loading, setLoading]         = useState(true);
+  const [reviewReport, setReviewReport] = useState<Report | null>(null);
+  const [actioning, setActioning]     = useState(false);
   const { toast } = useToast();
 
   const fetchReports = useCallback(async () => {
@@ -52,15 +54,32 @@ export default function AdminReports() {
   useEffect(() => { fetchReports(); }, [fetchReports]);
   useEffect(() => { setPage(1); }, [statusFilter]);
 
-  const resolve = async (id: string, resolution: "dismissed" | "actioned" | "escalated") => {
+  const resolve = async (id: string, resolution: "dismissed" | "actioned") => {
     try {
       await apiPatch(`/api/admin/reports/${id}/resolve`, { resolution });
       setReports(prev => prev.filter(r => r.id !== id));
       setTotal(t => Math.max(0, t - 1));
-      toast({ title: `Report ${resolution}` });
+      setReviewReport(null);
+      toast({ title: resolution === "actioned" ? "Content removed & report actioned" : "Report dismissed" });
     } catch (e: any) {
-      toast({ title: "Failed to resolve", description: e.message, variant: "destructive" });
+      toast({ title: "Failed", description: e.message, variant: "destructive" });
     }
+  };
+
+  const removeContent = async (report: Report) => {
+    setActioning(true);
+    try {
+      // Delete the reported content based on type
+      if (report.target_type === "post") {
+        await apiDelete(`/api/admin/content/posts/${report.target_id}`);
+      } else if (report.target_type === "collab") {
+        await apiDelete(`/api/admin/content/collabs/${report.target_id}`);
+      }
+      // Mark report as actioned
+      await resolve(report.id, "actioned");
+    } catch (e: any) {
+      toast({ title: "Failed to remove content", description: e.message, variant: "destructive" });
+    } finally { setActioning(false); }
   };
 
   const totalPages = Math.ceil(total / 25);
@@ -79,7 +98,6 @@ export default function AdminReports() {
               <SelectItem value="pending">Pending</SelectItem>
               <SelectItem value="actioned">Actioned</SelectItem>
               <SelectItem value="dismissed">Dismissed</SelectItem>
-              <SelectItem value="escalated">Escalated</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -119,24 +137,29 @@ export default function AdminReports() {
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">{new Date(r.created_at).toLocaleDateString()}</TableCell>
                       <TableCell>
-                        {r.status === "pending" && (
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="h-4 w-4" /></Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem onClick={() => resolve(r.id, "actioned")}>
-                                <CheckCircle className="mr-2 h-4 w-4" /> Action
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => resolve(r.id, "escalated")}>
-                                <Eye className="mr-2 h-4 w-4" /> Escalate
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => resolve(r.id, "dismissed")}>
-                                <XCircle className="mr-2 h-4 w-4" /> Dismiss
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        )}
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="h-4 w-4" /></Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => setReviewReport(r)}>
+                              <Eye className="mr-2 h-4 w-4" /> Review Report
+                            </DropdownMenuItem>
+                            {r.status === "pending" && (
+                              <>
+                                <DropdownMenuSeparator />
+                                {(r.target_type === "post" || r.target_type === "collab") && (
+                                  <DropdownMenuItem onClick={() => removeContent(r)} className="text-destructive">
+                                    <Trash2 className="mr-2 h-4 w-4" /> Remove Content
+                                  </DropdownMenuItem>
+                                )}
+                                <DropdownMenuItem onClick={() => resolve(r.id, "dismissed")}>
+                                  <XCircle className="mr-2 h-4 w-4" /> Dismiss
+                                </DropdownMenuItem>
+                              </>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -155,6 +178,65 @@ export default function AdminReports() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Review Dialog */}
+      <Dialog open={!!reviewReport} onOpenChange={open => !open && setReviewReport(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Eye className="h-5 w-5" /> Review Report
+            </DialogTitle>
+          </DialogHeader>
+          {reviewReport && (
+            <div className="space-y-4 py-1">
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <p className="text-xs text-muted-foreground mb-0.5">Type</p>
+                  <Badge variant="outline" className={`capitalize text-xs ${typeColors[reviewReport.target_type] || ""}`}>{reviewReport.target_type}</Badge>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-0.5">Status</p>
+                  <Badge variant="outline" className={`capitalize text-xs ${statusColors[reviewReport.status] || ""}`}>{reviewReport.status}</Badge>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-0.5">Reported By</p>
+                  <p className="font-medium">{reviewReport.reporter?.name ?? "Unknown"}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-0.5">Date</p>
+                  <p>{new Date(reviewReport.created_at).toLocaleDateString()}</p>
+                </div>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground mb-0.5">Reason</p>
+                <p className="text-sm font-medium">{reviewReport.reason}</p>
+              </div>
+              {reviewReport.details && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-0.5">Details</p>
+                  <p className="text-sm text-muted-foreground bg-muted rounded-md p-3">{reviewReport.details}</p>
+                </div>
+              )}
+              <div>
+                <p className="text-xs text-muted-foreground mb-0.5">Content ID</p>
+                <p className="text-xs font-mono text-muted-foreground">{reviewReport.target_id}</p>
+              </div>
+            </div>
+          )}
+          {reviewReport?.status === "pending" && (
+            <DialogFooter className="gap-2 sm:gap-2">
+              <Button variant="outline" onClick={() => resolve(reviewReport.id, "dismissed")}>
+                <XCircle className="mr-2 h-4 w-4" /> Dismiss
+              </Button>
+              {(reviewReport.target_type === "post" || reviewReport.target_type === "collab") && (
+                <Button variant="destructive" onClick={() => removeContent(reviewReport)} disabled={actioning}>
+                  <Trash2 className="mr-2 h-4 w-4" /> {actioning ? "Removing…" : "Remove Content"}
+                </Button>
+              )}
+            </DialogFooter>
+          )}
+        </DialogContent>
+      </Dialog>
     </AdminLayout>
   );
 }
