@@ -274,27 +274,25 @@ export default function AdminReports() {
               {reviewing.details && (
                 <div>
                   <p className="text-xs text-muted-foreground mb-1">Details</p>
-                  <div className="text-sm bg-muted rounded-md p-3">
-                    <span className="whitespace-pre-wrap break-words">
+                  <div className="text-sm bg-muted rounded-md p-3 overflow-hidden">
+                    <p className="break-all whitespace-pre-wrap">
                       {reviewing.details.length <= DETAILS_LIMIT
                         ? reviewing.details
                         : reviewing.details.slice(0, DETAILS_LIMIT) + "…"}
-                    </span>
+                    </p>
                     {reviewing.details.length > DETAILS_LIMIT && (
                       <>
-                        <div className="mt-1.5">
-                          <button
-                            className="text-primary text-xs font-medium hover:underline flex items-center gap-1"
-                            onClick={() => setDetailsExpanded(v => !v)}
-                          >
-                            {detailsExpanded ? "▲ Show less" : "▼ Read more"}
-                          </button>
-                        </div>
+                        <button
+                          className="mt-1.5 text-primary text-xs font-medium hover:underline flex items-center gap-1"
+                          onClick={() => setDetailsExpanded(v => !v)}
+                        >
+                          {detailsExpanded ? "▲ Show less" : "▼ Read more"}
+                        </button>
                         {detailsExpanded && (
-                          <div className="mt-2 border-t border-border/50 pt-2 max-h-36 overflow-y-auto">
-                            <span className="whitespace-pre-wrap break-words text-muted-foreground">
+                          <div className="mt-2 border-t border-border/50 pt-2 max-h-32 overflow-y-auto overflow-x-hidden">
+                            <p className="break-all whitespace-pre-wrap text-muted-foreground">
                               {reviewing.details.slice(DETAILS_LIMIT)}
-                            </span>
+                            </p>
                           </div>
                         )}
                       </>
