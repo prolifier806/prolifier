@@ -190,7 +190,7 @@ export async function resolveReport(req: AuthRequest, res: Response): Promise<vo
 // ── User list ─────────────────────────────────────────────────────────────────
 
 export async function getUsers(req: AuthRequest, res: Response): Promise<void> {
-  const search = (req.query.search as string) || "";
+  const search = ((req.query.search as string) || "").slice(0, 100);
   const page = Math.max(1, parseInt((req.query.page as string) || "1"));
   const limit = 25;
   const offset = (page - 1) * limit;
@@ -264,7 +264,7 @@ export async function getStats(_req: AuthRequest, res: Response): Promise<void> 
 // ── Posts list ────────────────────────────────────────────────────────────────
 
 export async function getPosts(req: AuthRequest, res: Response): Promise<void> {
-  const search = (req.query.search as string) || "";
+  const search = ((req.query.search as string) || "").slice(0, 100);
   const page = Math.max(1, parseInt((req.query.page as string) || "1"));
   const limit = 25;
   const offset = (page - 1) * limit;
@@ -371,6 +371,15 @@ export async function createNotice(req: AuthRequest, res: Response): Promise<voi
 export async function updateNotice(req: AuthRequest, res: Response): Promise<void> {
   const { id } = req.params;
   const body = req.body as z.infer<typeof updateNoticeSchema>;
+
+  // Moderators can only edit their own notices; admins can edit any
+  if (req.user.role === "moderator") {
+    const { data: existing } = await supabaseAdmin.from("notices").select("created_by").eq("id", id).single();
+    if (!existing || existing.created_by !== req.user.id) {
+      res.status(403).json({ success: false, error: "You can only edit your own notices." }); return;
+    }
+  }
+
   const updates: Record<string, unknown> = { ...body, updated_at: new Date().toISOString() };
   if (body.status === "published") updates.published_at = new Date().toISOString();
   const { data, error } = await supabaseAdmin
@@ -381,6 +390,15 @@ export async function updateNotice(req: AuthRequest, res: Response): Promise<voi
 
 export async function deleteNotice(req: AuthRequest, res: Response): Promise<void> {
   const { id } = req.params;
+
+  // Moderators can only delete their own notices; admins can delete any
+  if (req.user.role === "moderator") {
+    const { data: existing } = await supabaseAdmin.from("notices").select("created_by").eq("id", id).single();
+    if (!existing || existing.created_by !== req.user.id) {
+      res.status(403).json({ success: false, error: "You can only delete your own notices." }); return;
+    }
+  }
+
   const { error } = await supabaseAdmin.from("notices").delete().eq("id", id);
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
   res.json({ success: true, data: null });
