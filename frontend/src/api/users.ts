@@ -4,8 +4,10 @@
  */
 import { apiGet, apiPost, apiPatch, apiDelete } from "./client";
 
-export const discoverProfiles = (params?: { cursor?: string; skills?: string; location?: string }) => {
-  const qs = new URLSearchParams(params as any).toString();
+export const discoverProfiles = (params?: { cursor?: string; skills?: string; rankSkills?: string; location?: string; search?: string; collabOnly?: string }) => {
+  // Filter out undefined/empty values so URLSearchParams doesn't send empty keys
+  const clean = Object.fromEntries(Object.entries(params ?? {}).filter(([, v]) => v !== undefined && v !== ""));
+  const qs = new URLSearchParams(clean as any).toString();
   return apiGet<any[]>(`/api/users/discover${qs ? `?${qs}` : ""}`);
 };
 

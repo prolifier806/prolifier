@@ -186,18 +186,18 @@ export default function Discover() {
     // Show stale cache immediately on initial load (no cursor = first page)
     // WHY: Cache includes connected/pending/blocked so buttons render correctly
     // on first paint — no flash of wrong state while API loads.
+    // Cache is keyed on collabSkills so a new collab post invalidates it.
+    const cacheKey = `${DISCOVER_CACHE_KEY}:${collabSkills.slice().sort().join(",")}`;
     if (!cursor) {
       try {
-        const raw = localStorage.getItem(DISCOVER_CACHE_KEY);
+        const raw = localStorage.getItem(cacheKey);
         if (raw) {
           const { ts, profiles: cp, connected: cc, pending: cp2, blocked: cb } = JSON.parse(raw);
-          // Always show cached data regardless of age — stale > empty
           setProfiles(cp);
           if (cc) setConnected(new Set(cc));
           if (cp2) setPending(new Set(cp2));
           if (cb) setBlockedByMe(new Set(cb));
           setLoading(false);
-          // Only skip the API call if cache is very fresh
           if (Date.now() - ts < DISCOVER_CACHE_TTL) return;
         }
       } catch { /* ignore */ }
@@ -209,6 +209,8 @@ export default function Discover() {
       if (cursor) params.cursor = cursor;
       if (debouncedSearch) params.search = debouncedSearch;
       if (collabOnly) params.collabOnly = "true";
+      // Pass collab skills for server-side ranking — silently reorders profiles
+      if (collabSkills.length > 0 && !cursor) params.rankSkills = collabSkills.join(",");
 
       // On initial load: fire profiles + connections + blocks all in parallel
       if (!cursor) {
@@ -239,7 +241,7 @@ export default function Discover() {
         // WHY: Save mapped (camelCase) not raw data — cache restore sets profiles directly
         // without remapping, so avatar_url/open_to_collab would be undefined on first paint.
         try {
-          localStorage.setItem(DISCOVER_CACHE_KEY, JSON.stringify({
+          localStorage.setItem(cacheKey, JSON.stringify({
             ts: Date.now(),
             profiles: mapped,
             connected: [...acceptedIds],
@@ -260,13 +262,13 @@ export default function Discover() {
     } finally {
       cursor ? setLoadingMore(false) : setLoading(false);
     }
-  }, [user.id, debouncedSearch, collabOnly]);
+  }, [user.id, debouncedSearch, collabOnly, collabSkills]);
 
   useEffect(() => {
     if (!user.id) return;
     cursorRef.current = null;
     fetchProfiles();
-  }, [user.id, debouncedSearch, collabOnly, fetchProfiles]);
+  }, [user.id, debouncedSearch, collabOnly, collabSkills, fetchProfiles]);
 
   const fetchRequests = useCallback(async () => {
     if (!user.id) return;

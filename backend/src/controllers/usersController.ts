@@ -100,25 +100,29 @@ export async function updateMyProfile(req: AuthRequest, res: Response): Promise<
 
 export async function discoverProfiles(req: AuthRequest, res: Response): Promise<void> {
   const userId = req.user.id;
-  const cursor = req.query.cursor as string | undefined;
-  const skills = req.query.skills as string | undefined;
-  const location = req.query.location as string | undefined;
-  const search = req.query.search as string | undefined;
+  const cursor     = req.query.cursor     as string | undefined;
+  const skills     = req.query.skills     as string | undefined; // hard filter
+  const rankSkills = req.query.rankSkills as string | undefined; // soft rank
+  const location   = req.query.location   as string | undefined;
+  const search     = req.query.search     as string | undefined;
+
+  // WHY: When ranking by skills we need a larger pool to sort from so that
+  // high-match profiles aren't cut off by the page limit before ranking.
+  // We fetch up to 200 candidates then rank and slice to PAGE_SIZE.
+  const fetchLimit = rankSkills ? 200 : PAGE_SIZE;
 
   let query = supabaseAdmin
     .from("profiles")
     .select("id, name, avatar, color, avatar_url, location, bio, project, skills, open_to_collab, created_at, role")
     .eq("profile_complete", true)
     .order("created_at", { ascending: false })
-    .limit(PAGE_SIZE);
+    .limit(fetchLimit);
 
   if (cursor) query = query.lt("created_at", cursor);
   if (location) query = query.eq("location", location);
   if (skills) query = query.overlaps("skills", skills.split(","));
   if (search) {
-    // WHY: Injecting user input directly into PostgREST filter strings allows
-    // filter injection (e.g. passing "},{name.eq.admin" breaks query structure).
-    // Sanitize by stripping PostgREST special chars before building the filter.
+    // WHY: Sanitize to prevent PostgREST filter injection.
     const safe = search.replace(/[%_,.()"']/g, "").slice(0, 100);
     if (safe) {
       const q = `%${safe}%`;
@@ -141,7 +145,37 @@ export async function discoverProfiles(req: AuthRequest, res: Response): Promise
     ...(blockerRes.data ?? []).map((r: any) => r.blocker_id),
   ]);
 
-  const filtered = (data ?? []).filter((p: any) => !hiddenIds.has(p.id));
+  let filtered = (data ?? []).filter((p: any) => !hiddenIds.has(p.id));
+
+  // ── Skill-based ranking ───────────────────────────────────────────────────
+  // WHY: We rank server-side so the client receives profiles already in the
+  // correct order on the first response — no visible re-ordering on the page.
+  if (rankSkills) {
+    // Normalise the requested skills: lowercase + trim + split on comma
+    const wantedRaw = rankSkills.split(",").map(s => s.toLowerCase().trim()).filter(Boolean).slice(0, 20);
+
+    // Score each profile: count how many of their skills match any wanted skill.
+    // Matching rules (as specified):
+    //   • Case-insensitive
+    //   • Partial/keyword match — "java" matches "JavaScript" and "Java Spring"
+    //   • Exact match scores 2 pts, partial match scores 1 pt
+    const scored = filtered.map((p: any) => {
+      const profileSkills: string[] = (p.skills ?? []).map((s: string) => s.toLowerCase().trim());
+      let score = 0;
+      for (const want of wantedRaw) {
+        for (const have of profileSkills) {
+          if (have === want) { score += 2; break; }         // exact
+          if (have.includes(want) || want.includes(have)) { score += 1; break; } // partial
+        }
+      }
+      return { profile: p, score };
+    });
+
+    // Stable sort: higher score first, preserve created_at order within same score
+    scored.sort((a, b) => b.score - a.score);
+    filtered = scored.map(s => s.profile).slice(0, PAGE_SIZE);
+  }
+
   res.json({ success: true, data: filtered });
 }
 
