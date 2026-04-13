@@ -365,8 +365,7 @@ export default function AdminReports() {
               )}
 
               {/* Action buttons */}
-              {reviewing.status === "pending" && (
-                <div className="border-t border-border pt-4">
+              <div className="border-t border-border pt-4">
                   <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide mb-3">Actions</p>
                   <div className="flex flex-wrap gap-2">
                     {(reviewing.target_type === "post" || reviewing.target_type === "comment" || reviewing.target_type === "collab") && (
@@ -399,7 +398,6 @@ export default function AdminReports() {
                     </Button>
                   </div>
                 </div>
-              )}
             </div>
           )}
         </DialogContent>
