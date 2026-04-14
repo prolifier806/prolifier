@@ -393,6 +393,27 @@ export default function Groups() {
     return me.permissions ?? { ...DEFAULT_ADMIN_PERMISSIONS };
   }, [isOwner, members, user.id]);
 
+  // Memoised derived values — must all be declared before any early returns
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase();
+    return groups
+      .filter(g =>
+        (!search || g.name.toLowerCase().includes(q) || g.topic.toLowerCase().includes(q))
+        && (topic === "" || g.topic === topic)
+        && (filter === "all" || joinedIds.has(g.id) || g.owner_id === user.id)
+      )
+      .sort((a, b) => b.member_count - a.member_count);
+  }, [groups, search, topic, filter, joinedIds, user.id]);
+
+  const totalUnread = useMemo(
+    () => Object.values(unreadCounts).reduce((a, b) => a + b, 0),
+    [unreadCounts]
+  );
+  const joinedCount = useMemo(
+    () => groups.filter(g => joinedIds.has(g.id) || g.owner_id === user.id).length,
+    [groups, joinedIds, user.id]
+  );
+
   // ── Fetch groups + membership in parallel ────────────────────────────────
   const fetchGroups = useCallback(async () => {
     if (!user.id) return;
@@ -2098,27 +2119,6 @@ export default function Groups() {
   // ══════════════════════════════════════════════════════════════════════════
   // VIEW: Groups List
   // ══════════════════════════════════════════════════════════════════════════
-
-  // Memoised so re-renders triggered by chat/messages state don't re-filter the whole list
-  const filtered = useMemo(() => {
-    const q = search.toLowerCase();
-    return groups
-      .filter(g =>
-        (!search || g.name.toLowerCase().includes(q) || g.topic.toLowerCase().includes(q))
-        && (topic === "" || g.topic === topic)
-        && (filter === "all" || joinedIds.has(g.id) || g.owner_id === user.id)
-      )
-      .sort((a, b) => b.member_count - a.member_count);
-  }, [groups, search, topic, filter, joinedIds, user.id]);
-
-  const totalUnread = useMemo(
-    () => Object.values(unreadCounts).reduce((a, b) => a + b, 0),
-    [unreadCounts]
-  );
-  const joinedCount = useMemo(
-    () => groups.filter(g => joinedIds.has(g.id) || g.owner_id === user.id).length,
-    [groups, joinedIds, user.id]
-  );
 
   return (
     <Layout>
