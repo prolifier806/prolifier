@@ -10,6 +10,7 @@ import {
   getNotices, createNotice, updateNotice, deleteNotice,
   createNoticeSchema, updateNoticeSchema,
 } from "../controllers/adminController";
+import { getAllFeedback } from "../controllers/feedbackController";
 
 const router = Router();
 
@@ -34,5 +35,6 @@ router.get("/notices",                           getNotices as any);
 router.post("/notices",                          validate(createNoticeSchema), createNotice as any);
 router.patch("/notices/:id",                     validate(updateNoticeSchema), updateNotice as any);
 router.delete("/notices/:id",                    deleteNotice as any);
+router.get("/feedback",                          getAllFeedback as any);
 
 export default router;

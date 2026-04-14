@@ -30,6 +30,21 @@ export async function submitFeedback(req: AuthRequest, res: Response): Promise<v
   res.status(201).json({ success: true, data });
 }
 
+export async function getAllFeedback(req: AuthRequest, res: Response): Promise<void> {
+  const page = Math.max(1, parseInt(req.query.page as string) || 1);
+  const PAGE = 50;
+  const from = (page - 1) * PAGE;
+
+  const { data, error, count } = await supabaseAdmin
+    .from("feedback")
+    .select("id, category, rating, title, message, created_at, user_id, profiles:user_id(name, avatar_url, color)", { count: "exact" })
+    .order("created_at", { ascending: false })
+    .range(from, from + PAGE - 1);
+
+  if (error) { res.status(500).json({ success: false, error: error.message }); return; }
+  res.json({ success: true, data, total: count ?? 0 });
+}
+
 export async function getMyFeedback(req: AuthRequest, res: Response): Promise<void> {
   const userId = req.user.id;
 
