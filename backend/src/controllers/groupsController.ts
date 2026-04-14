@@ -33,8 +33,17 @@ export const sendGroupMessageSchema = z.object({
   path: ["text"],
 });
 
+const adminPermissionsSchema = z.object({
+  removeUsers: z.boolean(),
+  changeChannelInfo: z.boolean(),
+  banUsers: z.boolean(),
+  addSubscribers: z.boolean(),
+  manageMessages: z.boolean(),
+});
+
 export const assignRoleSchema = z.object({
   role: z.enum(["admin", "member"]),
+  permissions: adminPermissionsSchema.optional(),
 });
 
 export const respondJoinRequestSchema = z.object({
@@ -180,7 +189,7 @@ export async function banMember(req: AuthRequest, res: Response): Promise<void> 
 export async function assignRole(req: AuthRequest, res: Response): Promise<void> {
   const { id: groupId, memberId } = req.params;
   const userId = req.user.id;
-  const { role } = req.body as z.infer<typeof assignRoleSchema>;
+  const { role, permissions } = req.body as z.infer<typeof assignRoleSchema>;
 
   const { isOwner, isAdmin } = await getRequesterRole(groupId, userId);
   if (!isAdmin) {
@@ -206,8 +215,16 @@ export async function assignRole(req: AuthRequest, res: Response): Promise<void>
     res.status(403).json({ success: false, error: "The owner's role cannot be changed" }); return;
   }
 
+  const updatePayload: Record<string, any> = { role };
+  // Store permissions when promoting to admin; clear them when revoking
+  if (role === "admin" && permissions) {
+    updatePayload.permissions = permissions;
+  } else if (role === "member") {
+    updatePayload.permissions = null;
+  }
+
   const { error } = await supabaseAdmin.from("group_members")
-    .update({ role }).eq("group_id", groupId).eq("user_id", memberId);
+    .update(updatePayload).eq("group_id", groupId).eq("user_id", memberId);
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
 
   const [{ data: actorProfile }, { data: targetProfile }] = await Promise.all([

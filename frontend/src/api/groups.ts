@@ -34,8 +34,8 @@ export const removeMember = (groupId: string, memberId: string) =>
 export const banMember = (groupId: string, memberId: string) =>
   apiPost(`/api/groups/${groupId}/members/${memberId}/ban`);
 
-export const assignRole = (groupId: string, memberId: string, role: "admin" | "member") =>
-  apiPut(`/api/groups/${groupId}/members/${memberId}/role`, { role });
+export const assignRole = (groupId: string, memberId: string, role: "admin" | "member", permissions?: Record<string, boolean>) =>
+  apiPut(`/api/groups/${groupId}/members/${memberId}/role`, { role, ...(permissions ? { permissions } : {}) });
 
 export const sendGroupMessage = (groupId: string, body: {
   text: string;

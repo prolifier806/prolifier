@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, memo } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, memo } from "react";
 import { useParams } from "react-router-dom";
 import { useRealtimeChannel } from "@/hooks/useRealtimeChannel";
 import { Badge } from "@/components/ui/badge";
@@ -67,12 +67,29 @@ type JoinRequest = {
   profile: { name: string; color: string; avatar_url?: string } | null;
 };
 
+type AdminPermissions = {
+  removeUsers: boolean;
+  changeChannelInfo: boolean;
+  banUsers: boolean;
+  addSubscribers: boolean;
+  manageMessages: boolean;
+};
+
+const DEFAULT_ADMIN_PERMISSIONS: AdminPermissions = {
+  removeUsers: true,
+  changeChannelInfo: false,
+  banUsers: true,
+  addSubscribers: true,
+  manageMessages: true,
+};
+
 type GroupMember = {
   id: string;
   name: string;
   color: string;
   avatarUrl?: string;
   role: "owner" | "admin" | "member";
+  permissions?: AdminPermissions;
 };
 
 type BannedUser = {
@@ -187,6 +204,70 @@ const ShareLinkModal = memo(({ group, onClose }: { group: Group; onClose: () => 
   );
 });
 
+// ── Promote Admin Modal ───────────────────────────────────────────────────
+type PromoteAdminModalProps = {
+  memberName: string;
+  perms: AdminPermissions;
+  onChange: (perms: AdminPermissions) => void;
+  onConfirm: () => void;
+  onClose: () => void;
+};
+
+const PERMISSION_LABELS: { key: keyof AdminPermissions; label: string; desc: string }[] = [
+  { key: "removeUsers",      label: "Remove Users",       desc: "Can kick members from the community" },
+  { key: "changeChannelInfo",label: "Change Channel Info", desc: "Can edit community name, description and icon" },
+  { key: "banUsers",         label: "Ban Users",           desc: "Can permanently ban members" },
+  { key: "addSubscribers",   label: "Add Subscribers",     desc: "Can invite and add new members" },
+  { key: "manageMessages",   label: "Manage Messages",     desc: "Can delete any message in the community" },
+];
+
+const PromoteAdminModal = memo(({ memberName, perms, onChange, onConfirm, onClose }: PromoteAdminModalProps) => (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={onClose}>
+    <div className="bg-card border border-border rounded-2xl w-full max-w-sm shadow-2xl animate-in fade-in zoom-in-95 duration-150"
+      onClick={e => e.stopPropagation()}>
+      <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-border">
+        <div>
+          <p className="font-semibold text-foreground">Select Admin Rights</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Promoting <span className="font-medium text-foreground">{memberName}</span></p>
+        </div>
+        <button onClick={onClose}
+          className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors">
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+      <div className="px-5 py-3 space-y-1">
+        {PERMISSION_LABELS.map(({ key, label, desc }) => (
+          <label key={key} className="flex items-start gap-3 py-2.5 cursor-pointer group">
+            <div className="relative mt-0.5 shrink-0">
+              <input
+                type="checkbox"
+                checked={perms[key]}
+                onChange={e => onChange({ ...perms, [key]: e.target.checked })}
+                className="sr-only"
+              />
+              <div
+                onClick={() => onChange({ ...perms, [key]: !perms[key] })}
+                className={`h-5 w-5 rounded-md border-2 flex items-center justify-center transition-colors cursor-pointer ${
+                  perms[key] ? "bg-primary border-primary" : "border-border group-hover:border-primary/50"
+                }`}>
+                {perms[key] && <Check className="h-3 w-3 text-primary-foreground" />}
+              </div>
+            </div>
+            <div className="flex-1 min-w-0" onClick={() => onChange({ ...perms, [key]: !perms[key] })}>
+              <p className="text-sm font-medium text-foreground leading-tight">{label}</p>
+              <p className="text-xs text-muted-foreground leading-tight mt-0.5">{desc}</p>
+            </div>
+          </label>
+        ))}
+      </div>
+      <div className="px-5 pb-5 pt-2 flex gap-2">
+        <Button className="flex-1" onClick={onConfirm}>Confirm & Promote</Button>
+        <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
+      </div>
+    </div>
+  </div>
+));
+
 // ══════════════════════════════════════════════════════════════════════════
 export default function Groups() {
   const { user } = useUser();
@@ -241,6 +322,10 @@ export default function Groups() {
   // Synchronous ref-based lock to prevent spam clicks — state updates are async
   // and two rapid clicks can both pass a state-based check before it re-renders.
   const joiningRef = useRef<Set<string>>(new Set());
+
+  // Admin permissions modal — shown when promoting a member to admin
+  const [promoteModal, setPromoteModal] = useState<{ memberId: string; memberName: string } | null>(null);
+  const [promotePerms, setPromotePerms] = useState<AdminPermissions>({ ...DEFAULT_ADMIN_PERMISSIONS });
   // Track groups that have unread @mentions for the current user
   const [mentionGroupIds, setMentionGroupIds] = useState<Set<string>>(new Set());
 
@@ -297,9 +382,16 @@ export default function Groups() {
   useEffect(() => {
     const total = Object.values(unreadCounts).reduce((a, b) => a + b, 0);
     window.dispatchEvent(new CustomEvent("prolifier:groups-unread", { detail: total }));
-    // Persist so Layout can read it on mount (before Groups.tsx is loaded)
     try { localStorage.setItem(`prf_groups_unread_${user.id}`, String(total)); } catch { /* ignore */ }
   }, [unreadCounts, user.id]);
+
+  // Derive current user's own permissions (used in the members list to gate actions)
+  const myPermissions = useMemo((): AdminPermissions | null => {
+    if (isOwner) return null; // owner has all permissions implicitly
+    const me = members.find(m => m.id === user.id);
+    if (me?.role !== "admin") return null;
+    return me.permissions ?? { ...DEFAULT_ADMIN_PERMISSIONS };
+  }, [isOwner, members, user.id]);
 
   // ── Fetch groups + membership in parallel ────────────────────────────────
   const fetchGroups = useCallback(async () => {
@@ -469,7 +561,7 @@ export default function Groups() {
     try {
       const { data, error, count } = await (supabase as any)
         .from("group_members")
-        .select("id, user_id, role, profiles:user_id (name, color, avatar_url)", { count: "exact" })
+        .select("id, user_id, role, permissions, profiles:user_id (name, color, avatar_url)", { count: "exact" })
         .eq("group_id", groupId)
         .order("joined_at", { ascending: true });
       if (error) throw error;
@@ -480,6 +572,7 @@ export default function Groups() {
         color: row.profiles?.color || "bg-primary",
         avatarUrl: row.profiles?.avatar_url || undefined,
         role: row.role || "member",
+        permissions: row.permissions ?? undefined,
       })));
 
       // Fix member_count: use actual row count from DB
@@ -487,10 +580,10 @@ export default function Groups() {
       setActiveGroup(prev => prev && prev.id === groupId ? { ...prev, member_count: realCount } : prev);
       setGroups(prev => prev.map(g => g.id === groupId ? { ...g, member_count: realCount } : g));
 
-      // Sync the count in DB only if it diverged (avoid unnecessary writes on every open)
+      // Sync the count in DB only if it diverged — fire-and-forget, never block the UI
       const currentCount = groups.find(g => g.id === groupId)?.member_count;
       if (currentCount !== realCount) {
-        await (supabase as any).from("groups").update({ member_count: realCount }).eq("id", groupId);
+        (supabase as any).from("groups").update({ member_count: realCount }).eq("id", groupId).then(() => {});
       }
     } catch (err) {
       if (import.meta.env.DEV) console.error("fetchMembers:", err);
@@ -932,14 +1025,39 @@ export default function Groups() {
     }
   };
 
-  // ── Admin: assign/revoke admin role ─────────────────────────────────────
-  const toggleAdmin = async (memberId: string, memberName: string, currentRole: string) => {
+  // ── Admin: open permissions modal before promoting ────────────────────────
+  const toggleAdmin = (memberId: string, memberName: string, currentRole: string) => {
     if (!activeGroup) return;
-    const newRole = currentRole === "admin" ? "member" : "admin";
-    setMembers(prev => prev.map(m => m.id === memberId ? { ...m, role: newRole as any } : m));
+    if (currentRole === "admin") {
+      // Revoke directly — no modal needed
+      revokeAdmin(memberId, memberName);
+      return;
+    }
+    // Promoting — open modal with defaults
+    setPromotePerms({ ...DEFAULT_ADMIN_PERMISSIONS });
+    setPromoteModal({ memberId, memberName });
+  };
+
+  const revokeAdmin = async (memberId: string, memberName: string) => {
+    if (!activeGroup) return;
+    setMembers(prev => prev.map(m => m.id === memberId ? { ...m, role: "member", permissions: undefined } : m));
     try {
-      await apiAssignRole(activeGroup.id, memberId, newRole);
-      toast({ title: newRole === "admin" ? `${memberName} is now an admin` : `${memberName} is no longer an admin` });
+      await apiAssignRole(activeGroup.id, memberId, "member");
+      toast({ title: `${memberName} is no longer an admin` });
+    } catch {
+      fetchMembers(activeGroup.id);
+      toast({ title: "Failed to update role", variant: "destructive" });
+    }
+  };
+
+  const confirmPromoteAdmin = async () => {
+    if (!activeGroup || !promoteModal) return;
+    const { memberId, memberName } = promoteModal;
+    setPromoteModal(null);
+    setMembers(prev => prev.map(m => m.id === memberId ? { ...m, role: "admin", permissions: promotePerms } : m));
+    try {
+      await apiAssignRole(activeGroup.id, memberId, "admin", promotePerms);
+      toast({ title: `${memberName} is now an admin` });
     } catch {
       fetchMembers(activeGroup.id);
       toast({ title: "Failed to update role", variant: "destructive" });
@@ -1471,10 +1589,13 @@ export default function Groups() {
                 <div className="divide-y divide-border">
                   {members.filter(m => !memberSearch || m.name.toLowerCase().includes(memberSearch.toLowerCase())).map(m => {
                     const isSelf = m.id === user.id;
-                    const isAdminInGroup = members.find(x => x.id === user.id)?.role === "admin" || isOwner;
                     const targetIsAdmin = m.role === "admin" || m.role === "owner";
-                    // Can act on this member if: (I'm owner) OR (I'm admin AND target is not admin)
-                    const canAct = !isSelf && isAdminInGroup && (isOwner || !targetIsAdmin);
+                    // Resolve effective permissions for the current user
+                    const canRemove = isOwner || (isAdmin && !targetIsAdmin && (myPermissions?.removeUsers ?? true));
+                    const canBan    = isOwner || (isAdmin && !targetIsAdmin && (myPermissions?.banUsers ?? true));
+                    const canPromote = isAdmin && !isSelf && m.role === "member";
+                    const canRevoke  = isOwner && !isSelf && m.role === "admin";
+                    const canAct = !isSelf && (canRemove || canBan);
                     return (
                     <div key={m.id} className="flex items-center gap-3 px-4 py-3">
                       <button onClick={() => navigate(`/profile/${m.id}`)}
@@ -1483,21 +1604,32 @@ export default function Groups() {
                           ? <img src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover" />
                           : initials(m.name)}
                       </button>
-                      <button onClick={() => navigate(`/profile/${m.id}`)}
-                        className="text-sm text-foreground hover:underline flex-1 text-left min-w-0 truncate">
-                        {m.name}{isSelf ? " (You)" : ""}
-                      </button>
+                      <div className="flex-1 min-w-0">
+                        <button onClick={() => navigate(`/profile/${m.id}`)}
+                          className="text-sm text-foreground hover:underline text-left truncate block w-full">
+                          {m.name}{isSelf ? " (You)" : ""}
+                        </button>
+                        {m.role === "admin" && m.permissions && (
+                          <p className="text-[10px] text-muted-foreground truncate">
+                            {[
+                              m.permissions.removeUsers && "Remove",
+                              m.permissions.changeChannelInfo && "Edit info",
+                              m.permissions.banUsers && "Ban",
+                              m.permissions.addSubscribers && "Add members",
+                              m.permissions.manageMessages && "Messages",
+                            ].filter(Boolean).join(" · ")}
+                          </p>
+                        )}
+                      </div>
                       <div className="flex items-center gap-1.5 shrink-0">
                         {(m.role === "owner" || m.role === "admin") && <Crown className="h-3.5 w-3.5 text-amber-500" title={m.role === "owner" ? "Owner" : "Admin"} />}
-                        {/* Promote button: any admin (including owner) can promote plain members */}
-                        {isAdmin && !isSelf && m.role === "member" && (
+                        {canPromote && (
                           <button onClick={() => toggleAdmin(m.id, m.name, m.role)} title="Appoint as admin"
                             className="h-7 w-7 rounded-lg border border-border text-muted-foreground hover:bg-muted transition-colors flex items-center justify-center">
                             <Crown className="h-3.5 w-3.5" />
                           </button>
                         )}
-                        {/* Revoke button: only for admins, separate from crown display */}
-                        {isOwner && !isSelf && m.role === "admin" && (
+                        {canRevoke && (
                           <button onClick={() => toggleAdmin(m.id, m.name, m.role)} title="Revoke admin"
                             className="text-xs px-2 py-0.5 rounded-md border border-amber-200 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950 transition-colors shrink-0">
                             Revoke
@@ -1505,14 +1637,18 @@ export default function Groups() {
                         )}
                         {canAct && (
                           <>
-                            <button onClick={() => removeMember(m.id, m.name)} title="Remove"
-                              className="h-7 w-7 rounded-lg text-orange-500 border border-orange-200 hover:bg-orange-50 dark:hover:bg-orange-950 transition-colors flex items-center justify-center">
-                              <UserX className="h-3.5 w-3.5" />
-                            </button>
-                            <button onClick={() => banMember(m.id, m.name)} title="Ban"
-                              className="h-7 w-7 rounded-lg text-destructive border border-destructive/30 hover:bg-destructive/5 transition-colors flex items-center justify-center">
-                              <ShieldOff className="h-3.5 w-3.5" />
-                            </button>
+                            {canRemove && (
+                              <button onClick={() => removeMember(m.id, m.name)} title="Remove"
+                                className="h-7 w-7 rounded-lg text-orange-500 border border-orange-200 hover:bg-orange-50 dark:hover:bg-orange-950 transition-colors flex items-center justify-center">
+                                <UserX className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                            {canBan && (
+                              <button onClick={() => banMember(m.id, m.name)} title="Ban"
+                                className="h-7 w-7 rounded-lg text-destructive border border-destructive/30 hover:bg-destructive/5 transition-colors flex items-center justify-center">
+                                <ShieldOff className="h-3.5 w-3.5" />
+                              </button>
+                            )}
                           </>
                         )}
                       </div>
@@ -1740,6 +1876,15 @@ export default function Groups() {
           </div>
         </div>
         {showShare && <ShareLinkModal group={activeGroup} onClose={() => setShowShare(false)} />}
+        {promoteModal && (
+          <PromoteAdminModal
+            memberName={promoteModal.memberName}
+            perms={promotePerms}
+            onChange={setPromotePerms}
+            onConfirm={confirmPromoteAdmin}
+            onClose={() => setPromoteModal(null)}
+          />
+        )}
       </Layout>
     );
   }
@@ -1937,6 +2082,15 @@ export default function Groups() {
             </div>
           )}
         </div>
+        {promoteModal && (
+          <PromoteAdminModal
+            memberName={promoteModal.memberName}
+            perms={promotePerms}
+            onChange={setPromotePerms}
+            onConfirm={confirmPromoteAdmin}
+            onClose={() => setPromoteModal(null)}
+          />
+        )}
       </Layout>
     );
   }
@@ -1944,14 +2098,27 @@ export default function Groups() {
   // ══════════════════════════════════════════════════════════════════════════
   // VIEW: Groups List
   // ══════════════════════════════════════════════════════════════════════════
-  const filtered = groups
-    .filter(g => {
-      const q = search.toLowerCase();
-      return (!search || g.name.toLowerCase().includes(q) || g.topic.toLowerCase().includes(q))
+
+  // Memoised so re-renders triggered by chat/messages state don't re-filter the whole list
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase();
+    return groups
+      .filter(g =>
+        (!search || g.name.toLowerCase().includes(q) || g.topic.toLowerCase().includes(q))
         && (topic === "" || g.topic === topic)
-        && (filter === "all" || joinedIds.has(g.id) || g.owner_id === user.id);
-    })
-    .sort((a, b) => b.member_count - a.member_count);
+        && (filter === "all" || joinedIds.has(g.id) || g.owner_id === user.id)
+      )
+      .sort((a, b) => b.member_count - a.member_count);
+  }, [groups, search, topic, filter, joinedIds, user.id]);
+
+  const totalUnread = useMemo(
+    () => Object.values(unreadCounts).reduce((a, b) => a + b, 0),
+    [unreadCounts]
+  );
+  const joinedCount = useMemo(
+    () => groups.filter(g => joinedIds.has(g.id) || g.owner_id === user.id).length,
+    [groups, joinedIds, user.id]
+  );
 
   return (
     <Layout>
@@ -1983,10 +2150,10 @@ export default function Groups() {
           <button onClick={() => setFilter("joined")}
             className={`flex-1 text-sm font-medium py-1.5 rounded-lg transition-all ${filter === "joined" ? "bg-card shadow text-foreground" : "text-muted-foreground hover:text-foreground"}`}>
             <span className="flex items-center justify-center gap-1.5">
-              Joined ({groups.filter(g => joinedIds.has(g.id) || g.owner_id === user.id).length})
-              {Object.values(unreadCounts).reduce((a, b) => a + b, 0) > 0 && (
+              Joined ({joinedCount})
+              {totalUnread > 0 && (
                 <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center">
-                  {Object.values(unreadCounts).reduce((a, b) => a + b, 0) > 99 ? "99+" : Object.values(unreadCounts).reduce((a, b) => a + b, 0)}
+                  {totalUnread > 99 ? "99+" : totalUnread}
                 </span>
               )}
             </span>
