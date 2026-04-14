@@ -15,6 +15,9 @@ export const leaveGroup = (id: string) => apiDelete(`/api/groups/${id}/leave`);
 export const requestToJoin = (id: string) =>
   apiPost<{ status: string }>(`/api/groups/${id}/join-request`);
 
+export const cancelJoinRequest = (id: string) =>
+  apiDelete(`/api/groups/${id}/join-request`);
+
 export const getJoinRequests = (id: string) =>
   apiGet<any[]>(`/api/groups/${id}/join-requests`);
 

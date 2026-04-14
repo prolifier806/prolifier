@@ -31,6 +31,7 @@ import {
   getBannedUsers as apiGetBannedUsers,
   unbanUser as apiUnbanUser,
   requestToJoin as apiRequestToJoin,
+  cancelJoinRequest as apiCancelJoinRequest,
   getJoinRequests as apiGetJoinRequests,
   respondJoinRequest as apiRespondJoinRequest,
   addMemberToGroup as apiAddMember,
@@ -237,6 +238,8 @@ export default function Groups() {
   const [showJoinRequests, setShowJoinRequests] = useState(false);
   // Track whether the current user has sent a join request per group
   const [requestedIds, setRequestedIds] = useState<Set<string>>(new Set());
+  // Track groups that have unread @mentions for the current user
+  const [mentionGroupIds, setMentionGroupIds] = useState<Set<string>>(new Set());
 
   // Unread counts: keyed by group id — incremented by realtime on non-active groups
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
@@ -284,6 +287,7 @@ export default function Groups() {
   const profileCache = useRef<Record<string, { name: string; color: string; avatar_url?: string }>>({});
 
   const isOwner = activeGroup ? activeGroup.owner_id === user.id : false;
+  const isAdmin = isOwner || members.find(m => m.id === user.id)?.role === "admin";
   const isJoined = activeGroup ? (joinedIds.has(activeGroup.id) || isOwner) : false;
 
   // ── Broadcast total unread count to Layout sidebar ───────────────────────
@@ -347,6 +351,26 @@ export default function Groups() {
           } catch { /* non-fatal */ }
         }
         setUnreadCounts(initialUnread);
+
+        // Detect groups with unread @mentions
+        if (user.name && joinedArr.length > 0) {
+          try {
+            const mentionStr = `@${user.name}`;
+            const { data: mentionMsgs } = await (supabase as any)
+              .from("group_messages")
+              .select("group_id, text, created_at")
+              .in("group_id", joinedArr)
+              .neq("user_id", user.id)
+              .eq("is_system", false)
+              .ilike("text", `%${mentionStr}%`);
+            const mentionSet = new Set<string>();
+            for (const msg of (mentionMsgs || [])) {
+              const lastRead = localStorage.getItem(`prf_read_${user.id}_${msg.group_id}`);
+              if (!lastRead || msg.created_at > lastRead) mentionSet.add(msg.group_id);
+            }
+            setMentionGroupIds(mentionSet);
+          } catch { /* non-fatal */ }
+        }
       } catch (memberErr) {
         if (import.meta.env.DEV) console.error("fetchGroups memberships:", memberErr);
         setJoinedIds(new Set());
@@ -592,6 +616,7 @@ export default function Groups() {
     mentionJumpIdx.current = 0;
     // Mark this group as read — reset unread counter + persist timestamp
     setUnreadCounts(prev => ({ ...prev, [group.id]: 0 }));
+    setMentionGroupIds(prev => { const s = new Set(prev); s.delete(group.id); return s; });
     try { localStorage.setItem(`prf_read_${user.id}_${group.id}`, new Date().toISOString()); } catch { /* storage full */ }
     fetchMessages(group.id);
     fetchMembers(group.id);
@@ -633,7 +658,14 @@ export default function Groups() {
     if (!g) return;
     if (!isCurrentlyJoined && g.visibility === "private") {
       if (requestedIds.has(groupId)) {
-        toast({ title: "Request already sent", description: "Waiting for admin approval." });
+        // Cancel the pending request
+        try {
+          await apiCancelJoinRequest(groupId);
+          setRequestedIds(prev => { const s = new Set(prev); s.delete(groupId); return s; });
+          toast({ title: "Request cancelled" });
+        } catch {
+          toast({ title: "Could not cancel request", variant: "destructive" });
+        }
         return;
       }
       try {
@@ -980,8 +1012,51 @@ export default function Groups() {
       const menuOpen = msgMenuId === m.id;
       const canMenu = (isMe || isOwner) && !m.unsent;
 
-      // System message — centered pill (join/leave/ban/unban events)
+      // System message — handle JOINREQ specially (interactive card for admins)
       if (m.is_system) {
+        const joinReqMatch = m.text?.match(/^\|\|JOINREQ\|\|([^|]+)\|\|([^|]+)\|\|(.+)$/);
+        if (joinReqMatch) {
+          const [, reqId, reqUserId, requesterName] = joinReqMatch;
+          // Only show the interactive card to admins/owner; others see a plain pill
+          if (isAdmin) {
+            els.push(
+              <div key={m.id} className="flex justify-center my-3">
+                <div className="bg-muted border border-border rounded-2xl px-4 py-3 max-w-xs w-full">
+                  <p className="text-xs text-muted-foreground mb-2 text-center">
+                    <span className="font-semibold text-foreground">{requesterName}</span> wants to join
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={async () => {
+                        if (!activeGroup) return;
+                        try {
+                          await apiRespondJoinRequest(activeGroup.id, reqId, "accepted");
+                          setMessages(prev => prev.filter(x => x.id !== m.id));
+                          fetchMembers(activeGroup.id);
+                          toast({ title: `${requesterName} accepted` });
+                        } catch { toast({ title: "Failed", variant: "destructive" }); }
+                      }}
+                      className="flex-1 text-xs py-1.5 rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity font-medium"
+                    >Accept</button>
+                    <button
+                      onClick={async () => {
+                        if (!activeGroup) return;
+                        try {
+                          await apiRespondJoinRequest(activeGroup.id, reqId, "rejected");
+                          setMessages(prev => prev.filter(x => x.id !== m.id));
+                          toast({ title: "Request declined" });
+                        } catch { toast({ title: "Failed", variant: "destructive" }); }
+                      }}
+                      className="flex-1 text-xs py-1.5 rounded-lg border border-border text-muted-foreground hover:bg-muted transition-colors font-medium"
+                    >Decline</button>
+                  </div>
+                </div>
+              </div>
+            );
+          }
+          // Non-admins don't see JOINREQ messages at all
+          return;
+        }
         els.push(
           <div key={m.id} className="flex justify-center my-2">
             <span className="text-[11px] text-muted-foreground bg-muted px-3 py-1 rounded-full select-none">
@@ -1642,7 +1717,7 @@ export default function Groups() {
               </p>
             </div>
             <div className="flex items-center gap-1">
-              {isOwner && (
+              {isAdmin && (
                 <button onClick={() => setShowShare(true)}
                   className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-primary transition-colors">
                   <Link2 className="h-4 w-4" />
@@ -1684,10 +1759,13 @@ export default function Groups() {
             <div className="absolute bottom-16 right-4 z-40">
               <button
                 onClick={() => {
-                  const id = mentionMsgIds[mentionJumpIdx.current % mentionMsgIds.length];
+                  const idx = mentionJumpIdx.current % mentionMsgIds.length;
+                  const id = mentionMsgIds[idx];
                   mentionJumpIdx.current++;
                   document.getElementById(`msg-${id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
-                  setMentionMsgIds([]);
+                  // Remove this mention from the list (consumed)
+                  setMentionMsgIds(prev => prev.filter(x => x !== id));
+                  mentionJumpIdx.current = 0;
                 }}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500 text-white text-xs font-medium rounded-full shadow-lg hover:bg-emerald-600 transition-colors"
               >
@@ -1877,14 +1955,23 @@ export default function Groups() {
                             {unread > 99 ? "99+" : unread}
                           </span>
                         )}
+                        {mentionGroupIds.has(g.id) && (
+                          <span className="absolute -bottom-1 -right-1 h-4 w-4 rounded-full bg-emerald-500 text-white flex items-center justify-center" title="Unread mention">
+                            <AtSign className="h-2.5 w-2.5" />
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-1.5 flex-wrap justify-end">
-                        {g.visibility === "private" && (
+                        {g.visibility === "private" ? (
                           <span className="flex items-center gap-0.5 text-[10px] font-medium text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full">
                             <Lock className="h-2.5 w-2.5" /> Private
                           </span>
+                        ) : (
+                          <span className="flex items-center gap-0.5 text-[10px] font-medium text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full">
+                            <Globe className="h-2.5 w-2.5" /> Public
+                          </span>
                         )}
-                        {joined && !isMine && (
+                        {(joined || isMine) && (
                           <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full dark:bg-emerald-950 dark:text-emerald-400">Joined</span>
                         )}
                         {requested && !joined && !isMine && (
@@ -1903,11 +1990,11 @@ export default function Groups() {
                         onClick={e => { e.stopPropagation(); (joined || isMine) ? openGroup(g) : toggleJoin(g.id, false, e); }}
                         className={`h-7 px-3 rounded-lg text-xs font-medium transition-colors ${
                           joined || isMine ? "bg-muted text-foreground hover:bg-secondary"
-                            : requested ? "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400 cursor-default"
+                            : requested ? "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400 hover:bg-amber-200 dark:hover:bg-amber-900"
                               : g.visibility === "private" ? "bg-muted text-muted-foreground hover:bg-secondary"
                                 : "bg-primary text-primary-foreground hover:opacity-90"
                         }`}>
-                        {joined || isMine ? "Open" : requested ? "Requested" : g.visibility === "private" ? "Request" : "Join"}
+                        {joined || isMine ? "Joined" : requested ? "Requested ✕" : g.visibility === "private" ? "Request" : "Join"}
                       </button>
                     </div>
                   </div>

@@ -176,37 +176,51 @@ export async function banMember(req: AuthRequest, res: Response): Promise<void> 
   res.json({ success: true, data: null });
 }
 
-// ── Assign admin role — owner only ────────────────────────────────────────────
+// ── Assign admin role — owner can do anything; admin can promote members only ──
 export async function assignRole(req: AuthRequest, res: Response): Promise<void> {
   const { id: groupId, memberId } = req.params;
   const userId = req.user.id;
   const { role } = req.body as z.infer<typeof assignRoleSchema>;
 
-  const { data: group } = await supabaseAdmin.from("groups").select("owner_id, name").eq("id", groupId).single();
-  if (!group || group.owner_id !== userId) {
-    res.status(403).json({ success: false, error: "Only the owner can assign roles" }); return;
+  const { isOwner, isAdmin } = await getRequesterRole(groupId, userId);
+  if (!isAdmin) {
+    res.status(403).json({ success: false, error: "Only admins can manage roles" }); return;
   }
   if (memberId === userId) {
     res.status(400).json({ success: false, error: "Cannot change your own role" }); return;
   }
 
-  // Verify the member actually exists in this group
+  // Verify the member exists
   const { data: memberRow } = await supabaseAdmin.from("group_members")
     .select("role").eq("group_id", groupId).eq("user_id", memberId).maybeSingle();
   if (!memberRow) {
     res.status(404).json({ success: false, error: "Member not found in this community" }); return;
   }
 
+  // Admins (non-owners) can only promote plain members — not demote other admins
+  if (!isOwner && (memberRow.role === "admin" || memberRow.role === "owner")) {
+    res.status(403).json({ success: false, error: "Only the owner can change admin roles" }); return;
+  }
+  // Nobody can demote the owner
+  if (memberRow.role === "owner") {
+    res.status(403).json({ success: false, error: "The owner's role cannot be changed" }); return;
+  }
+
   const { error } = await supabaseAdmin.from("group_members")
     .update({ role }).eq("group_id", groupId).eq("user_id", memberId);
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
 
-  // Post system message for role changes
-  const { data: profile } = await supabaseAdmin.from("profiles").select("name").eq("id", memberId).single();
+  const [{ data: actorProfile }, { data: targetProfile }] = await Promise.all([
+    supabaseAdmin.from("profiles").select("name").eq("id", userId).single(),
+    supabaseAdmin.from("profiles").select("name").eq("id", memberId).single(),
+  ]);
+  const actorName = actorProfile?.name || "An admin";
+  const targetName = targetProfile?.name || "A member";
+
   if (role === "admin") {
-    await postSystemMsg(groupId, userId, `${profile?.name || "A member"} was made an admin`);
+    await postSystemMsg(groupId, userId, `${targetName} was made an admin by ${actorName}`);
   } else {
-    await postSystemMsg(groupId, userId, `${profile?.name || "A member"} is no longer an admin`);
+    await postSystemMsg(groupId, userId, `${targetName} is no longer an admin`);
   }
 
   res.json({ success: true, data: null });
@@ -388,17 +402,34 @@ export async function requestToJoin(req: AuthRequest, res: Response): Promise<vo
   }
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
 
-  // Notify group owner
   const { data: requester } = await supabaseAdmin.from("profiles").select("name").eq("id", userId).single();
-  try {
-    await supabaseAdmin.from("notifications").insert({
-      user_id: group.owner_id,
-      type: "group",
-      text: `${requester?.name || "Someone"} wants to join your community "${group.name}"`,
-      action: `group:${groupId}`,
-      read: false,
-    });
-  } catch { /* non-fatal */ }
+  const requesterName = requester?.name || "Someone";
+
+  // Post a special system message so admins can see & act on the request in chat.
+  // Format: ||JOINREQ||{reqId}||{userId}||{name}  (parsed by the frontend)
+  const { data: reqRow } = await supabaseAdmin.from("group_join_requests")
+    .select("id").eq("group_id", groupId).eq("user_id", userId).maybeSingle();
+  const reqId = reqRow?.id ?? "unknown";
+  await postSystemMsg(groupId, userId, `||JOINREQ||${reqId}||${userId}||${requesterName}`);
+
+  // Notify all admins + owner
+  const { data: adminMembers } = await supabaseAdmin.from("group_members")
+    .select("user_id, role").eq("group_id", groupId)
+    .in("role", ["owner", "admin"]);
+  const adminIds = (adminMembers || []).map((m: any) => m.user_id).filter((id: string) => id !== userId);
+  if (adminIds.length > 0) {
+    try {
+      await supabaseAdmin.from("notifications").insert(
+        adminIds.map((adminId: string) => ({
+          user_id: adminId,
+          type: "group",
+          text: `${requesterName} wants to join "${group.name}"`,
+          action: `group:${groupId}`,
+          read: false,
+        }))
+      );
+    } catch { /* non-fatal */ }
+  }
 
   res.status(201).json({ success: true, data: { status: "pending" } });
 }
@@ -444,18 +475,30 @@ export async function respondJoinRequest(req: AuthRequest, res: Response): Promi
 
   await supabaseAdmin.from("group_join_requests").update({ status }).eq("id", requestId);
 
+  // Delete the JOINREQ system message for this request (it served its purpose)
+  await supabaseAdmin.from("group_messages")
+    .delete()
+    .eq("group_id", groupId)
+    .eq("is_system", true)
+    .ilike("text", `||JOINREQ||${requestId}||%`);
+
   if (status === "accepted") {
-    // Add them as a member
     const { error } = await supabaseAdmin.from("group_members")
       .insert({ group_id: groupId, user_id: joinReq.user_id });
     if (error && error.code !== "23505") {
       res.status(500).json({ success: false, error: error.message }); return;
     }
-    const { data: profile } = await supabaseAdmin.from("profiles").select("name").eq("id", joinReq.user_id).single();
-    await postSystemMsg(groupId, userId, `${profile?.name || "Someone"} joined the community`);
 
-    // Notify the requester
-    const { data: group } = await supabaseAdmin.from("groups").select("name").eq("id", groupId).single();
+    const [{ data: requesterProfile }, { data: adminProfile }, { data: group }] = await Promise.all([
+      supabaseAdmin.from("profiles").select("name").eq("id", joinReq.user_id).single(),
+      supabaseAdmin.from("profiles").select("name").eq("id", userId).single(),
+      supabaseAdmin.from("groups").select("name").eq("id", groupId).single(),
+    ]);
+    const requesterName = requesterProfile?.name || "Someone";
+    const adminName = adminProfile?.name || "An admin";
+
+    await postSystemMsg(groupId, userId, `${requesterName} was accepted by ${adminName}`);
+
     try {
       await supabaseAdmin.from("notifications").insert({
         user_id: joinReq.user_id,
@@ -514,6 +557,30 @@ export async function addMember(req: AuthRequest, res: Response): Promise<void> 
       read: false,
     });
   } catch { /* non-fatal */ }
+
+  res.json({ success: true, data: null });
+}
+
+// ── Cancel join request (by the requester) ────────────────────────────────────
+export async function cancelJoinRequest(req: AuthRequest, res: Response): Promise<void> {
+  const { id: groupId } = req.params;
+  const userId = req.user.id;
+
+  // Find the pending request
+  const { data: joinReq } = await supabaseAdmin.from("group_join_requests")
+    .select("id, status").eq("group_id", groupId).eq("user_id", userId).maybeSingle();
+  if (!joinReq) { res.status(404).json({ success: false, error: "No pending request found" }); return; }
+  if (joinReq.status !== "pending") { res.status(400).json({ success: false, error: "Request is already resolved" }); return; }
+
+  // Delete the request
+  await supabaseAdmin.from("group_join_requests").delete().eq("id", joinReq.id);
+
+  // Delete the associated JOINREQ system message
+  await supabaseAdmin.from("group_messages")
+    .delete()
+    .eq("group_id", groupId)
+    .eq("is_system", true)
+    .ilike("text", `||JOINREQ||${joinReq.id}||%`);
 
   res.json({ success: true, data: null });
 }

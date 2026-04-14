@@ -6,7 +6,7 @@ import {
   joinGroup, leaveGroup, removeMember, banMember,
   getBannedUsers, unbanMember, assignRole,
   sendGroupMessage, deleteGroupMessage,
-  requestToJoin, getJoinRequests, respondJoinRequest,
+  requestToJoin, cancelJoinRequest, getJoinRequests, respondJoinRequest,
   addMember,
   createGroupSchema, updateGroupSchema, sendGroupMessageSchema,
   assignRoleSchema, respondJoinRequestSchema, addMemberSchema,
@@ -24,6 +24,7 @@ router.delete("/:id/leave", leaveGroup as any);
 
 // Join requests (private communities)
 router.post("/:id/join-request", requestToJoin as any);
+router.delete("/:id/join-request", cancelJoinRequest as any);
 router.get("/:id/join-requests", getJoinRequests as any);
 router.put("/:id/join-requests/:requestId", validate(respondJoinRequestSchema), respondJoinRequest as any);
 
