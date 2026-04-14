@@ -580,12 +580,30 @@ export default function Groups() {
   const fetchMembers = useCallback(async (groupId: string) => {
     setLoadingMembers(true);
     try {
-      const { data, error, count } = await (supabase as any)
+      // Try fetching with permissions column first; fall back without it if the
+      // column doesn't exist yet in the DB (avoids blank member list on old schemas).
+      let data: any[] | null = null;
+      let count: number | null = null;
+      const withPerms = await (supabase as any)
         .from("group_members")
         .select("id, user_id, role, permissions, profiles:user_id (name, color, avatar_url)", { count: "exact" })
         .eq("group_id", groupId)
         .order("joined_at", { ascending: true });
-      if (error) throw error;
+
+      if (withPerms.error) {
+        // Column may not exist — retry without permissions
+        const fallback = await (supabase as any)
+          .from("group_members")
+          .select("id, user_id, role, profiles:user_id (name, color, avatar_url)", { count: "exact" })
+          .eq("group_id", groupId)
+          .order("joined_at", { ascending: true });
+        if (fallback.error) throw fallback.error;
+        data = fallback.data;
+        count = fallback.count;
+      } else {
+        data = withPerms.data;
+        count = withPerms.count;
+      }
 
       setMembers((data || []).map((row: any) => ({
         id: row.user_id,
