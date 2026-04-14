@@ -35,7 +35,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
             <span className="font-semibold text-sm">Admin Panel</span>
           </div>
         </div>
-        <nav className="flex-1 px-3 py-3 space-y-0.5">
+        <nav className="flex-1 px-3 py-3 space-y-0.5 overflow-y-auto">
           {NAV.map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}

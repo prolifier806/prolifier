@@ -37,12 +37,37 @@ export async function getAllFeedback(req: AuthRequest, res: Response): Promise<v
 
   const { data, error, count } = await supabaseAdmin
     .from("feedback")
-    .select("id, category, rating, title, message, created_at, user_id, profiles:user_id(name, avatar_url, color)", { count: "exact" })
+    .select("id, category, rating, title, message, created_at, user_id", { count: "exact" })
     .order("created_at", { ascending: false })
     .range(from, from + PAGE - 1);
 
-  if (error) { res.status(500).json({ success: false, error: error.message }); return; }
-  res.json({ success: true, data, total: count ?? 0 });
+  if (error) {
+    console.error("[admin/feedback] fetch error:", error);
+    res.status(500).json({ success: false, error: error.message });
+    return;
+  }
+
+  if (!data || data.length === 0) {
+    res.json({ success: true, data: [], total: count ?? 0 });
+    return;
+  }
+
+  // Fetch profiles separately (avoids FK dependency)
+  const userIds = [...new Set(data.map((f: any) => f.user_id))] as string[];
+  const { data: profiles } = await supabaseAdmin
+    .from("profiles")
+    .select("id, name, avatar_url, color")
+    .in("id", userIds);
+
+  const profileMap: Record<string, any> = {};
+  (profiles || []).forEach((p: any) => { profileMap[p.id] = p; });
+
+  const enriched = data.map((f: any) => ({
+    ...f,
+    profiles: profileMap[f.user_id] ?? null,
+  }));
+
+  res.json({ success: true, data: enriched, total: count ?? 0 });
 }
 
 export async function getMyFeedback(req: AuthRequest, res: Response): Promise<void> {
