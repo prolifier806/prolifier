@@ -119,6 +119,8 @@ export async function discoverProfiles(req: AuthRequest, res: Response): Promise
     .from("profiles")
     .select("id, name, avatar, color, avatar_url, location, bio, project, skills, open_to_collab, created_at, role")
     .eq("profile_complete", true)
+    .is("deleted_at", null)
+    .neq("permanently_deleted", true)
     .order("created_at", { ascending: false })
     .limit(fetchLimit);
 

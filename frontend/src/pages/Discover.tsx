@@ -188,12 +188,16 @@ export default function Discover() {
     // on first paint — no flash of wrong state while API loads.
     // Cache is keyed on collabSkills so a new collab post invalidates it.
     const cacheKey = `${DISCOVER_CACHE_KEY}:${collabSkills.slice().sort().join(",")}`;
-    if (!cursor) {
+    // Only use cache on plain initial load (no search, no filters)
+    const hasFilters = !!debouncedSearch || collabOnly || collabSkills.length > 0;
+    if (!cursor && !hasFilters) {
       try {
         const raw = localStorage.getItem(cacheKey);
         if (raw) {
           const { ts, profiles: cp, connected: cc, pending: cp2, blocked: cb } = JSON.parse(raw);
-          setProfiles(cp);
+          // Filter out deleted accounts from cache before showing
+          const alive = (cp as any[]).filter((p: any) => !p.deletedAt);
+          setProfiles(alive);
           if (cc) setConnected(new Set(cc));
           if (cp2) setPending(new Set(cp2));
           if (cb) setBlockedByMe(new Set(cb));
