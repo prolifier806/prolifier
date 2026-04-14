@@ -481,6 +481,9 @@ export async function createNotice(req: AuthRequest, res: Response): Promise<voi
 
 // ── Helper: find the "Prolifier Official" profile id ─────────────────────────
 async function getOfficialUserId(): Promise<string | null> {
+  // Prefer explicit env var — set OFFICIAL_USER_ID in .env to the UUID of the Prolifier Official account
+  if (process.env.OFFICIAL_USER_ID) return process.env.OFFICIAL_USER_ID;
+  // Fallback: look up by name
   const { data } = await supabaseAdmin
     .from("profiles")
     .select("id")
