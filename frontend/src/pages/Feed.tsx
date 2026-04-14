@@ -1669,7 +1669,7 @@ export default function Feed() {
   const applyFeedData = useCallback((rawPosts: any[], rawCollabs: any[]) => {
     const mappedPosts: Post[] = (rawPosts || []).map((p: any) => ({
       id: p.id, user_id: p.user_id,
-      author: p.profiles?.deleted_at ? "Deleted Account" : (p.profiles?.name || p.author || "Unknown"),
+      author: /\[notice:[^\]]+\]/.test(p.content || "") ? "Prolifier Official" : (p.profiles?.deleted_at ? "Deleted Account" : (p.profiles?.name || p.author || "Unknown")),
       avatar: p.profiles?.deleted_at ? "?" : (p.profiles?.avatar || p.avatar || "?"),
       avatarUrl: p.profiles?.deleted_at ? undefined : (p.profiles?.avatar_url || p.avatarUrl || undefined),
       avatarColor: p.profiles?.deleted_at ? "bg-muted-foreground" : (p.profiles?.color || p.avatarColor || "bg-primary"),
