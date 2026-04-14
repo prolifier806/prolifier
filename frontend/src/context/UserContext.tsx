@@ -365,6 +365,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
       if (data.permanently_deleted) {
         localStorage.removeItem(cacheKey(id));
         await supabase.auth.signOut();
+        window.location.href = "/";
+        return;
       } else if (data.deleted_at) {
         setUser(prev => {
           const next = { ...prev, deletedAt: data.deleted_at };
@@ -378,8 +380,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
     const onVisible = () => { if (document.visibilityState === "visible") checkAccountState(); };
     document.addEventListener("visibilitychange", onVisible);
-    // Poll every 60 s as a safety net (realtime + API interceptor handle instant cases)
-    const timer = setInterval(checkAccountState, 60_000);
+    // Poll every 15 s as a safety net (realtime + API interceptor handle instant cases)
+    const timer = setInterval(checkAccountState, 15_000);
 
     return () => {
       document.removeEventListener("visibilitychange", onVisible);
@@ -397,6 +399,11 @@ export function UserProvider({ children }: { children: ReactNode }) {
         filter: `id=eq.${authUser.id}`,
       }, (payload) => {
         const row = payload.new as any;
+        if (row.permanently_deleted) {
+          localStorage.removeItem(cacheKey(authUser.id));
+          supabase.auth.signOut();
+          return;
+        }
         if (row.account_status === "banned") {
           setUser(prev => ({ ...prev, accountStatus: "banned" }));
         }

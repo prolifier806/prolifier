@@ -84,16 +84,17 @@ export async function requireAuth(
   if (!cached) {
     const { data: profile } = await supabaseAdmin
       .from("profiles")
-      .select("role, account_status")
+      .select("role, account_status, permanently_deleted")
       .eq("id", userId)
       .single();
     const role = (profile?.role as string | undefined) ?? "user";
     const accountStatus = (profile?.account_status as string | undefined) ?? "active";
-    setCachedProfile(userId, role, accountStatus);
-    cached = { role, accountStatus, expiresAt: 0 }; // expiresAt unused here
+    const permanentlyDeleted = !!(profile as any)?.permanently_deleted;
+    setCachedProfile(userId, role, permanentlyDeleted ? "banned" : accountStatus);
+    cached = { role, accountStatus: permanentlyDeleted ? "banned" : accountStatus, expiresAt: 0 };
   }
 
-  // Reject banned accounts at the API boundary
+  // Reject banned/permanently-deleted accounts at the API boundary
   if (cached.accountStatus === "banned") {
     res.status(403).json({ success: false, error: "Your account has been suspended." });
     return;
