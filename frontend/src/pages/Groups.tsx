@@ -238,6 +238,8 @@ export default function Groups() {
   const [showJoinRequests, setShowJoinRequests] = useState(false);
   // Track whether the current user has sent a join request per group
   const [requestedIds, setRequestedIds] = useState<Set<string>>(new Set());
+  // Track groups where a join/request action is in-flight (loading state)
+  const [joiningIds, setJoiningIds] = useState<Set<string>>(new Set());
   // Track groups that have unread @mentions for the current user
   const [mentionGroupIds, setMentionGroupIds] = useState<Set<string>>(new Set());
 
@@ -307,6 +309,7 @@ export default function Groups() {
       const { data: groupsData, error: groupsErr } = await (supabase as any)
         .from("groups")
         .select("*")
+        .order("member_count", { ascending: false })
         .order("created_at", { ascending: false })
         .limit(300);
       if (groupsErr) throw groupsErr;
@@ -655,61 +658,65 @@ export default function Groups() {
   const toggleJoin = async (groupId: string, isCurrentlyJoined: boolean, e?: React.MouseEvent) => {
     e?.stopPropagation();
     const g = groups.find(x => x.id === groupId);
-    if (!g) return;
-    if (!isCurrentlyJoined && g.visibility === "private") {
-      if (requestedIds.has(groupId)) {
-        // Cancel the pending request
-        try {
-          await apiCancelJoinRequest(groupId);
+    if (!g || joiningIds.has(groupId)) return;
+    setJoiningIds(prev => new Set([...prev, groupId]));
+    try {
+      if (!isCurrentlyJoined && g.visibility === "private") {
+        if (requestedIds.has(groupId)) {
+          // Cancel the pending request — optimistic update first
           setRequestedIds(prev => { const s = new Set(prev); s.delete(groupId); return s; });
-          toast({ title: "Request cancelled" });
+          try {
+            await apiCancelJoinRequest(groupId);
+            toast({ title: "Request cancelled" });
+          } catch {
+            setRequestedIds(prev => new Set([...prev, groupId])); // revert
+            toast({ title: "Could not cancel request", variant: "destructive" });
+          }
+          return;
+        }
+        // Optimistic: mark as requested immediately
+        setRequestedIds(prev => new Set([...prev, groupId]));
+        try {
+          await apiRequestToJoin(groupId);
+          toast({ title: "Request sent!", description: "An admin will review your request." });
         } catch {
-          toast({ title: "Could not cancel request", variant: "destructive" });
+          setRequestedIds(prev => { const s = new Set(prev); s.delete(groupId); return s; }); // revert
+          toast({ title: "Could not send request", variant: "destructive" });
         }
         return;
       }
-      try {
-        await apiRequestToJoin(groupId);
-        setRequestedIds(prev => new Set([...prev, groupId]));
-        toast({ title: "Request sent!", description: "An admin will review your request." });
-      } catch {
-        toast({ title: "Could not send request", variant: "destructive" });
-      }
-      return;
-    }
-    // Optimistic update
-    if (isCurrentlyJoined) {
-      setJoinedIds(prev => { const s = new Set(prev); s.delete(groupId); return s; });
-      setGroups(prev => prev.map(x => x.id === groupId ? { ...x, member_count: Math.max(0, x.member_count - 1) } : x));
-    } else {
-      setJoinedIds(prev => new Set([...prev, groupId]));
-      setGroups(prev => prev.map(x => x.id === groupId ? { ...x, member_count: x.member_count + 1 } : x));
-    }
-    try {
+      // Optimistic update for public join/leave
       if (isCurrentlyJoined) {
-        await apiLeaveGroup(groupId);
-        // Optimistic update already applied above; server uses atomic decrement
-        toast({ title: `Left ${g.name}` });
+        setJoinedIds(prev => { const s = new Set(prev); s.delete(groupId); return s; });
+        setGroups(prev => prev.map(x => x.id === groupId ? { ...x, member_count: Math.max(0, x.member_count - 1) } : x));
       } else {
-        await apiJoinGroup(groupId);
-        // Optimistic update already applied above; server uses atomic increment
-        toast({ title: `Joined ${g.name}! 🎉` });
-        // Notify group owner
-        if (g.owner_id !== user.id) {
-          createNotification({
-            userId: g.owner_id,
-            type: "group",
-            text: `${user.name} joined your community "${g.name}"`,
-            action: `group:${groupId}`,
-            actorId: user.id,
-          });
-        }
+        setJoinedIds(prev => new Set([...prev, groupId]));
+        setGroups(prev => prev.map(x => x.id === groupId ? { ...x, member_count: x.member_count + 1 } : x));
       }
-    } catch (err) {
-      if (import.meta.env.DEV) console.error(err);
-      // Revert optimistic update
-      fetchGroups();
-      toast({ title: "Action failed", variant: "destructive" });
+      try {
+        if (isCurrentlyJoined) {
+          await apiLeaveGroup(groupId);
+          toast({ title: `Left ${g.name}` });
+        } else {
+          await apiJoinGroup(groupId);
+          toast({ title: `Joined ${g.name}! 🎉` });
+          if (g.owner_id !== user.id) {
+            createNotification({
+              userId: g.owner_id,
+              type: "group",
+              text: `${user.name} joined your community "${g.name}"`,
+              action: `group:${groupId}`,
+              actorId: user.id,
+            });
+          }
+        }
+      } catch (err) {
+        if (import.meta.env.DEV) console.error(err);
+        fetchGroups(); // revert optimistic update
+        toast({ title: "Action failed", variant: "destructive" });
+      }
+    } finally {
+      setJoiningIds(prev => { const s = new Set(prev); s.delete(groupId); return s; });
     }
   };
 
@@ -1422,8 +1429,8 @@ export default function Groups() {
                       </button>
                       <div className="flex items-center gap-1.5 shrink-0">
                         {(m.role === "owner" || m.role === "admin") && <Crown className="h-3.5 w-3.5 text-amber-500" title={m.role === "owner" ? "Owner" : "Admin"} />}
-                        {/* Promote button: only for plain members, never for admins/owner (prevents double crown) */}
-                        {isOwner && !isSelf && m.role === "member" && (
+                        {/* Promote button: any admin (including owner) can promote plain members */}
+                        {isAdmin && !isSelf && m.role === "member" && (
                           <button onClick={() => toggleAdmin(m.id, m.name, m.role)} title="Appoint as admin"
                             className="h-7 w-7 rounded-lg border border-border text-muted-foreground hover:bg-muted transition-colors flex items-center justify-center">
                             <Crown className="h-3.5 w-3.5" />
@@ -1734,8 +1741,40 @@ export default function Groups() {
           <div className="flex-1 overflow-y-auto p-4">
             {!isJoined && (
               <div className="text-center py-10">
-                <p className="text-sm text-muted-foreground mb-3">Join this community to participate in conversations.</p>
-                <Button size="sm" onClick={() => toggleJoin(activeGroup.id, false)}>Join Community</Button>
+                <p className="text-sm text-muted-foreground mb-3">
+                  {activeGroup.visibility === "private"
+                    ? "Request to join this community to participate in conversations."
+                    : "Join this community to participate in conversations."}
+                </p>
+                {activeGroup.visibility === "private" ? (
+                  requestedIds.has(activeGroup.id) ? (
+                    <Button size="sm" variant="outline"
+                      className="border-emerald-500 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950 gap-1.5"
+                      disabled={joiningIds.has(activeGroup.id)}
+                      onClick={() => toggleJoin(activeGroup.id, false)}>
+                      {joiningIds.has(activeGroup.id)
+                        ? <><span className="h-3 w-3 rounded-full border-2 border-current border-t-transparent animate-spin" />Cancelling…</>
+                        : "Requested — Cancel Request"}
+                    </Button>
+                  ) : (
+                    <Button size="sm"
+                      className="bg-emerald-500 hover:bg-emerald-600 text-white gap-1.5"
+                      disabled={joiningIds.has(activeGroup.id)}
+                      onClick={() => toggleJoin(activeGroup.id, false)}>
+                      {joiningIds.has(activeGroup.id)
+                        ? <><span className="h-3 w-3 rounded-full border-2 border-white border-t-transparent animate-spin" />Requesting…</>
+                        : "Request to Join"}
+                    </Button>
+                  )
+                ) : (
+                  <Button size="sm"
+                    disabled={joiningIds.has(activeGroup.id)}
+                    onClick={() => toggleJoin(activeGroup.id, false)}>
+                    {joiningIds.has(activeGroup.id)
+                      ? <><span className="h-3 w-3 rounded-full border-2 border-white border-t-transparent animate-spin" />Joining…</>
+                      : "Join Community"}
+                  </Button>
+                )}
               </div>
             )}
             {isJoined && loadingMessages && (
@@ -1865,12 +1904,14 @@ export default function Groups() {
   // ══════════════════════════════════════════════════════════════════════════
   // VIEW: Groups List
   // ══════════════════════════════════════════════════════════════════════════
-  const filtered = groups.filter(g => {
-    const q = search.toLowerCase();
-    return (!search || g.name.toLowerCase().includes(q) || g.topic.toLowerCase().includes(q))
-      && (topic === "" || g.topic === topic)
-      && (filter === "all" || joinedIds.has(g.id) || g.owner_id === user.id);
-  });
+  const filtered = groups
+    .filter(g => {
+      const q = search.toLowerCase();
+      return (!search || g.name.toLowerCase().includes(q) || g.topic.toLowerCase().includes(q))
+        && (topic === "" || g.topic === topic)
+        && (filter === "all" || joinedIds.has(g.id) || g.owner_id === user.id);
+    })
+    .sort((a, b) => b.member_count - a.member_count);
 
   return (
     <Layout>
@@ -1987,14 +2028,20 @@ export default function Groups() {
                         <Badge variant="outline" className="text-[10px] h-4 px-1.5">{g.topic}</Badge>
                       </div>
                       <button
+                        disabled={joiningIds.has(g.id)}
                         onClick={e => { e.stopPropagation(); (joined || isMine) ? openGroup(g) : toggleJoin(g.id, false, e); }}
-                        className={`h-7 px-3 rounded-lg text-xs font-medium transition-colors ${
+                        className={`h-7 px-3 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 disabled:opacity-60 disabled:cursor-not-allowed ${
                           joined || isMine ? "bg-muted text-foreground hover:bg-secondary"
-                            : requested ? "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400 hover:bg-amber-200 dark:hover:bg-amber-900"
-                              : g.visibility === "private" ? "bg-muted text-muted-foreground hover:bg-secondary"
+                            : requested ? "bg-emerald-500 text-white hover:bg-emerald-600"
+                              : g.visibility === "private" ? "bg-emerald-500 text-white hover:bg-emerald-600"
                                 : "bg-primary text-primary-foreground hover:opacity-90"
                         }`}>
-                        {joined || isMine ? "Joined" : requested ? "Requested ✕" : g.visibility === "private" ? "Request" : "Join"}
+                        {joiningIds.has(g.id)
+                          ? <><span className="h-3 w-3 rounded-full border-2 border-current border-t-transparent animate-spin" />{requested ? "Cancelling…" : joined || isMine ? "Joined" : g.visibility === "private" ? "Requesting…" : "Joining…"}</>
+                          : joined || isMine ? "Joined"
+                          : requested ? "Requested ✕"
+                          : g.visibility === "private" ? "Request to Join"
+                          : "Join"}
                       </button>
                     </div>
                   </div>
