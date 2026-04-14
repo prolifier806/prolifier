@@ -208,7 +208,7 @@ export default function AdminFeedbacks() {
 
       {/* Detail dialog */}
       <Dialog open={!!viewing} onOpenChange={open => !open && setViewing(null)}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg w-full overflow-hidden">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <MessageSquare className="h-4 w-4" /> Feedback Detail
@@ -242,7 +242,7 @@ export default function AdminFeedbacks() {
               </div>
               <div>
                 <p className="text-xs text-muted-foreground mb-1">Message</p>
-                <div className="bg-muted rounded-md p-3 text-sm whitespace-pre-wrap break-words">
+                <div className="bg-muted rounded-md p-3 text-sm whitespace-pre-wrap break-all overflow-hidden w-full">
                   {msgExpanded || viewing.message.length <= MSG_LIMIT
                     ? viewing.message
                     : viewing.message.slice(0, MSG_LIMIT) + "…"}
