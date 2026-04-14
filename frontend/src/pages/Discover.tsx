@@ -207,64 +207,59 @@ export default function Discover() {
       } catch { /* ignore */ }
     }
 
-    cursor ? setLoadingMore(true) : setLoading(prev => prev);
+    if (cursor) setLoadingMore(true); else setLoading(true);
     try {
       const params: Record<string, string> = {};
       if (cursor) params.cursor = cursor;
       if (debouncedSearch) params.search = debouncedSearch;
       if (collabOnly) params.collabOnly = "true";
-      // Pass collab skills for server-side ranking — silently reorders profiles
       if (collabSkills.length > 0 && !cursor) params.rankSkills = collabSkills.join(",");
 
-      // On initial load: fire profiles + connections + blocks all in parallel
       if (!cursor) {
-        const [data, conns, blocksRes] = await Promise.all([
-          discoverProfiles(params),
-          getConnections().catch(() => []),
-          (supabase as any).from("blocks").select("blocked_id").eq("blocker_id", user.id),
-        ]);
-
+        // Fetch profiles first — show them immediately, don't wait for connections
+        const data = await discoverProfiles(params);
         const mapped = mapProfiles(data);
         setProfiles(mapped);
         setHasMore(data.length === PAGE_SIZE);
         if (data.length > 0) cursorRef.current = data[data.length - 1].created_at;
+        setLoading(false);
 
-        const acceptedIds = new Set<string>();
-        const pendingIds = new Set<string>();
-        for (const c of conns) {
-          const otherId = c.requester_id === user.id ? c.receiver_id : c.requester_id;
-          if (c.status === "accepted") acceptedIds.add(otherId);
-          else if (c.status === "pending" && c.requester_id === user.id) pendingIds.add(c.receiver_id);
-        }
-        const blockedSet = new Set<string>((blocksRes.data || []).map((b: any) => b.blocked_id as string));
-        setConnected(acceptedIds);
-        setPending(pendingIds);
-        setBlockedByMe(blockedSet);
-
-        // Cache profiles + connection state together so buttons show correctly on next visit
-        // WHY: Save mapped (camelCase) not raw data — cache restore sets profiles directly
-        // without remapping, so avatar_url/open_to_collab would be undefined on first paint.
-        try {
-          localStorage.setItem(cacheKey, JSON.stringify({
-            ts: Date.now(),
-            profiles: mapped,
-            connected: [...acceptedIds],
-            pending: [...pendingIds],
-            blocked: [...blockedSet],
-          }));
-        } catch { /* quota */ }
+        // Fetch connections + blocks in background — buttons update after profiles are visible
+        Promise.all([
+          getConnections().catch(() => []),
+          (supabase as any).from("blocks").select("blocked_id").eq("blocker_id", user.id),
+        ]).then(([conns, blocksRes]) => {
+          const acceptedIds = new Set<string>();
+          const pendingIds = new Set<string>();
+          for (const c of conns) {
+            const otherId = c.requester_id === user.id ? c.receiver_id : c.requester_id;
+            if (c.status === "accepted") acceptedIds.add(otherId);
+            else if (c.status === "pending" && c.requester_id === user.id) pendingIds.add(c.receiver_id);
+          }
+          const blockedSet = new Set<string>((blocksRes.data || []).map((b: any) => b.blocked_id as string));
+          setConnected(acceptedIds);
+          setPending(pendingIds);
+          setBlockedByMe(blockedSet);
+          try {
+            localStorage.setItem(cacheKey, JSON.stringify({
+              ts: Date.now(), profiles: mapped,
+              connected: [...acceptedIds], pending: [...pendingIds], blocked: [...blockedSet],
+            }));
+          } catch { /* quota */ }
+        }).catch(() => {});
       } else {
         const data = await discoverProfiles(params);
         const mapped = mapProfiles(data);
         setProfiles(prev => [...prev, ...mapped]);
         setHasMore(data.length === PAGE_SIZE);
         if (data.length > 0) cursorRef.current = data[data.length - 1].created_at;
+        setLoadingMore(false);
       }
     } catch (err: any) {
       if (isAbortError(err)) return;
       toast({ title: "Failed to load profiles", description: err.message, variant: "destructive" });
-    } finally {
-      cursor ? setLoadingMore(false) : setLoading(false);
+      setLoading(false);
+      setLoadingMore(false);
     }
   }, [user.id, debouncedSearch, collabOnly, collabSkills]);
 
