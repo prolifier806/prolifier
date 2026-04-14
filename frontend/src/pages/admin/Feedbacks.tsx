@@ -53,6 +53,8 @@ export default function AdminFeedbacks() {
   const [ratingFilter, setRatingFilter]     = useState("all");
   const [loading, setLoading]       = useState(true);
   const [viewing, setViewing]       = useState<Feedback | null>(null);
+  const [msgExpanded, setMsgExpanded] = useState(false);
+  const MSG_LIMIT = 300;
   const { toast } = useToast();
 
   const fetchFeedback = useCallback(async () => {
@@ -182,7 +184,7 @@ export default function AdminFeedbacks() {
                         {new Date(f.created_at).toLocaleDateString()}
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button variant="outline" size="sm" className="h-7 text-xs px-3" onClick={() => setViewing(f)}>
+                        <Button variant="outline" size="sm" className="h-7 text-xs px-3" onClick={() => { setViewing(f); setMsgExpanded(false); }}>
                           <Eye className="mr-1.5 h-3 w-3" /> View
                         </Button>
                       </TableCell>
@@ -240,9 +242,19 @@ export default function AdminFeedbacks() {
               </div>
               <div>
                 <p className="text-xs text-muted-foreground mb-1">Message</p>
-                <div className="bg-muted rounded-md p-3 text-sm whitespace-pre-wrap break-words max-h-48 overflow-y-auto">
-                  {viewing.message}
+                <div className="bg-muted rounded-md p-3 text-sm whitespace-pre-wrap break-words">
+                  {msgExpanded || viewing.message.length <= MSG_LIMIT
+                    ? viewing.message
+                    : viewing.message.slice(0, MSG_LIMIT) + "…"}
                 </div>
+                {viewing.message.length > MSG_LIMIT && (
+                  <button
+                    className="mt-1.5 text-primary text-xs font-medium hover:underline flex items-center gap-1"
+                    onClick={() => setMsgExpanded(v => !v)}
+                  >
+                    {msgExpanded ? "▲ Show less" : "▼ Read more"}
+                  </button>
+                )}
               </div>
             </div>
           )}
