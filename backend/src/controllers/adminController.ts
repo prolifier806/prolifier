@@ -479,45 +479,25 @@ export async function createNotice(req: AuthRequest, res: Response): Promise<voi
   res.json({ success: true, data });
 }
 
-// ── Helper: find the "Prolifier Official" profile id ─────────────────────────
-async function getOfficialUserId(): Promise<string | null> {
-  // Prefer explicit env var — set OFFICIAL_USER_ID in .env to the UUID of the Prolifier Official account
-  if (process.env.OFFICIAL_USER_ID) return process.env.OFFICIAL_USER_ID;
-  // Fallback: look up by name
-  const { data } = await supabaseAdmin
-    .from("profiles")
-    .select("id")
-    .eq("name", "Prolifier Official")
-    .maybeSingle();
-  return data?.id ?? null;
-}
-
 // ── Helper: post/delete the linked announcement post ─────────────────────────
-async function publishAnnouncementPost(noticeId: string, title: string, content: string, priority: string): Promise<void> {
-  const officialId = await getOfficialUserId();
-  if (!officialId) { console.warn("[notices] No 'Prolifier Official' profile found — skipping post."); return; }
-
+async function publishAnnouncementPost(adminUserId: string, noticeId: string, title: string, content: string, priority: string): Promise<void> {
   const priorityTag = priority === "urgent" ? "🚨 URGENT" : priority === "high" ? "⚠️ Important" : "📢 Announcement";
   const postContent = `${priorityTag}: ${title}\n\n${content}\n\n[notice:${noticeId}]`;
 
-  const { error: insertErr } = await supabaseAdmin.from("posts").insert({
-    user_id: officialId,
+  const { error } = await supabaseAdmin.from("posts").insert({
+    user_id: adminUserId,
     content: postContent,
     tag: "General",
     image_urls: [],
     video_url: null,
   });
-  if (insertErr) console.error("[notices] Post insert error:", insertErr);
+  if (error) console.error("[notices] Post insert error:", error);
 }
 
 async function removeAnnouncementPost(noticeId: string): Promise<void> {
-  const officialId = await getOfficialUserId();
-  if (!officialId) return;
-  // Find post by the embedded notice marker and delete it
   await supabaseAdmin
     .from("posts")
     .delete()
-    .eq("user_id", officialId)
     .ilike("content", `%[notice:${noticeId}]%`);
 }
 
@@ -546,7 +526,7 @@ export async function updateNotice(req: AuthRequest, res: Response): Promise<voi
   // Publish → create announcement post on the feed
   if (body.status === "published" && current?.status !== "published") {
     const notice = data as any;
-    publishAnnouncementPost(id, notice.title, notice.content, notice.priority).catch(err =>
+    publishAnnouncementPost(req.user.id, id, notice.title, notice.content, notice.priority).catch(err =>
       console.error("[notices] Failed to publish announcement post:", err)
     );
   }
