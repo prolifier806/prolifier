@@ -238,8 +238,9 @@ export default function Groups() {
   const [showJoinRequests, setShowJoinRequests] = useState(false);
   // Track whether the current user has sent a join request per group
   const [requestedIds, setRequestedIds] = useState<Set<string>>(new Set());
-  // Track groups where a join/request action is in-flight (loading state)
-  const [joiningIds, setJoiningIds] = useState<Set<string>>(new Set());
+  // Synchronous ref-based lock to prevent spam clicks — state updates are async
+  // and two rapid clicks can both pass a state-based check before it re-renders.
+  const joiningRef = useRef<Set<string>>(new Set());
   // Track groups that have unread @mentions for the current user
   const [mentionGroupIds, setMentionGroupIds] = useState<Set<string>>(new Set());
 
@@ -593,6 +594,65 @@ export default function Groups() {
     },
   );
 
+  // ── Realtime: sync join requests for admin + own request status ─────────────
+  // Subscribes to group_join_requests changes on the active group so that:
+  //   • Admin panel updates instantly when a new request arrives or is cancelled
+  //   • Requester's button reverts to "Request" if their pending request is deleted
+  //     (e.g. admin accepted/rejected externally without them refreshing)
+  useRealtimeChannel(
+    activeGroup?.id ? `joinreq-${activeGroup.id}` : null,
+    ch => ch.on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "group_join_requests", filter: `group_id=eq.${activeGroup?.id}` },
+      async (payload) => {
+        if (payload.eventType === "INSERT") {
+          const row = payload.new as any;
+          // Update the admin's panel if it's open
+          if (row.status === "pending") {
+            // Fetch profile for the new requester
+            const { data: profile } = await (supabase as any)
+              .from("profiles").select("name, color, avatar_url").eq("id", row.user_id).single();
+            const newReq: JoinRequest = {
+              id: row.id,
+              user_id: row.user_id,
+              status: row.status,
+              created_at: row.created_at,
+              profile: profile ? { name: profile.name, color: profile.color, avatar_url: profile.avatar_url } : null,
+            };
+            setJoinRequests(prev => prev.find(r => r.id === row.id) ? prev : [...prev, newReq]);
+          }
+          // Update requestedIds if this is the current user's own request
+          if (row.user_id === user.id && row.status === "pending") {
+            setRequestedIds(prev => new Set([...prev, row.group_id]));
+          }
+        } else if (payload.eventType === "DELETE") {
+          const row = payload.old as any;
+          // Remove from admin's panel instantly
+          setJoinRequests(prev => prev.filter(r => r.id !== row.id));
+          // Clear from requester's local state (cancellation or admin resolved it)
+          if (row.user_id === user.id) {
+            setRequestedIds(prev => { const s = new Set(prev); s.delete(row.group_id ?? activeGroup?.id); return s; });
+          }
+        } else if (payload.eventType === "UPDATE") {
+          const row = payload.new as any;
+          // Remove resolved requests from admin panel
+          if (row.status !== "pending") {
+            setJoinRequests(prev => prev.filter(r => r.id !== row.id));
+          }
+          // If this user's request was accepted, update joinedIds
+          if (row.user_id === user.id) {
+            if (row.status === "accepted") {
+              setRequestedIds(prev => { const s = new Set(prev); s.delete(row.group_id); return s; });
+              setJoinedIds(prev => new Set([...prev, row.group_id]));
+            } else if (row.status === "rejected") {
+              setRequestedIds(prev => { const s = new Set(prev); s.delete(row.group_id); return s; });
+            }
+          }
+        }
+      }
+    ),
+  );
+
   // Scroll to bottom on new messages
   useEffect(() => {
     if (messages.length > 0) {
@@ -658,8 +718,8 @@ export default function Groups() {
   const toggleJoin = async (groupId: string, isCurrentlyJoined: boolean, e?: React.MouseEvent) => {
     e?.stopPropagation();
     const g = groups.find(x => x.id === groupId);
-    if (!g || joiningIds.has(groupId)) return;
-    setJoiningIds(prev => new Set([...prev, groupId]));
+    if (!g || joiningRef.current.has(groupId)) return;
+    joiningRef.current.add(groupId);
     try {
       if (!isCurrentlyJoined && g.visibility === "private") {
         if (requestedIds.has(groupId)) {
@@ -716,7 +776,7 @@ export default function Groups() {
         toast({ title: "Action failed", variant: "destructive" });
       }
     } finally {
-      setJoiningIds(prev => { const s = new Set(prev); s.delete(groupId); return s; });
+      joiningRef.current.delete(groupId);
     }
   };
 
@@ -1041,7 +1101,7 @@ export default function Groups() {
                           setMessages(prev => prev.filter(x => x.id !== m.id));
                           fetchMembers(activeGroup.id);
                           toast({ title: `${requesterName} accepted` });
-                        } catch { toast({ title: "Failed", variant: "destructive" }); }
+                        } catch (err: any) { toast({ title: err?.message || "Failed to accept", variant: "destructive" }); }
                       }}
                       className="flex-1 text-xs py-1.5 rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity font-medium"
                     >Accept</button>
@@ -1052,7 +1112,7 @@ export default function Groups() {
                           await apiRespondJoinRequest(activeGroup.id, reqId, "rejected");
                           setMessages(prev => prev.filter(x => x.id !== m.id));
                           toast({ title: "Request declined" });
-                        } catch { toast({ title: "Failed", variant: "destructive" }); }
+                        } catch (err: any) { toast({ title: err?.message || "Failed to decline", variant: "destructive" }); }
                       }}
                       className="flex-1 text-xs py-1.5 rounded-lg border border-border text-muted-foreground hover:bg-muted transition-colors font-medium"
                     >Decline</button>
@@ -1582,7 +1642,7 @@ export default function Groups() {
                                   setJoinRequests(prev => prev.filter(x => x.id !== r.id));
                                   fetchMembers(activeGroup.id);
                                   toast({ title: `${r.profile?.name || "User"} approved` });
-                                } catch { toast({ title: "Failed", variant: "destructive" }); }
+                                } catch (err: any) { toast({ title: err?.message || "Failed to accept", variant: "destructive" }); }
                               }}
                               className="text-xs px-2.5 py-1 rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
                             >Accept</button>
@@ -1592,7 +1652,7 @@ export default function Groups() {
                                   await apiRespondJoinRequest(activeGroup.id, r.id, "rejected");
                                   setJoinRequests(prev => prev.filter(x => x.id !== r.id));
                                   toast({ title: "Request declined" });
-                                } catch { toast({ title: "Failed", variant: "destructive" }); }
+                                } catch (err: any) { toast({ title: err?.message || "Failed to decline", variant: "destructive" }); }
                               }}
                               className="text-xs px-2.5 py-1 rounded-lg border border-border text-muted-foreground hover:bg-muted transition-colors"
                             >Decline</button>

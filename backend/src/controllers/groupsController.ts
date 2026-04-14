@@ -391,25 +391,59 @@ export async function requestToJoin(req: AuthRequest, res: Response): Promise<vo
     .select("id").eq("group_id", groupId).eq("user_id", userId).maybeSingle();
   if (ban) { res.status(403).json({ success: false, error: "You are banned from this community" }); return; }
 
+  const { data: requester } = await supabaseAdmin.from("profiles").select("name").eq("id", userId).single();
+  const requesterName = requester?.name || "Someone";
+
   const { error } = await supabaseAdmin.from("group_join_requests")
     .insert({ group_id: groupId, user_id: userId, status: "pending" });
+
   if (error?.code === "23505") {
-    // Already requested — return current status
+    // Row already exists — check its status.
     const { data: existing } = await supabaseAdmin.from("group_join_requests")
-      .select("status").eq("group_id", groupId).eq("user_id", userId).single();
-    res.json({ success: true, data: { status: existing?.status ?? "pending" } });
+      .select("id, status").eq("group_id", groupId).eq("user_id", userId).single();
+
+    if (existing?.status === "pending") {
+      // Truly already pending — idempotent, nothing to do.
+      res.json({ success: true, data: { status: "pending" } });
+      return;
+    }
+
+    // Was previously accepted or rejected (e.g. user was removed after being accepted).
+    // Reset to pending so the admin sees it again.
+    await supabaseAdmin.from("group_join_requests")
+      .update({ status: "pending" }).eq("id", existing!.id);
+
+    // Post a new JOINREQ system message so admins can act on it from the chat.
+    await postSystemMsg(groupId, userId, `||JOINREQ||${existing!.id}||${userId}||${requesterName}`);
+
+    // Notify admins
+    const { data: adminMembers } = await supabaseAdmin.from("group_members")
+      .select("user_id").eq("group_id", groupId).in("role", ["owner", "admin"]);
+    const adminIds = (adminMembers || []).map((m: any) => m.user_id).filter((id: string) => id !== userId);
+    if (adminIds.length > 0) {
+      try {
+        await supabaseAdmin.from("notifications").insert(
+          adminIds.map((adminId: string) => ({
+            user_id: adminId, type: "group",
+            text: `${requesterName} wants to join "${group.name}"`,
+            action: `group:${groupId}`, read: false,
+          }))
+        );
+      } catch { /* non-fatal */ }
+    }
+
+    res.status(201).json({ success: true, data: { status: "pending" } });
     return;
   }
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
 
-  const { data: requester } = await supabaseAdmin.from("profiles").select("name").eq("id", userId).single();
-  const requesterName = requester?.name || "Someone";
-
-  // Post a special system message so admins can see & act on the request in chat.
-  // Format: ||JOINREQ||{reqId}||{userId}||{name}  (parsed by the frontend)
+  // New insert succeeded — fetch the request ID for the JOINREQ system message.
   const { data: reqRow } = await supabaseAdmin.from("group_join_requests")
     .select("id").eq("group_id", groupId).eq("user_id", userId).maybeSingle();
   const reqId = reqRow?.id ?? "unknown";
+
+  // Post a special system message so admins can see & act on the request in chat.
+  // Format: ||JOINREQ||{reqId}||{userId}||{name}  (parsed by the frontend)
   await postSystemMsg(groupId, userId, `||JOINREQ||${reqId}||${userId}||${requesterName}`);
 
   // Notify all admins + owner
@@ -484,7 +518,7 @@ export async function respondJoinRequest(req: AuthRequest, res: Response): Promi
 
   if (status === "accepted") {
     const { error } = await supabaseAdmin.from("group_members")
-      .insert({ group_id: groupId, user_id: joinReq.user_id });
+      .insert({ group_id: groupId, user_id: joinReq.user_id, role: "member" });
     if (error && error.code !== "23505") {
       res.status(500).json({ success: false, error: error.message }); return;
     }
