@@ -497,13 +497,14 @@ async function publishAnnouncementPost(noticeId: string, title: string, content:
   const priorityTag = priority === "urgent" ? "🚨 URGENT" : priority === "high" ? "⚠️ Important" : "📢 Announcement";
   const postContent = `${priorityTag}: ${title}\n\n${content}\n\n[notice:${noticeId}]`;
 
-  await supabaseAdmin.from("posts").insert({
+  const { error: insertErr } = await supabaseAdmin.from("posts").insert({
     user_id: officialId,
     content: postContent,
-    tag: "announcement",
+    tag: "General",
     image_urls: [],
     video_url: null,
   });
+  if (insertErr) console.error("[notices] Post insert error:", insertErr);
 }
 
 async function removeAnnouncementPost(noticeId: string): Promise<void> {
