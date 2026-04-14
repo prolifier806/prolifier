@@ -481,11 +481,14 @@ export async function createNotice(req: AuthRequest, res: Response): Promise<voi
 
 // ── Helper: post/delete the linked announcement post ─────────────────────────
 async function publishAnnouncementPost(adminUserId: string, noticeId: string, title: string, content: string, priority: string): Promise<void> {
+  // Use dedicated Official account if configured, otherwise fall back to the publishing admin
+  const officialId = process.env.OFFICIAL_USER_ID || adminUserId;
+
   const priorityTag = priority === "urgent" ? "🚨 URGENT" : priority === "high" ? "⚠️ Important" : "📢 Announcement";
   const postContent = `${priorityTag}: ${title}\n\n${content}\n\n[notice:${noticeId}]`;
 
   const { error } = await supabaseAdmin.from("posts").insert({
-    user_id: adminUserId,
+    user_id: officialId,
     content: postContent,
     tag: "General",
     image_urls: [],
