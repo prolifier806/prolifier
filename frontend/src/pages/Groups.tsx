@@ -1747,32 +1747,12 @@ export default function Groups() {
                     : "Join this community to participate in conversations."}
                 </p>
                 {activeGroup.visibility === "private" ? (
-                  requestedIds.has(activeGroup.id) ? (
-                    <Button size="sm" variant="outline"
-                      className="border-emerald-500 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950 gap-1.5"
-                      disabled={joiningIds.has(activeGroup.id)}
-                      onClick={() => toggleJoin(activeGroup.id, false)}>
-                      {joiningIds.has(activeGroup.id)
-                        ? <><span className="h-3 w-3 rounded-full border-2 border-current border-t-transparent animate-spin" />Cancelling…</>
-                        : "Requested — Cancel Request"}
-                    </Button>
-                  ) : (
-                    <Button size="sm"
-                      className="bg-emerald-500 hover:bg-emerald-600 text-white gap-1.5"
-                      disabled={joiningIds.has(activeGroup.id)}
-                      onClick={() => toggleJoin(activeGroup.id, false)}>
-                      {joiningIds.has(activeGroup.id)
-                        ? <><span className="h-3 w-3 rounded-full border-2 border-white border-t-transparent animate-spin" />Requesting…</>
-                        : "Request to Join"}
-                    </Button>
-                  )
+                  <Button size="sm" onClick={() => toggleJoin(activeGroup.id, false)}>
+                    {requestedIds.has(activeGroup.id) ? "Requested" : "Request to Join"}
+                  </Button>
                 ) : (
-                  <Button size="sm"
-                    disabled={joiningIds.has(activeGroup.id)}
-                    onClick={() => toggleJoin(activeGroup.id, false)}>
-                    {joiningIds.has(activeGroup.id)
-                      ? <><span className="h-3 w-3 rounded-full border-2 border-white border-t-transparent animate-spin" />Joining…</>
-                      : "Join Community"}
+                  <Button size="sm" onClick={() => toggleJoin(activeGroup.id, false)}>
+                    Join Community
                   </Button>
                 )}
               </div>
@@ -2028,19 +2008,14 @@ export default function Groups() {
                         <Badge variant="outline" className="text-[10px] h-4 px-1.5">{g.topic}</Badge>
                       </div>
                       <button
-                        disabled={joiningIds.has(g.id)}
                         onClick={e => { e.stopPropagation(); (joined || isMine) ? openGroup(g) : toggleJoin(g.id, false, e); }}
-                        className={`h-7 px-3 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 disabled:opacity-60 disabled:cursor-not-allowed ${
+                        className={`h-7 px-3 rounded-lg text-xs font-medium transition-colors ${
                           joined || isMine ? "bg-muted text-foreground hover:bg-secondary"
-                            : requested ? "bg-emerald-500 text-white hover:bg-emerald-600"
-                              : g.visibility === "private" ? "bg-emerald-500 text-white hover:bg-emerald-600"
-                                : "bg-primary text-primary-foreground hover:opacity-90"
+                            : "bg-primary text-primary-foreground hover:opacity-90"
                         }`}>
-                        {joiningIds.has(g.id)
-                          ? <><span className="h-3 w-3 rounded-full border-2 border-current border-t-transparent animate-spin" />{requested ? "Cancelling…" : joined || isMine ? "Joined" : g.visibility === "private" ? "Requesting…" : "Joining…"}</>
-                          : joined || isMine ? "Joined"
-                          : requested ? "Requested ✕"
-                          : g.visibility === "private" ? "Request to Join"
+                        {joined || isMine ? "Joined"
+                          : requested ? "Requested"
+                          : g.visibility === "private" ? "Request"
                           : "Join"}
                       </button>
                     </div>
