@@ -479,36 +479,10 @@ export async function createNotice(req: AuthRequest, res: Response): Promise<voi
   res.json({ success: true, data });
 }
 
-// ── Helper: post/delete the linked announcement post ─────────────────────────
-async function publishAnnouncementPost(adminUserId: string, noticeId: string, title: string, content: string, priority: string): Promise<void> {
-  // Use dedicated Official account if configured, otherwise fall back to the publishing admin
-  const officialId = process.env.OFFICIAL_USER_ID || adminUserId;
-
-  const priorityTag = priority === "urgent" ? "🚨 URGENT" : priority === "high" ? "⚠️ Important" : "📢 Announcement";
-  const postContent = `${priorityTag}: ${title}\n\n${content}\n\n[notice:${noticeId}]`;
-
-  const { error } = await supabaseAdmin.from("posts").insert({
-    user_id: officialId,
-    content: postContent,
-    tag: "General",
-    image_urls: [],
-    video_url: null,
-  });
-  if (error) console.error("[notices] Post insert error:", error);
-}
-
-async function removeAnnouncementPost(noticeId: string): Promise<void> {
-  await supabaseAdmin
-    .from("posts")
-    .delete()
-    .ilike("content", `%[notice:${noticeId}]%`);
-}
-
 export async function updateNotice(req: AuthRequest, res: Response): Promise<void> {
   const { id } = req.params;
   const body = req.body as z.infer<typeof updateNoticeSchema>;
 
-  // Moderators can only edit their own notices; admins can edit any
   if (req.user.role === "moderator") {
     const { data: existing } = await supabaseAdmin.from("notices").select("created_by").eq("id", id).single();
     if (!existing || existing.created_by !== req.user.id) {
@@ -516,49 +490,23 @@ export async function updateNotice(req: AuthRequest, res: Response): Promise<voi
     }
   }
 
-  // Fetch current notice to check status transition
-  const { data: current } = await supabaseAdmin.from("notices").select("*").eq("id", id).single();
-
   const updates: Record<string, unknown> = { ...body, updated_at: new Date().toISOString() };
   if (body.status === "published") updates.published_at = new Date().toISOString();
-
   const { data, error } = await supabaseAdmin
     .from("notices").update(updates).eq("id", id).select().single();
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
-
-  // Publish → create announcement post on the feed
-  if (body.status === "published" && current?.status !== "published") {
-    const notice = data as any;
-    publishAnnouncementPost(req.user.id, id, notice.title, notice.content, notice.priority).catch(err =>
-      console.error("[notices] Failed to publish announcement post:", err)
-    );
-  }
-
-  // Archive/unpublish → remove the announcement post
-  if (body.status === "archived" && current?.status === "published") {
-    removeAnnouncementPost(id).catch(err =>
-      console.error("[notices] Failed to remove announcement post:", err)
-    );
-  }
-
   res.json({ success: true, data });
 }
 
 export async function deleteNotice(req: AuthRequest, res: Response): Promise<void> {
   const { id } = req.params;
 
-  // Moderators can only delete their own notices; admins can delete any
   if (req.user.role === "moderator") {
-    const { data: existing } = await supabaseAdmin.from("notices").select("created_by, status").eq("id", id).single();
+    const { data: existing } = await supabaseAdmin.from("notices").select("created_by").eq("id", id).single();
     if (!existing || existing.created_by !== req.user.id) {
       res.status(403).json({ success: false, error: "You can only delete your own notices." }); return;
     }
   }
-
-  // Remove linked announcement post before deleting notice
-  removeAnnouncementPost(id).catch(err =>
-    console.error("[notices] Failed to remove announcement post on delete:", err)
-  );
 
   const { error } = await supabaseAdmin.from("notices").delete().eq("id", id);
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }

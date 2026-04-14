@@ -2,7 +2,7 @@ import { NavLink, useNavigate } from "react-router-dom";
 import { useUser } from "@/context/UserContext";
 import { Button } from "@/components/ui/button";
 import {
-  LayoutDashboard, Users, FileText, Flag, Bell, Activity, LogOut, ShieldCheck, MessageSquare,
+  LayoutDashboard, Users, FileText, Flag, Activity, LogOut, ShieldCheck, MessageSquare,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -11,7 +11,6 @@ const NAV = [
   { to: "/admin/users",       label: "Users",     icon: Users },
   { to: "/admin/posts",       label: "Posts",     icon: FileText },
   { to: "/admin/reports",     label: "Reports",   icon: Flag },
-  { to: "/admin/notices",     label: "Notices",   icon: Bell },
   { to: "/admin/activity",    label: "Activity",  icon: Activity },
   { to: "/admin/feedbacks",   label: "Feedbacks", icon: MessageSquare },
 ];

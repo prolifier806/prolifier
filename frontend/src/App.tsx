@@ -12,7 +12,6 @@ const AdminDashboard = lazyWithReload(() => import("./pages/admin/Dashboard"));
 const AdminUsers     = lazyWithReload(() => import("./pages/admin/Users"));
 const AdminPosts     = lazyWithReload(() => import("./pages/admin/Posts"));
 const AdminReports   = lazyWithReload(() => import("./pages/admin/Reports"));
-const AdminNotices   = lazyWithReload(() => import("./pages/admin/Notices"));
 const AdminActivity  = lazyWithReload(() => import("./pages/admin/Activity"));
 const AdminFeedbacks = lazyWithReload(() => import("./pages/admin/Feedbacks"));
 
@@ -166,7 +165,6 @@ function AppRoutes() {
         <Route path="/admin/users"    element={<AdminRoute><AdminUsers /></AdminRoute>} />
         <Route path="/admin/posts"    element={<AdminRoute><AdminPosts /></AdminRoute>} />
         <Route path="/admin/reports"  element={<AdminRoute><AdminReports /></AdminRoute>} />
-        <Route path="/admin/notices"    element={<AdminRoute><AdminNotices /></AdminRoute>} />
         <Route path="/admin/activity"   element={<AdminRoute><AdminActivity /></AdminRoute>} />
         <Route path="/admin/feedbacks"  element={<AdminRoute><AdminFeedbacks /></AdminRoute>} />
 

@@ -1272,19 +1272,10 @@ const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, highligh
     navigate(`/profile/${post.user_id}`);
   };
 
-  const isOfficial = post.author === "Prolifier Official";
-
   return (
     <>
       <div data-post-id={post.id}
-        className={`rounded-xl border bg-card hover:shadow-sm transition-shadow overflow-hidden${highlighted ? " ring-2 ring-primary" : ""}${isOfficial ? " border-primary/40 shadow-sm" : " border-border"}`}>
-        {isOfficial && (
-          <div className="flex items-center gap-2 px-5 py-2 bg-primary/10 border-b border-primary/20">
-            <span className="text-xs font-semibold text-primary flex items-center gap-1.5">
-              📢 Official Announcement
-            </span>
-          </div>
-        )}
+        className={`rounded-xl border border-border bg-card hover:shadow-sm transition-shadow overflow-hidden${highlighted ? " ring-2 ring-primary" : ""}`}>
         <div className="flex items-center gap-3 px-5 pt-5 pb-3">
           <div className={`shrink-0 ${!post.authorDeleted ? "cursor-pointer hover:opacity-80 transition-opacity" : ""}`} onClick={goToProfile}>
             <Avatar initials={post.authorDeleted ? "?" : post.avatar} color={post.authorDeleted ? "bg-muted" : post.avatarColor} url={post.authorDeleted ? undefined : post.avatarUrl}/>
@@ -1677,7 +1668,7 @@ export default function Feed() {
       authorSkills: p.profiles?.deleted_at ? [] : (p.profiles?.skills?.slice(0, 3) || p.authorSkills || []),
       authorDeleted: !!p.profiles?.deleted_at || !!p.authorDeleted,
       authorRole: p.profiles?.role || p.authorRole || "user",
-      tag: p.tag, time: timeAgo(p.created_at), createdAt: p.created_at, content: (p.content || "").replace(/\s*\[notice:[^\]]+\]/g, "").trim(),
+      tag: p.tag, time: timeAgo(p.created_at), createdAt: p.created_at, content: p.content,
       images: p.image_urls?.length > 0 ? p.image_urls : (p.image_url ? [p.image_url] : (p.images || [])),
       video: p.video_url || p.video || undefined,
       likes: p.likes || 0, commentCount: p.comment_count || p.commentCount || 0,
@@ -1782,7 +1773,7 @@ export default function Feed() {
         authorSkills: p.profiles?.deleted_at ? [] : (p.profiles?.skills?.slice(0, 3) || p.authorSkills || []),
         authorDeleted: !!p.profiles?.deleted_at || !!p.authorDeleted,
         authorRole: p.profiles?.role || p.authorRole || "user",
-        tag: p.tag, time: timeAgo(p.created_at), createdAt: p.created_at, content: (p.content || "").replace(/\s*\[notice:[^\]]+\]/g, "").trim(),
+        tag: p.tag, time: timeAgo(p.created_at), createdAt: p.created_at, content: p.content,
         images: p.image_urls?.length > 0 ? p.image_urls : (p.image_url ? [p.image_url] : (p.images || [])),
         video: p.video_url || p.video || undefined,
         likes: p.likes || 0, commentCount: p.comment_count || p.commentCount || 0,
