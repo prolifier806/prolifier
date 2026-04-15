@@ -340,6 +340,8 @@ export default function Groups() {
   const [connections, setConnections] = useState<{ id: string; name: string; color: string; avatarUrl?: string }[]>([]);
   const [connectionsLoading, setConnectionsLoading] = useState(false);
   const [addMemberSearch, setAddMemberSearch] = useState("");
+  // Settings panel modal: which section is open
+  const [settingsPanel, setSettingsPanel] = useState<null | "members" | "add" | "banned">(null);
 
   // Community image upload (settings)
   const [editImageUrl, setEditImageUrl] = useState<string | null>(null);
@@ -1555,7 +1557,7 @@ export default function Groups() {
                     </div>
                   )}
                 </div>
-                <div>
+                <div className="flex-1 min-w-0">
                   <p className="font-bold text-foreground">{activeGroup.name}</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
                     {activeGroup.visibility === "private" ? "🔒 Private" : "🌐 Public"} · {activeGroup.member_count} members
@@ -1564,6 +1566,15 @@ export default function Groups() {
                     <p className="text-xs text-muted-foreground mt-1">Tap the icon to change it</p>
                   )}
                 </div>
+                {isOwner && !editingGroup && (
+                  <button
+                    onClick={() => { setEditDesc(activeGroup.description); setEditBio(activeGroup.bio); setEditEmoji(activeGroup.emoji); setEditVisibility(activeGroup.visibility); setEditImageUrl(activeGroup.image_url ?? null); setEditImagePreview(activeGroup.image_url ?? null); setEditingGroup(true); }}
+                    className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors shrink-0"
+                    title="Edit community info"
+                  >
+                    <Edit3 className="h-4 w-4" />
+                  </button>
+                )}
               </div>
               {editingGroup ? (
                 <div className="space-y-3">
@@ -1612,184 +1623,68 @@ export default function Groups() {
                   <p className="text-sm text-foreground mb-3">{activeGroup.description}</p>
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Bio</p>
                   <p className="text-sm text-foreground mb-3">{activeGroup.bio}</p>
-                  {isOwner && (
-                    <Button size="sm" variant="outline" className="gap-1.5 text-xs h-8"
-                      onClick={() => { setEditDesc(activeGroup.description); setEditBio(activeGroup.bio); setEditEmoji(activeGroup.emoji); setEditVisibility(activeGroup.visibility); setEditImageUrl(activeGroup.image_url ?? null); setEditImagePreview(activeGroup.image_url ?? null); setEditingGroup(true); }}>
-                      <Edit3 className="h-3.5 w-3.5" /> Edit community info
-                    </Button>
-                  )}
                 </>
               )}
             </div>
 
-            {/* Members */}
-            <div className="rounded-xl border border-border bg-card overflow-hidden">
-              <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-                <p className="text-sm font-semibold">
-                  {loadingMembers ? "Loading…" : `Members (${activeGroup.member_count})`}
-                </p>
-                <button onClick={() => fetchMembers(activeGroup.id)}
-                  className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors">
-                  <RefreshCw className={`h-3 w-3 ${loadingMembers ? "animate-spin" : ""}`} /> Refresh
+            {/* Three icon buttons: Members | Add Members | Banned */}
+            <div className="rounded-xl border border-border bg-card p-4">
+              <div className="flex items-center justify-around">
+                {/* Members */}
+                <button
+                  onClick={() => { setSettingsPanel("members"); fetchMembers(activeGroup.id); }}
+                  className="flex flex-col items-center gap-1.5 group"
+                >
+                  <div className="h-12 w-12 rounded-2xl bg-primary/10 flex items-center justify-center group-hover:bg-primary/20 transition-colors">
+                    <Users className="h-5 w-5 text-primary" />
+                  </div>
+                  <span className="text-[11px] font-medium text-muted-foreground group-hover:text-foreground transition-colors">Members</span>
                 </button>
-              </div>
-              <div className="px-4 py-2 border-b border-border">
-                <div className="relative">
-                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                  <input value={memberSearch} onChange={e => setMemberSearch(e.target.value)}
-                    placeholder="Search members…" className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg bg-muted outline-none text-foreground placeholder:text-muted-foreground" />
-                </div>
-              </div>
-              {loadingMembers ? (
-                <div className="p-6 flex justify-center">
-                  <div className="h-5 w-5 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-                </div>
-              ) : (
-                <div className="divide-y divide-border">
-                  {members.filter(m => !memberSearch || m.name.toLowerCase().includes(memberSearch.toLowerCase())).map(m => {
-                    const isSelf = m.id === user.id;
-                    const targetIsAdmin = m.role === "admin" || m.role === "owner";
-                    // Resolve effective permissions for the current user
-                    const canRemove = isOwner || (isAdmin && !targetIsAdmin && (myPermissions?.removeUsers ?? true));
-                    const canBan    = isOwner || (isAdmin && !targetIsAdmin && (myPermissions?.banUsers ?? true));
-                    const canPromote = isAdmin && !isSelf && m.role === "member";
-                    const canRevoke  = isOwner && !isSelf && m.role === "admin";
-                    const canAct = !isSelf && (canRemove || canBan);
-                    return (
-                    <div key={m.id} className="flex items-center gap-3 px-4 py-3">
-                      <button onClick={() => navigate(`/profile/${m.id}`)}
-                        className={`h-9 w-9 rounded-full ${m.color} flex items-center justify-center text-white text-xs font-semibold shrink-0 hover:opacity-80 transition-opacity overflow-hidden`}>
-                        {m.avatarUrl
-                          ? <img src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover" />
-                          : initials(m.name)}
-                      </button>
-                      <div className="flex-1 min-w-0">
-                        <button onClick={() => navigate(`/profile/${m.id}`)}
-                          className="text-sm text-foreground hover:underline text-left truncate block w-full">
-                          {m.name}{isSelf ? " (You)" : ""}
-                        </button>
-                        {m.role === "admin" && m.permissions && (
-                          <p className="text-[10px] text-muted-foreground truncate">
-                            {[
-                              m.permissions.removeUsers && "Remove",
-                              m.permissions.changeChannelInfo && "Edit info",
-                              m.permissions.banUsers && "Ban",
-                              m.permissions.addSubscribers && "Add members",
-                              m.permissions.manageMessages && "Messages",
-                            ].filter(Boolean).join(" · ")}
-                          </p>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        {(m.role === "owner" || m.role === "admin") && <Crown className="h-3.5 w-3.5 text-amber-500" title={m.role === "owner" ? "Owner" : "Admin"} />}
-                        {canPromote && (
-                          <button onClick={() => toggleAdmin(m.id, m.name, m.role)} title="Appoint as admin"
-                            className="h-7 w-7 rounded-lg border border-border text-muted-foreground hover:bg-muted transition-colors flex items-center justify-center">
-                            <Crown className="h-3.5 w-3.5" />
-                          </button>
-                        )}
-                        {canRevoke && (
-                          <button onClick={() => toggleAdmin(m.id, m.name, m.role)} title="Revoke admin"
-                            className="text-xs px-2 py-0.5 rounded-md border border-amber-200 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950 transition-colors shrink-0">
-                            Revoke
-                          </button>
-                        )}
-                        {canAct && (
-                          <>
-                            {canRemove && (
-                              <button onClick={() => removeMember(m.id, m.name)} title="Remove"
-                                className="h-7 w-7 rounded-lg text-orange-500 border border-orange-200 hover:bg-orange-50 dark:hover:bg-orange-950 transition-colors flex items-center justify-center">
-                                <UserX className="h-3.5 w-3.5" />
-                              </button>
-                            )}
-                            {canBan && (
-                              <button onClick={() => banMember(m.id, m.name)} title="Ban"
-                                className="h-7 w-7 rounded-lg text-destructive border border-destructive/30 hover:bg-destructive/5 transition-colors flex items-center justify-center">
-                                <ShieldOff className="h-3.5 w-3.5" />
-                              </button>
-                            )}
-                          </>
-                        )}
-                      </div>
+
+                {/* Add Members — admin/owner only */}
+                {(isOwner || members.find(m => m.id === user.id)?.role === "admin") && (
+                  <button
+                    onClick={async () => { setSettingsPanel("add"); if (connections.length === 0) await fetchConnections(); }}
+                    className="flex flex-col items-center gap-1.5 group"
+                  >
+                    <div className="h-12 w-12 rounded-2xl bg-primary/10 flex items-center justify-center group-hover:bg-primary/20 transition-colors">
+                      <UserPlus className="h-5 w-5 text-primary" />
                     </div>
-                    );
-                  })}
-                </div>
-              )}
+                    <span className="text-[11px] font-medium text-muted-foreground group-hover:text-foreground transition-colors">Add</span>
+                  </button>
+                )}
+
+                {/* Banned Users — owner only */}
+                {isOwner && (
+                  <button
+                    onClick={async () => {
+                      setSettingsPanel("banned");
+                      if (bannedUsers.length === 0) {
+                        setBannedLoading(true);
+                        try { setBannedUsers(await apiGetBannedUsers(activeGroup.id)); }
+                        catch { toast({ title: "Failed to load banned users", variant: "destructive" }); }
+                        finally { setBannedLoading(false); }
+                      }
+                    }}
+                    className="flex flex-col items-center gap-1.5 group"
+                  >
+                    <div className="h-12 w-12 rounded-2xl bg-destructive/10 flex items-center justify-center group-hover:bg-destructive/20 transition-colors">
+                      <ShieldOff className="h-5 w-5 text-destructive" />
+                    </div>
+                    <span className="text-[11px] font-medium text-muted-foreground group-hover:text-foreground transition-colors">Banned</span>
+                  </button>
+                )}
+              </div>
             </div>
 
+            {/* Share invite link */}
             {(isOwner || members.find(m => m.id === user.id)?.role === "admin") && (
               <Button variant="outline" className="w-full gap-2" onClick={() => setShowShare(true)}>
                 <Link2 className="h-4 w-4" /> Share invite link
               </Button>
             )}
 
-            {/* Add Members — admin/owner can add connections */}
-            {(isOwner || members.find(m => m.id === user.id)?.role === "admin") && (
-              <div className="rounded-xl border border-border bg-card overflow-hidden">
-                <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-                  <p className="text-sm font-semibold flex items-center gap-2">
-                    <UserPlus className="h-4 w-4 text-primary" /> Add Members
-                  </p>
-                  <button
-                    onClick={async () => {
-                      const next = !showAddMembers;
-                      setShowAddMembers(next);
-                      if (next && connections.length === 0) await fetchConnections();
-                    }}
-                    className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    {showAddMembers ? "Hide" : "Show"}
-                  </button>
-                </div>
-                {showAddMembers && (
-                  connectionsLoading ? (
-                    <div className="p-4 flex justify-center">
-                      <div className="h-4 w-4 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-                    </div>
-                  ) : connections.length === 0 ? (
-                    <p className="px-4 py-3 text-xs text-muted-foreground">No connections to add.</p>
-                  ) : (
-                    <div>
-                      <div className="px-3 pt-2 pb-1">
-                        <input value={addMemberSearch} onChange={e => setAddMemberSearch(e.target.value)}
-                          placeholder="Search connections…" className="w-full px-3 py-1.5 text-xs rounded-lg bg-muted outline-none" />
-                      </div>
-                      <div className="divide-y divide-border max-h-52 overflow-y-auto">
-                        {connections.filter(c => !members.find(m => m.id === c.id) && (!addMemberSearch || c.name.toLowerCase().includes(addMemberSearch.toLowerCase()))).map(c => (
-                          <div key={c.id} className="flex items-center gap-3 px-4 py-2.5">
-                            <div className={`h-8 w-8 rounded-full ${c.color} flex items-center justify-center text-white text-xs font-semibold shrink-0 overflow-hidden`}>
-                              {c.avatarUrl ? <img src={c.avatarUrl} alt={c.name} className="w-full h-full object-cover" /> : initials(c.name)}
-                            </div>
-                            <span className="text-sm text-foreground flex-1 min-w-0 truncate">{c.name}</span>
-                            <button
-                              onClick={async () => {
-                                if (!activeGroup) return;
-                                try {
-                                  await apiAddMember(activeGroup.id, c.id);
-                                  fetchMembers(activeGroup.id);
-                                  toast({ title: `${c.name} added` });
-                                } catch (err: any) {
-                                  toast({ title: err.message || "Failed to add", variant: "destructive" });
-                                }
-                              }}
-                              className="text-xs px-2.5 py-1 rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity shrink-0"
-                            >
-                              Add
-                            </button>
-                          </div>
-                        ))}
-                        {connections.filter(c => !members.find(m => m.id === c.id)).length === 0 && (
-                          <p className="px-4 py-3 text-xs text-muted-foreground">All your connections are already members.</p>
-                        )}
-                      </div>
-                    </div>
-                  )
-                )}
-              </div>
-            )}
-
-            {/* Join requests — owner/admin can approve/reject */}
+            {/* Join requests — owner/admin, private only */}
             {activeGroup.visibility === "private" && (isOwner || members.find(m => m.id === user.id)?.role === "admin") && (
               <div className="rounded-xl border border-border bg-card overflow-hidden">
                 <div className="px-4 py-3 border-b border-border flex items-center justify-between">
@@ -1860,65 +1755,186 @@ export default function Groups() {
               </div>
             )}
 
-            {/* Banned users — visible only to owner */}
-            {isOwner && (
-              <div className="rounded-xl border border-border bg-card overflow-hidden">
-                <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-                  <p className="text-sm font-semibold flex items-center gap-2">
-                    <ShieldOff className="h-4 w-4 text-destructive" /> Banned Users
-                  </p>
-                  <button
-                    onClick={async () => {
-                      const next = !showBanned;
-                      setShowBanned(next);
-                      if (next && bannedUsers.length === 0) {
-                        setBannedLoading(true);
-                        try { setBannedUsers(await apiGetBannedUsers(activeGroup.id)); }
-                        catch { toast({ title: "Failed to load banned users", variant: "destructive" }); }
-                        finally { setBannedLoading(false); }
-                      }
-                    }}
-                    className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    {showBanned ? "Hide" : "Show"}
-                  </button>
-                </div>
-                {showBanned && (
-                  bannedLoading ? (
-                    <div className="p-4 flex justify-center">
-                      <div className="h-4 w-4 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-                    </div>
-                  ) : bannedUsers.length === 0 ? (
-                    <p className="px-4 py-3 text-xs text-muted-foreground">No banned users.</p>
-                  ) : (
-                    <div className="divide-y divide-border">
-                      {bannedUsers.map(b => (
-                        <div key={b.user_id} className="flex items-center gap-3 px-4 py-3">
-                          <div className={`h-8 w-8 rounded-full ${b.profiles?.color || "bg-muted"} flex items-center justify-center text-white text-xs font-semibold shrink-0`}>
-                            {initials(b.profiles?.name || "?")}
-                          </div>
-                          <span className="text-sm text-foreground flex-1 min-w-0 truncate">
-                            {b.profiles?.name || "Unknown"}
-                          </span>
-                          <button
-                            onClick={async () => {
-                              try {
-                                await apiUnbanUser(activeGroup.id, b.user_id);
-                                setBannedUsers(prev => prev.filter(x => x.user_id !== b.user_id));
-                                toast({ title: `${b.profiles?.name || "User"} unbanned` });
-                              } catch {
-                                toast({ title: "Unban failed", variant: "destructive" });
-                              }
-                            }}
-                            className="text-xs px-2.5 py-1 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
-                          >
-                            Unban
-                          </button>
+            {/* Settings panel modals */}
+            {settingsPanel && (
+              <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 px-4 pb-4 sm:pb-0" onClick={e => { if (e.target === e.currentTarget) setSettingsPanel(null); }}>
+                <div className="w-full max-w-md bg-card rounded-2xl border border-border shadow-xl overflow-hidden max-h-[80vh] flex flex-col">
+                  <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
+                    <p className="font-semibold text-base">
+                      {settingsPanel === "members" && `Members (${activeGroup.member_count})`}
+                      {settingsPanel === "add" && "Add Members"}
+                      {settingsPanel === "banned" && "Banned Users"}
+                    </p>
+                    <button onClick={() => setSettingsPanel(null)} className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors">
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+
+                  {/* Members panel */}
+                  {settingsPanel === "members" && (
+                    <div className="flex flex-col overflow-hidden">
+                      <div className="px-4 py-2 border-b border-border shrink-0">
+                        <div className="relative">
+                          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                          <input value={memberSearch} onChange={e => setMemberSearch(e.target.value)}
+                            placeholder="Search members…" className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg bg-muted outline-none text-foreground placeholder:text-muted-foreground" />
                         </div>
-                      ))}
+                      </div>
+                      {loadingMembers ? (
+                        <div className="p-6 flex justify-center">
+                          <div className="h-5 w-5 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+                        </div>
+                      ) : (
+                        <div className="overflow-y-auto divide-y divide-border">
+                          {members.filter(m => !memberSearch || m.name.toLowerCase().includes(memberSearch.toLowerCase())).map(m => {
+                            const isSelf = m.id === user.id;
+                            const targetIsAdmin = m.role === "admin" || m.role === "owner";
+                            const canRemove = isOwner || (isAdmin && !targetIsAdmin && (myPermissions?.removeUsers ?? true));
+                            const canBan    = isOwner || (isAdmin && !targetIsAdmin && (myPermissions?.banUsers ?? true));
+                            const canPromote = isAdmin && !isSelf && m.role === "member";
+                            const canRevoke  = isOwner && !isSelf && m.role === "admin";
+                            const canAct = !isSelf && (canRemove || canBan);
+                            return (
+                              <div key={m.id} className="flex items-center gap-3 px-4 py-3">
+                                <button onClick={() => navigate(`/profile/${m.id}`)}
+                                  className={`h-9 w-9 rounded-full ${m.color} flex items-center justify-center text-white text-xs font-semibold shrink-0 hover:opacity-80 transition-opacity overflow-hidden`}>
+                                  {m.avatarUrl ? <img src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover" /> : initials(m.name)}
+                                </button>
+                                <div className="flex-1 min-w-0">
+                                  <button onClick={() => navigate(`/profile/${m.id}`)}
+                                    className="text-sm text-foreground hover:underline text-left truncate block w-full">
+                                    {m.name}{isSelf ? " (You)" : ""}
+                                  </button>
+                                  {m.role === "admin" && m.permissions && (
+                                    <p className="text-[10px] text-muted-foreground truncate">
+                                      {[
+                                        m.permissions.removeUsers && "Remove",
+                                        m.permissions.changeChannelInfo && "Edit info",
+                                        m.permissions.banUsers && "Ban",
+                                        m.permissions.addSubscribers && "Add members",
+                                        m.permissions.manageMessages && "Messages",
+                                      ].filter(Boolean).join(" · ")}
+                                    </p>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  {(m.role === "owner" || m.role === "admin") && <Crown className="h-3.5 w-3.5 text-amber-500" title={m.role === "owner" ? "Owner" : "Admin"} />}
+                                  {canPromote && (
+                                    <button onClick={() => toggleAdmin(m.id, m.name, m.role)} title="Appoint as admin"
+                                      className="h-7 w-7 rounded-lg border border-border text-muted-foreground hover:bg-muted transition-colors flex items-center justify-center">
+                                      <Crown className="h-3.5 w-3.5" />
+                                    </button>
+                                  )}
+                                  {canRevoke && (
+                                    <button onClick={() => toggleAdmin(m.id, m.name, m.role)} title="Revoke admin"
+                                      className="text-xs px-2 py-0.5 rounded-md border border-amber-200 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950 transition-colors shrink-0">
+                                      Revoke
+                                    </button>
+                                  )}
+                                  {canAct && (
+                                    <>
+                                      {canRemove && (
+                                        <button onClick={() => removeMember(m.id, m.name)} title="Remove"
+                                          className="h-7 w-7 rounded-lg text-orange-500 border border-orange-200 hover:bg-orange-50 dark:hover:bg-orange-950 transition-colors flex items-center justify-center">
+                                          <UserX className="h-3.5 w-3.5" />
+                                        </button>
+                                      )}
+                                      {canBan && (
+                                        <button onClick={() => banMember(m.id, m.name)} title="Ban"
+                                          className="h-7 w-7 rounded-lg text-destructive border border-destructive/30 hover:bg-destructive/5 transition-colors flex items-center justify-center">
+                                          <ShieldOff className="h-3.5 w-3.5" />
+                                        </button>
+                                      )}
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
-                  )
-                )}
+                  )}
+
+                  {/* Add Members panel */}
+                  {settingsPanel === "add" && (
+                    connectionsLoading ? (
+                      <div className="p-6 flex justify-center">
+                        <div className="h-5 w-5 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+                      </div>
+                    ) : (
+                      <div className="flex flex-col overflow-hidden">
+                        <div className="px-3 pt-3 pb-2 shrink-0">
+                          <input value={addMemberSearch} onChange={e => setAddMemberSearch(e.target.value)}
+                            placeholder="Search connections…" className="w-full px-3 py-1.5 text-xs rounded-lg bg-muted outline-none" />
+                        </div>
+                        <div className="overflow-y-auto divide-y divide-border">
+                          {connections.filter(c => !members.find(m => m.id === c.id) && (!addMemberSearch || c.name.toLowerCase().includes(addMemberSearch.toLowerCase()))).map(c => (
+                            <div key={c.id} className="flex items-center gap-3 px-4 py-2.5">
+                              <div className={`h-8 w-8 rounded-full ${c.color} flex items-center justify-center text-white text-xs font-semibold shrink-0 overflow-hidden`}>
+                                {c.avatarUrl ? <img src={c.avatarUrl} alt={c.name} className="w-full h-full object-cover" /> : initials(c.name)}
+                              </div>
+                              <span className="text-sm text-foreground flex-1 min-w-0 truncate">{c.name}</span>
+                              <button
+                                onClick={async () => {
+                                  if (!activeGroup) return;
+                                  try {
+                                    await apiAddMember(activeGroup.id, c.id);
+                                    fetchMembers(activeGroup.id);
+                                    toast({ title: `${c.name} added` });
+                                  } catch (err: any) {
+                                    toast({ title: err.message || "Failed to add", variant: "destructive" });
+                                  }
+                                }}
+                                className="text-xs px-2.5 py-1 rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity shrink-0"
+                              >Add</button>
+                            </div>
+                          ))}
+                          {connections.filter(c => !members.find(m => m.id === c.id)).length === 0 && (
+                            <p className="px-4 py-3 text-xs text-muted-foreground">All your connections are already members.</p>
+                          )}
+                          {connections.length === 0 && (
+                            <p className="px-4 py-3 text-xs text-muted-foreground">No connections to add.</p>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  )}
+
+                  {/* Banned Users panel */}
+                  {settingsPanel === "banned" && (
+                    bannedLoading ? (
+                      <div className="p-6 flex justify-center">
+                        <div className="h-5 w-5 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+                      </div>
+                    ) : bannedUsers.length === 0 ? (
+                      <p className="px-4 py-4 text-sm text-muted-foreground text-center">No banned users.</p>
+                    ) : (
+                      <div className="overflow-y-auto divide-y divide-border">
+                        {bannedUsers.map(b => (
+                          <div key={b.user_id} className="flex items-center gap-3 px-4 py-3">
+                            <div className={`h-8 w-8 rounded-full ${b.profiles?.color || "bg-muted"} flex items-center justify-center text-white text-xs font-semibold shrink-0`}>
+                              {initials(b.profiles?.name || "?")}
+                            </div>
+                            <span className="text-sm text-foreground flex-1 min-w-0 truncate">{b.profiles?.name || "Unknown"}</span>
+                            <button
+                              onClick={async () => {
+                                try {
+                                  await apiUnbanUser(activeGroup.id, b.user_id);
+                                  setBannedUsers(prev => prev.filter(x => x.user_id !== b.user_id));
+                                  toast({ title: `${b.profiles?.name || "User"} unbanned` });
+                                } catch {
+                                  toast({ title: "Unban failed", variant: "destructive" });
+                                }
+                              }}
+                              className="text-xs px-2.5 py-1 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
+                            >Unban</button>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  )}
+                </div>
               </div>
             )}
 
