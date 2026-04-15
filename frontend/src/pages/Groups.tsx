@@ -829,6 +829,7 @@ export default function Groups() {
     setChatInput("");
     setView("group");
     setMembers([]);
+    setSettingsPanel(null);
     setMentionMsgIds([]);
     mentionJumpIdx.current = 0;
     // Mark this group as read — reset unread counter + persist timestamp

@@ -397,7 +397,7 @@ export default function Messages() {
           ? (supabase as any).from("profiles").select("id, name, avatar_url, color, role, last_active").in("id", convList.map(c => c.id))
           : Promise.resolve({ data: [] }),
         needWithProfile
-          ? (supabase as any).from("profiles").select("name, avatar_url, color").eq("id", withId).single()
+          ? (supabase as any).from("profiles").select("name, avatar_url, color, last_active").eq("id", withId).single()
           : Promise.resolve({ data: null }),
       ]);
 
@@ -456,6 +456,7 @@ export default function Messages() {
             id: withId, name, avatar: name.split(" ").map((w: string) => w[0]).slice(0,2).join("").toUpperCase(),
             avatarUrl: p.avatar_url || undefined,
             color: p.color || "bg-primary", lastMsg: "Start a conversation…", lastTime: "now", unread: 0,
+            lastActive: p.last_active || undefined,
           });
           setConversations([...convList]);
         }
