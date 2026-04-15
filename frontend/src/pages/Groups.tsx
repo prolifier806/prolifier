@@ -2004,12 +2004,6 @@ export default function Groups() {
               </p>
             </div>
             <div className="flex items-center gap-1">
-              {isAdmin && (
-                <button onClick={() => setShowShare(true)}
-                  className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-primary transition-colors">
-                  <Link2 className="h-4 w-4" />
-                </button>
-              )}
               <button onClick={openSettings}
                 className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors">
                 <Settings className="h-4 w-4" />
