@@ -433,7 +433,16 @@ export function UserProvider({ children }: { children: ReactNode }) {
     let next: CurrentUser | undefined;
     setUser(prev => {
       const nameChanged = patch.name !== undefined && patch.name !== prev.name;
-      next = { ...prev, ...patch, updatedAt: now, ...(nameChanged ? { nameChangedAt: now } : {}) };
+      const newInitials = nameChanged && patch.name
+        ? patch.name.trim().split(/\s+/).filter(Boolean).map(w => w[0]).join("").slice(0, 2).toUpperCase()
+        : undefined;
+      next = {
+        ...prev,
+        ...patch,
+        ...(newInitials ? { avatar: newInitials } : {}),
+        updatedAt: now,
+        ...(nameChanged ? { nameChangedAt: now } : {}),
+      };
       writeCache(next);
       return next;
     });
