@@ -246,6 +246,12 @@ export function UserProvider({ children }: { children: ReactNode }) {
         return next;
       });
 
+      // Touch last_active on every session load (fire-and-forget)
+      (supabase.from("profiles") as any)
+        .update({ last_active: new Date().toISOString() })
+        .eq("id", userId)
+        .then(() => {});
+
       // One-time backfill: startup_stage was previously never saved to the DB.
       // If the local cache has a value but the DB row doesn't, silently persist it now
       // so other users can see it on the public profile.

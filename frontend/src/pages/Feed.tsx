@@ -1370,10 +1370,23 @@ const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, highligh
   );
 });
 
+// ── Match label helper ─────────────────────────────────────────────────────
+function getCollabMatch(collab: Collab, userSkills: string[]): "strong" | "good" | "low" {
+  if (userSkills.length === 0) return "low";
+  const usl = userSkills.map(s => s.toLowerCase());
+  const roleWords = collab.looking.toLowerCase().split(/[\s,/-]+/).filter(w => w.length > 3);
+  const roleMatch = roleWords.some(w => usl.some(s => s.includes(w) || w.includes(s)));
+  const tagMatch = collab.skills.some(s => usl.some(us => us.includes(s.toLowerCase()) || s.toLowerCase().includes(us)));
+  if (roleMatch && tagMatch) return "strong";
+  if (roleMatch || tagMatch) return "good";
+  return "low";
+}
+
 // ── Collab Card ────────────────────────────────────────────────────────────
 // OPT: same memo treatment as PostCard
-const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollabs, highlighted, onInterest, onMessage, onSave, onDelete, onEdit, onHide, onReport, onShare }: {
+const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollabs, highlighted, matchLabel, onInterest, onMessage, onSave, onDelete, onEdit, onHide, onReport, onShare }: {
   collab: Collab; interestedSet: Set<string>; savedCollabs: Set<string>; highlighted?: boolean;
+  matchLabel?: "strong" | "good" | "low";
   onInterest:(id:string,name:string)=>void; onMessage:(name:string)=>void; onSave:(id:string)=>void;
   onDelete:(id:string)=>void; onEdit:(c:Collab)=>void; onHide:(id:string)=>void;
   onReport:(id:string)=>void; onShare:(id:string)=>void;
@@ -1416,6 +1429,14 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
             )}
             {!collab.authorDeleted && <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5"><MapPin className="h-3 w-3 shrink-0"/> {collab.location}</p>}
           </div>
+          <div className="flex items-start gap-1 shrink-0">
+            {matchLabel && !collab.isOwn && (
+              matchLabel === "strong"
+                ? <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400 whitespace-nowrap">🔥 Strong Match</span>
+                : matchLabel === "good"
+                  ? <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-400 whitespace-nowrap">👍 Good Match</span>
+                  : <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground whitespace-nowrap">⚠️ Low Match</span>
+            )}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors">
@@ -1444,6 +1465,7 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
               )}
             </DropdownMenuContent>
           </DropdownMenu>
+          </div>
         </div>
         <div className="px-5 pb-4 space-y-2">
           <div className="flex items-start justify-between gap-2">
@@ -1497,6 +1519,7 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
 }, (prev, next) => {
   return (
     prev.collab === next.collab &&
+    prev.matchLabel === next.matchLabel &&
     prev.interestedSet.has(prev.collab.id) === next.interestedSet.has(next.collab.id) &&
     prev.savedCollabs.has(prev.collab.id) === next.savedCollabs.has(next.collab.id)
   );
@@ -1544,6 +1567,9 @@ export default function Feed() {
   const [postSearch, setPostSearch] = useState("");
   const [activeFilter, setActiveFilter] = useState("All");
   const [activePostTag, setActivePostTag] = useState("All");
+  const [collabSort, setCollabSort] = useState<"relevant" | "newest">("relevant");
+  const [postSort, setPostSort] = useState<"relevant" | "newest">("relevant");
+  const [connectedUserIds, setConnectedUserIds] = useState<Set<string>>(new Set());
 
   const [highlightedPostId, setHighlightedPostId] = useState<string|null>(null);
   const [highlightedCollabId, setHighlightedCollabId] = useState<string|null>(null);
@@ -1744,6 +1770,14 @@ export default function Feed() {
   useEffect(() => {
     fetchFeed();
   }, [fetchFeed]);
+
+  // Fetch connected user IDs for relevance sorting
+  useEffect(() => {
+    if (!user.id) return;
+    apiGet<any[]>("/api/connections")
+      .then(data => setConnectedUserIds(new Set((data || []).map((c: any) => c.id))))
+      .catch(() => {});
+  }, [user.id]);
 
   // Re-fetch when user returns to the tab — catches posts missed while away
   useEffect(() => {
@@ -2340,24 +2374,57 @@ export default function Feed() {
       ? `${window.location.origin}/feed?post=${shareTarget.id}`
       : `${window.location.origin}/feed?tab=collabs`
     : "";
-  const filteredPosts = useMemo(() => posts.filter(p => {
-    if (blockedUserIds.has(p.user_id)) return false;
-    const matchTag = activePostTag === "All" || p.tag === activePostTag;
-    const q = postSearch.toLowerCase().trim();
-    const matchSearch = !q || p.author.toLowerCase().includes(q) || p.content.toLowerCase().includes(q) || p.tag.toLowerCase().includes(q);
-    return matchTag && matchSearch;
-  }), [posts, activePostTag, postSearch, blockedUserIds]);
-  const filteredCollabs = useMemo(() => collabs.filter(c => {
-    if (blockedUserIds.has(c.user_id)) return false;
-    const q = search.toLowerCase();
-    const ms = !search || c.author.toLowerCase().includes(q) || c.title.toLowerCase().includes(q) || c.looking.toLowerCase().includes(q) || c.description.toLowerCase().includes(q) || c.skills.some(s => s.toLowerCase().includes(q));
-    const mf = activeFilter === "All"
-      ? true
-      : activeFilter === "Other"
-        ? c.skills.some(s => !(SKILL_OPTIONS as readonly string[]).includes(s))
-        : c.skills.some(s => s.toLowerCase().includes(activeFilter.toLowerCase())) || c.looking.toLowerCase().includes(activeFilter.toLowerCase());
-    return ms && mf;
-  }), [collabs, search, activeFilter, blockedUserIds]);
+  const filteredPosts = useMemo(() => {
+    const base = posts.filter(p => {
+      if (blockedUserIds.has(p.user_id)) return false;
+      const matchTag = activePostTag === "All" || p.tag === activePostTag;
+      const q = postSearch.toLowerCase().trim();
+      const matchSearch = !q || p.author.toLowerCase().includes(q) || p.content.toLowerCase().includes(q) || p.tag.toLowerCase().includes(q);
+      return matchTag && matchSearch;
+    });
+    if (postSort === "newest") {
+      return [...base].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    }
+    // Relevant: connections first, then freshness + mild engagement boost
+    return [...base].sort((a, b) => {
+      const now = Date.now();
+      const scorePost = (p: typeof base[0]) => {
+        const ageMs = now - new Date(p.createdAt).getTime();
+        const ageDays = ageMs / (1000 * 60 * 60 * 24);
+        const freshness = Math.max(0, 100 - ageDays * 14);
+        const connBoost = connectedUserIds.has(p.user_id) ? 200 : 0;
+        const engagement = Math.min(p.likes + p.commentCount, 20) * 2;
+        return connBoost + freshness + engagement;
+      };
+      return scorePost(b) - scorePost(a);
+    });
+  }, [posts, activePostTag, postSearch, blockedUserIds, postSort, connectedUserIds]);
+
+  const filteredCollabs = useMemo(() => {
+    const base = collabs.filter(c => {
+      if (blockedUserIds.has(c.user_id)) return false;
+      const q = search.toLowerCase();
+      const ms = !search || c.author.toLowerCase().includes(q) || c.title.toLowerCase().includes(q) || c.looking.toLowerCase().includes(q) || c.description.toLowerCase().includes(q) || c.skills.some(s => s.toLowerCase().includes(q));
+      const mf = activeFilter === "All"
+        ? true
+        : activeFilter === "Other"
+          ? c.skills.some(s => !(SKILL_OPTIONS as readonly string[]).includes(s))
+          : c.skills.some(s => s.toLowerCase().includes(activeFilter.toLowerCase())) || c.looking.toLowerCase().includes(activeFilter.toLowerCase());
+      return ms && mf;
+    });
+    if (collabSort === "newest") {
+      return [...base].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    }
+    // Relevant: Strong match first, then Good, then Low, newest-first within each group
+    const matchRank = { strong: 0, good: 1, low: 2 };
+    const userSkills = user.skills || [];
+    return [...base].sort((a, b) => {
+      const ma = getCollabMatch(a, userSkills);
+      const mb = getCollabMatch(b, userSkills);
+      if (matchRank[ma] !== matchRank[mb]) return matchRank[ma] - matchRank[mb];
+      return b.createdAt.localeCompare(a.createdAt);
+    });
+  }, [collabs, search, activeFilter, blockedUserIds, collabSort, user.skills]);
 
   return (
     <Layout>
@@ -2454,6 +2521,18 @@ export default function Feed() {
                   ))}
                 </DropdownMenuContent>
               </DropdownMenu>
+            </div>
+
+            {/* Post sort toggle */}
+            <div className="flex gap-1 p-0.5 rounded-lg bg-muted w-fit">
+              <button
+                onClick={() => setPostSort("relevant")}
+                className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${postSort === "relevant" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+              >Relevant</button>
+              <button
+                onClick={() => setPostSort("newest")}
+                className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${postSort === "newest" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+              >Newest</button>
             </div>
 
             {loading ? <FeedSkeleton /> : filteredPosts.length === 0 ? (
@@ -2610,7 +2689,19 @@ export default function Feed() {
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
-            <p className="text-xs text-muted-foreground">{filteredCollabs.length} collab{filteredCollabs.length!==1?"s":""}</p>
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-muted-foreground">{filteredCollabs.length} collab{filteredCollabs.length!==1?"s":""}</p>
+              <div className="flex gap-1 p-0.5 rounded-lg bg-muted">
+                <button
+                  onClick={() => setCollabSort("relevant")}
+                  className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${collabSort === "relevant" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                >Relevant</button>
+                <button
+                  onClick={() => setCollabSort("newest")}
+                  className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${collabSort === "newest" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                >Newest</button>
+              </div>
+            </div>
             {filteredCollabs.length === 0 ? (
               <div className="text-center py-14 text-muted-foreground">
                 <p className="text-sm font-medium mb-1">No collaborations found</p>
@@ -2621,6 +2712,7 @@ export default function Feed() {
                 {filteredCollabs.map(c => (
                   <CollabCard key={c.id} collab={c} interestedSet={interestedCollabs} savedCollabs={savedCollabs}
                     highlighted={highlightedCollabId === c.id}
+                    matchLabel={collabSort === "relevant" ? getCollabMatch(c, user.skills || []) : undefined}
                     onInterest={handleInterest} onMessage={() => navigate("/messages")}
                     onSave={handleSaveCollab} onDelete={handleDeleteCollab} onEdit={setEditingCollab}
                     onHide={handleHideCollab}

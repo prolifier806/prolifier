@@ -25,6 +25,7 @@ type Conversation = {
   lastTime: string;
   unread: number;
   role?: string;
+  lastActive?: string;
 };
 
 type Message = {
@@ -393,7 +394,7 @@ export default function Messages() {
 
       const [profilesRes, withProfileRes] = await Promise.all([
         convList.length > 0
-          ? (supabase as any).from("profiles").select("id, name, avatar_url, color, role").in("id", convList.map(c => c.id))
+          ? (supabase as any).from("profiles").select("id, name, avatar_url, color, role, last_active").in("id", convList.map(c => c.id))
           : Promise.resolve({ data: [] }),
         needWithProfile
           ? (supabase as any).from("profiles").select("name, avatar_url, color").eq("id", withId).single()
@@ -404,7 +405,7 @@ export default function Messages() {
       (profilesRes.data || []).forEach((p: any) => { profileMap[p.id] = p; });
       convList.forEach(c => {
         const p = profileMap[c.id];
-        if (p) { c.name = p.name; c.avatar = initials(p.name); c.avatarUrl = p.avatar_url || undefined; c.color = p.color || "bg-primary"; c.role = p.role || "user"; }
+        if (p) { c.name = p.name; c.avatar = initials(p.name); c.avatarUrl = p.avatar_url || undefined; c.color = p.color || "bg-primary"; c.role = p.role || "user"; c.lastActive = p.last_active || undefined; }
       });
 
       // Fetch block state to anonymize blocked conversations
@@ -1097,7 +1098,15 @@ export default function Messages() {
                         </span>
                       )}
                     </p>
-                    {!theyBlockedMe && <p className="text-xs text-muted-foreground">Tap to view profile</p>}
+                    {!theyBlockedMe && (() => {
+                      const la = selectedConvo.lastActive;
+                      if (!la) return null;
+                      const diffMs = Date.now() - new Date(la).getTime();
+                      const diffDays = diffMs / (1000 * 60 * 60 * 24);
+                      if (diffDays < 1) return <p className="text-xs text-emerald-500">Active today</p>;
+                      if (diffDays < 7) return <p className="text-xs text-muted-foreground">Active this week</p>;
+                      return null;
+                    })()}
                   </div>
                 </button>
                 {/* Mute and Report buttons — hidden when anonymized */}
