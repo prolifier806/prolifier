@@ -13,7 +13,8 @@ export async function getConnections(req: AuthRequest, res: Response): Promise<v
   const { data, error } = await supabaseAdmin
     .from("connections")
     .select("requester_id, receiver_id, status, created_at")
-    .or(`requester_id.eq.${userId},receiver_id.eq.${userId}`);
+    .or(`requester_id.eq.${userId},receiver_id.eq.${userId}`)
+    .eq("status", "accepted");
 
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
   res.json({ success: true, data });

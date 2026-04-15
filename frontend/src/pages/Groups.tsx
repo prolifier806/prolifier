@@ -341,7 +341,7 @@ export default function Groups() {
   const [connectionsLoading, setConnectionsLoading] = useState(false);
   const [addMemberSearch, setAddMemberSearch] = useState("");
   // Settings panel modal: which section is open
-  const [settingsPanel, setSettingsPanel] = useState<null | "members" | "add" | "banned">(null);
+  const [settingsPanel, setSettingsPanel] = useState<null | "members" | "add" | "banned" | "requests">(null);
 
   // Community image upload (settings)
   const [editImageUrl, setEditImageUrl] = useState<string | null>(null);
@@ -1674,6 +1674,30 @@ export default function Groups() {
                     <span className="text-[11px] font-medium text-muted-foreground group-hover:text-foreground transition-colors">Banned</span>
                   </button>
                 )}
+
+                {/* Join Requests — private + admin/owner only */}
+                {activeGroup.visibility === "private" && (isOwner || members.find(m => m.id === user.id)?.role === "admin") && (
+                  <button
+                    onClick={async () => {
+                      setSettingsPanel("requests");
+                      setJoinRequestsLoading(true);
+                      try { setJoinRequests(await apiGetJoinRequests(activeGroup.id)); }
+                      catch { toast({ title: "Failed to load requests", variant: "destructive" }); }
+                      finally { setJoinRequestsLoading(false); }
+                    }}
+                    className="flex flex-col items-center gap-1.5 group"
+                  >
+                    <div className="h-12 w-12 rounded-2xl bg-amber-500/10 flex items-center justify-center group-hover:bg-amber-500/20 transition-colors relative">
+                      <Bell className="h-5 w-5 text-amber-500" />
+                      {joinRequests.length > 0 && (
+                        <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-amber-500 text-white text-[9px] font-bold flex items-center justify-center">
+                          {joinRequests.length > 9 ? "9+" : joinRequests.length}
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-[11px] font-medium text-muted-foreground group-hover:text-foreground transition-colors">Requests</span>
+                  </button>
+                )}
               </div>
             </div>
 
@@ -1682,77 +1706,6 @@ export default function Groups() {
               <Button variant="outline" className="w-full gap-2" onClick={() => setShowShare(true)}>
                 <Link2 className="h-4 w-4" /> Share invite link
               </Button>
-            )}
-
-            {/* Join requests — owner/admin, private only */}
-            {activeGroup.visibility === "private" && (isOwner || members.find(m => m.id === user.id)?.role === "admin") && (
-              <div className="rounded-xl border border-border bg-card overflow-hidden">
-                <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-                  <p className="text-sm font-semibold flex items-center gap-2">
-                    <Bell className="h-4 w-4 text-amber-500" /> Join Requests
-                  </p>
-                  <button
-                    onClick={async () => {
-                      const next = !showJoinRequests;
-                      setShowJoinRequests(next);
-                      if (next) {
-                        setJoinRequestsLoading(true);
-                        try { setJoinRequests(await apiGetJoinRequests(activeGroup.id)); }
-                        catch { toast({ title: "Failed to load requests", variant: "destructive" }); }
-                        finally { setJoinRequestsLoading(false); }
-                      }
-                    }}
-                    className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    {showJoinRequests ? "Hide" : "Show"}
-                  </button>
-                </div>
-                {showJoinRequests && (
-                  joinRequestsLoading ? (
-                    <div className="p-4 flex justify-center">
-                      <div className="h-4 w-4 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-                    </div>
-                  ) : joinRequests.length === 0 ? (
-                    <p className="px-4 py-3 text-xs text-muted-foreground">No pending requests.</p>
-                  ) : (
-                    <div className="divide-y divide-border">
-                      {joinRequests.map(r => (
-                        <div key={r.id} className="flex items-center gap-3 px-4 py-3">
-                          <div className={`h-8 w-8 rounded-full ${r.profile?.color || "bg-muted"} flex items-center justify-center text-white text-xs font-semibold shrink-0 overflow-hidden`}>
-                            {r.profile?.avatar_url
-                              ? <img src={r.profile.avatar_url} alt={r.profile?.name} className="w-full h-full object-cover" />
-                              : initials(r.profile?.name || "?")}
-                          </div>
-                          <span className="text-sm text-foreground flex-1 min-w-0 truncate">{r.profile?.name || "Unknown"}</span>
-                          <div className="flex gap-1.5 shrink-0">
-                            <button
-                              onClick={async () => {
-                                try {
-                                  await apiRespondJoinRequest(activeGroup.id, r.id, "accepted");
-                                  setJoinRequests(prev => prev.filter(x => x.id !== r.id));
-                                  fetchMembers(activeGroup.id);
-                                  toast({ title: `${r.profile?.name || "User"} approved` });
-                                } catch (err: any) { toast({ title: err?.message || "Failed to accept", variant: "destructive" }); }
-                              }}
-                              className="text-xs px-2.5 py-1 rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
-                            >Accept</button>
-                            <button
-                              onClick={async () => {
-                                try {
-                                  await apiRespondJoinRequest(activeGroup.id, r.id, "rejected");
-                                  setJoinRequests(prev => prev.filter(x => x.id !== r.id));
-                                  toast({ title: "Request declined" });
-                                } catch (err: any) { toast({ title: err?.message || "Failed to decline", variant: "destructive" }); }
-                              }}
-                              className="text-xs px-2.5 py-1 rounded-lg border border-border text-muted-foreground hover:bg-muted transition-colors"
-                            >Decline</button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )
-                )}
-              </div>
             )}
 
             {/* Settings panel modals */}
@@ -1764,6 +1717,7 @@ export default function Groups() {
                       {settingsPanel === "members" && `Members (${activeGroup.member_count})`}
                       {settingsPanel === "add" && "Add Members"}
                       {settingsPanel === "banned" && "Banned Users"}
+                      {settingsPanel === "requests" && `Join Requests${joinRequests.length > 0 ? ` (${joinRequests.length})` : ""}`}
                     </p>
                     <button onClick={() => setSettingsPanel(null)} className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors">
                       <X className="h-4 w-4" />
@@ -1929,6 +1883,52 @@ export default function Groups() {
                               }}
                               className="text-xs px-2.5 py-1 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
                             >Unban</button>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  )}
+                  {/* Join Requests panel */}
+                  {settingsPanel === "requests" && (
+                    joinRequestsLoading ? (
+                      <div className="p-6 flex justify-center">
+                        <div className="h-5 w-5 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+                      </div>
+                    ) : joinRequests.length === 0 ? (
+                      <p className="px-4 py-4 text-sm text-muted-foreground text-center">No pending requests.</p>
+                    ) : (
+                      <div className="overflow-y-auto divide-y divide-border">
+                        {joinRequests.map(r => (
+                          <div key={r.id} className="flex items-center gap-3 px-4 py-3">
+                            <div className={`h-8 w-8 rounded-full ${r.profile?.color || "bg-muted"} flex items-center justify-center text-white text-xs font-semibold shrink-0 overflow-hidden`}>
+                              {r.profile?.avatar_url
+                                ? <img src={r.profile.avatar_url} alt={r.profile?.name} className="w-full h-full object-cover" />
+                                : initials(r.profile?.name || "?")}
+                            </div>
+                            <span className="text-sm text-foreground flex-1 min-w-0 truncate">{r.profile?.name || "Unknown"}</span>
+                            <div className="flex gap-1.5 shrink-0">
+                              <button
+                                onClick={async () => {
+                                  try {
+                                    await apiRespondJoinRequest(activeGroup.id, r.id, "accepted");
+                                    setJoinRequests(prev => prev.filter(x => x.id !== r.id));
+                                    fetchMembers(activeGroup.id);
+                                    toast({ title: `${r.profile?.name || "User"} approved` });
+                                  } catch (err: any) { toast({ title: err?.message || "Failed to accept", variant: "destructive" }); }
+                                }}
+                                className="text-xs px-2.5 py-1 rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
+                              >Accept</button>
+                              <button
+                                onClick={async () => {
+                                  try {
+                                    await apiRespondJoinRequest(activeGroup.id, r.id, "rejected");
+                                    setJoinRequests(prev => prev.filter(x => x.id !== r.id));
+                                    toast({ title: "Request declined" });
+                                  } catch (err: any) { toast({ title: err?.message || "Failed to decline", variant: "destructive" }); }
+                                }}
+                                className="text-xs px-2.5 py-1 rounded-lg border border-border text-muted-foreground hover:bg-muted transition-colors"
+                              >Decline</button>
+                            </div>
                           </div>
                         ))}
                       </div>
