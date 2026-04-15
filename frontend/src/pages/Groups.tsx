@@ -405,13 +405,9 @@ export default function Groups() {
       return [...base].sort((a, b) => b.created_at.localeCompare(a.created_at));
     }
     if (sort === "active") {
-      // Active groups first (those with a message in last 48h), then by member count
-      return [...base].sort((a, b) => {
-        const aActive = activeGroupIds.has(a.id) ? 1 : 0;
-        const bActive = activeGroupIds.has(b.id) ? 1 : 0;
-        if (bActive !== aActive) return bActive - aActive;
-        return b.member_count - a.member_count;
-      });
+      return base
+        .filter(g => activeGroupIds.has(g.id))
+        .sort((a, b) => b.member_count - a.member_count);
     }
     // default: popular
     return [...base].sort((a, b) => b.member_count - a.member_count);
@@ -2287,12 +2283,6 @@ export default function Groups() {
                           <span className="flex items-center gap-0.5 text-[10px] font-medium text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full">
                             <Globe className="h-2.5 w-2.5" /> Public
                           </span>
-                        )}
-                        {(joined || isMine) && (
-                          <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full dark:bg-emerald-950 dark:text-emerald-400">Joined</span>
-                        )}
-                        {requested && !joined && !isMine && (
-                          <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full dark:bg-amber-950 dark:text-amber-400">Requested</span>
                         )}
                       </div>
                     </div>
