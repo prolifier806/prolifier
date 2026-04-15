@@ -1214,8 +1214,8 @@ function EditCollabDialog({ collab, open, onClose, onSave }: {
         <DialogHeader><DialogTitle>Edit Collaboration</DialogTitle></DialogHeader>
         <div className="space-y-4 py-2">
           <div><label className="text-sm font-medium mb-1.5 block">Project title</label><Input value={title} onChange={(e)=>setTitle(e.target.value)} className="h-10"/></div>
-          <div><label className="text-sm font-medium mb-1.5 block">Looking for</label><Input value={looking} onChange={(e)=>setLooking(e.target.value)} className="h-10"/></div>
-          <div><label className="text-sm font-medium mb-1.5 block">Description</label><Textarea value={desc} onChange={(e)=>setDesc(e.target.value)} rows={3}/></div>
+          <div><label className="text-sm font-medium mb-1.5 block">Co-founder role</label><Input value={looking} onChange={(e)=>setLooking(e.target.value)} className="h-10"/></div>
+          <div><label className="text-sm font-medium mb-1.5 block">Description</label><Textarea value={desc} onChange={(e)=>setDesc(e.target.value)} rows={3} placeholder="What are you building, what stage are you at, and what do you need from a co-founder?"/></div>
           <div>
             <label className="text-sm font-medium mb-1.5 block">Skills needed</label>
             <div className="flex flex-wrap gap-2">
@@ -1450,7 +1450,7 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
             <p className="text-sm font-medium text-foreground/70 leading-snug truncate flex-1">{collab.title}</p>
           </div>
           <p className="text-[15px] leading-snug">
-            <span className="text-muted-foreground">Looking for </span>
+            <span className="text-muted-foreground">Co-founder role: </span>
             <span className="font-semibold text-primary">{collab.looking}</span>
           </p>
           <div>
@@ -2497,7 +2497,7 @@ export default function Feed() {
               <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle>Post a collaboration</DialogTitle>
-                  <DialogDescription>Tell the community what you're building and who you're looking for.</DialogDescription>
+                  <DialogDescription>Share what you're building and the co-founder you're looking for.</DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4 py-2">
                   <div>
@@ -2508,18 +2508,18 @@ export default function Feed() {
                       placeholder="e.g. Community Book Club" className="h-10"/>
                   </div>
                   <div>
-                    <label className="text-sm font-medium mb-1.5 block">Looking for</label>
+                    <label className="text-sm font-medium mb-1.5 block">Co-founder role</label>
                     <Input value={collabDialog.looking}
                       onChange={e => setCollabDialog(d => ({ ...d, looking: e.target.value }))}
                       maxLength={50}
-                      placeholder="e.g Designer, Technical Co-founder" className="h-10"/>
+                      placeholder="e.g. Technical Co-founder, Designer Co-founder" className="h-10"/>
                   </div>
                   <div>
                     <label className="text-sm font-medium mb-1.5 block">Describe your project</label>
                     <Textarea value={collabDialog.desc}
                       onChange={e => setCollabDialog(d => ({ ...d, desc: e.target.value }))}
                       maxLength={500}
-                      placeholder="What are you building? What kind of help do you need?" rows={3}/>
+                      placeholder="What are you building, what stage are you at, and what do you need from a co-founder?" rows={3}/>
                   </div>
                   <div>
                     <div className="flex items-center justify-between mb-1.5">

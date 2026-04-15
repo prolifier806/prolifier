@@ -10,7 +10,7 @@ import {
   Lock, Globe, Plus, Settings, X, Check,
   Crown, Image, Video, Paperclip,
   Link2, Copy, LogOut, Edit3, Trash2, UserX, MoreHorizontal,
-  ShieldOff, RefreshCw, AtSign, ChevronsDown, UserPlus, Bell,
+  ShieldOff, RefreshCw, AtSign, ChevronsDown, UserPlus, Bell, SlidersHorizontal,
 } from "lucide-react";
 import Layout from "@/components/Layout";
 import { toast } from "@/hooks/use-toast";
@@ -237,23 +237,19 @@ const PromoteAdminModal = memo(({ memberName, perms, onChange, onConfirm, onClos
       </div>
       <div className="px-5 py-3 space-y-1">
         {PERMISSION_LABELS.map(({ key, label, desc }) => (
-          <label key={key} className="flex items-start gap-3 py-2.5 cursor-pointer group">
-            <div className="relative mt-0.5 shrink-0">
-              <input
-                type="checkbox"
-                checked={perms[key]}
-                onChange={e => onChange({ ...perms, [key]: e.target.checked })}
-                className="sr-only"
-              />
-              <div
-                onClick={() => onChange({ ...perms, [key]: !perms[key] })}
-                className={`h-5 w-5 rounded-md border-2 flex items-center justify-center transition-colors cursor-pointer ${
-                  perms[key] ? "bg-primary border-primary" : "border-border group-hover:border-primary/50"
-                }`}>
-                {perms[key] && <Check className="h-3 w-3 text-primary-foreground" />}
-              </div>
+          <label key={key} className="flex items-start gap-3 py-2.5 cursor-pointer group select-none">
+            <input
+              type="checkbox"
+              checked={perms[key]}
+              onChange={e => onChange({ ...perms, [key]: e.target.checked })}
+              className="sr-only"
+            />
+            <div className={`mt-0.5 h-5 w-5 shrink-0 rounded-md border-2 flex items-center justify-center transition-colors ${
+              perms[key] ? "bg-primary border-primary" : "border-border group-hover:border-primary/50"
+            }`}>
+              {perms[key] && <Check className="h-3 w-3 text-primary-foreground" />}
             </div>
-            <div className="flex-1 min-w-0" onClick={() => onChange({ ...perms, [key]: !perms[key] })}>
+            <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-foreground leading-tight">{label}</p>
               <p className="text-xs text-muted-foreground leading-tight mt-0.5">{desc}</p>
             </div>
@@ -280,7 +276,11 @@ export default function Groups() {
   const [search, setSearch] = useState("");
   const [topic, setTopic] = useState(""); // "" = all topics
   const [filter, setFilter] = useState<"all" | "joined">("all");
+  const [sort, setSort] = useState<"popular" | "newest" | "active">("popular");
+  const [showSortMenu, setShowSortMenu] = useState(false);
   const [loadingGroups, setLoadingGroups] = useState(true);
+  // Groups that had a message in the last 48 hours — loaded once alongside groups
+  const [activeGroupIds, setActiveGroupIds] = useState<Set<string>>(new Set());
 
   // View routing
   const [view, setView] = useState<"list" | "group" | "create">("list");
@@ -396,14 +396,26 @@ export default function Groups() {
   // Memoised derived values — must all be declared before any early returns
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
-    return groups
-      .filter(g =>
-        (!search || g.name.toLowerCase().includes(q) || g.topic.toLowerCase().includes(q))
-        && (topic === "" || g.topic === topic)
-        && (filter === "all" || joinedIds.has(g.id) || g.owner_id === user.id)
-      )
-      .sort((a, b) => b.member_count - a.member_count);
-  }, [groups, search, topic, filter, joinedIds, user.id]);
+    const base = groups.filter(g =>
+      (!search || g.name.toLowerCase().includes(q) || g.topic.toLowerCase().includes(q))
+      && (topic === "" || g.topic === topic)
+      && (filter === "all" || joinedIds.has(g.id) || g.owner_id === user.id)
+    );
+    if (sort === "newest") {
+      return [...base].sort((a, b) => b.created_at.localeCompare(a.created_at));
+    }
+    if (sort === "active") {
+      // Active groups first (those with a message in last 48h), then by member count
+      return [...base].sort((a, b) => {
+        const aActive = activeGroupIds.has(a.id) ? 1 : 0;
+        const bActive = activeGroupIds.has(b.id) ? 1 : 0;
+        if (bActive !== aActive) return bActive - aActive;
+        return b.member_count - a.member_count;
+      });
+    }
+    // default: popular
+    return [...base].sort((a, b) => b.member_count - a.member_count);
+  }, [groups, search, topic, filter, sort, joinedIds, activeGroupIds, user.id]);
 
   const totalUnread = useMemo(
     () => Object.values(unreadCounts).reduce((a, b) => a + b, 0),
@@ -488,6 +500,18 @@ export default function Groups() {
             setMentionGroupIds(mentionSet);
           } catch { /* non-fatal */ }
         }
+
+        // Detect "active" groups — any group with a message in the last 48 hours
+        try {
+          const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+          const { data: recentActivity } = await (supabase as any)
+            .from("group_messages")
+            .select("group_id")
+            .gt("created_at", cutoff)
+            .eq("is_system", false)
+            .limit(500);
+          setActiveGroupIds(new Set((recentActivity || []).map((r: any) => r.group_id)));
+        } catch { /* non-fatal */ }
       } catch (memberErr) {
         if (import.meta.env.DEV) console.error("fetchGroups memberships:", memberErr);
         setJoinedIds(new Set());
@@ -2154,9 +2178,36 @@ export default function Groups() {
           </div>
         </div>
 
-        <div className="relative mb-4">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Search communities..." value={search} onChange={e => setSearch(e.target.value)} className="pl-10 h-11" />
+        <div className="flex gap-2 mb-4">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input placeholder="Search communities..." value={search} onChange={e => setSearch(e.target.value)} className="pl-10 h-11" />
+          </div>
+          {/* Sort dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setShowSortMenu(v => !v)}
+              className={`h-11 px-3 rounded-xl border flex items-center gap-1.5 text-sm font-medium transition-colors ${
+                showSortMenu ? "border-primary text-primary bg-primary/5" : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/30"
+              }`}>
+              <SlidersHorizontal className="h-4 w-4" />
+              <span className="hidden sm:inline">{sort === "popular" ? "Popular" : sort === "newest" ? "Newest" : "Active"}</span>
+            </button>
+            {showSortMenu && (
+              <>
+                <div className="fixed inset-0 z-30" onClick={() => setShowSortMenu(false)} />
+                <div className="absolute right-0 top-12 z-40 bg-card border border-border rounded-xl shadow-xl overflow-hidden w-36 animate-in fade-in zoom-in-95 duration-100">
+                  {(["popular", "newest", "active"] as const).map(s => (
+                    <button key={s} onClick={() => { setSort(s); setShowSortMenu(false); }}
+                      className={`w-full px-4 py-2.5 text-sm text-left flex items-center justify-between transition-colors hover:bg-muted ${sort === s ? "text-primary font-medium" : "text-foreground"}`}>
+                      {s === "popular" ? "Popular" : s === "newest" ? "Newest" : "Active"}
+                      {sort === s && <Check className="h-3.5 w-3.5" />}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
         </div>
 
         {/* Primary tabs: All / Joined */}
@@ -2245,7 +2296,14 @@ export default function Groups() {
                         )}
                       </div>
                     </div>
-                    <p className="font-semibold text-foreground mb-1 leading-snug">{g.name}</p>
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <p className="font-semibold text-foreground leading-snug truncate">{g.name}</p>
+                      {activeGroupIds.has(g.id) && (
+                        <span className="shrink-0 text-[9px] font-semibold tracking-wide text-emerald-600 bg-emerald-50 dark:bg-emerald-950 dark:text-emerald-400 px-1.5 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
+                          Active
+                        </span>
+                      )}
+                    </div>
                     <p className="text-xs text-muted-foreground line-clamp-2 flex-1">{g.description}</p>
                     <div className="mt-4 pt-3 border-t border-border flex items-center justify-between">
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">

@@ -630,7 +630,7 @@ export default function UserProfile() {
                           className="text-sm font-semibold text-foreground hover:underline text-left"
                           onClick={() => navigate(`/feed?tab=collabs&collab=${collab.id}`)}
                         >{collab.title}</button>
-                        <Badge variant="outline" className="text-xs shrink-0">Looking for: {collab.looking}</Badge>
+                        <Badge variant="outline" className="text-xs shrink-0">Co-founder role: {collab.looking}</Badge>
                       </div>
                       <p className="text-sm text-muted-foreground leading-relaxed mb-3">{collab.description}</p>
                       <div className="flex flex-wrap gap-1.5 mb-3">
