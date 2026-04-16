@@ -10,7 +10,7 @@ import {
   Lock, Globe, Plus, Settings, X, Check,
   Crown, Image, Video, Paperclip,
   Link2, Copy, LogOut, Edit3, Trash2, UserX, MoreHorizontal,
-  ShieldOff, RefreshCw, AtSign, ChevronsDown, UserPlus, Bell, SlidersHorizontal, Download,
+  ShieldOff, RefreshCw, AtSign, ChevronsUp, UserPlus, Bell, SlidersHorizontal, Download, CornerUpLeft,
 } from "lucide-react";
 import Layout from "@/components/Layout";
 import { toast } from "@/hooks/use-toast";
@@ -60,6 +60,9 @@ type GroupMessage = {
   author_color: string;
   author_avatar_url?: string;
   author_role?: string;
+  reply_to_id?: string | null;
+  reply_to_text?: string | null;
+  reply_to_author?: string | null;
 };
 
 type JoinRequest = {
@@ -314,6 +317,10 @@ export default function Groups() {
   const [editMsgText, setEditMsgText] = useState("");
   const [sending, setSending] = useState(false);
   const [wsStatus, setWsStatus] = useState<"connecting" | "connected" | "error">("connecting");
+  // Reply-to
+  const [replyTo, setReplyTo] = useState<GroupMessage | null>(null);
+  // Track in-progress join request accept/decline to prevent double-clicks
+  const [processingRequestIds, setProcessingRequestIds] = useState<Set<string>>(new Set());
 
   // Banned users (settings panel)
   const [bannedUsers, setBannedUsers] = useState<BannedUser[]>([]);
@@ -389,10 +396,17 @@ export default function Groups() {
   const imageRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const editRef = useRef<HTMLInputElement>(null);
   // Profile cache: avoid re-fetching the same user's profile on every message
   const profileCache = useRef<Record<string, { name: string; color: string; avatar_url?: string; role?: string }>>({});
+  // Cache of pending request counts per group — populated on open so the red dot is instant
+  const pendingCountsCacheRef = useRef<Record<string, number>>({});
+  // Ref to track current view without stale closure in realtime handlers
+  const viewRef = useRef(view);
+  useEffect(() => { viewRef.current = view; }, [view]);
+  const activeGroupIdRef = useRef<string | undefined>(undefined);
+  useEffect(() => { activeGroupIdRef.current = activeGroup?.id; }, [activeGroup?.id]);
 
   const isOwner = activeGroup ? activeGroup.owner_id === user.id : false;
   const isAdmin = isOwner || members.find(m => m.id === user.id)?.role === "admin";
@@ -517,16 +531,14 @@ export default function Groups() {
           } catch { /* non-fatal */ }
         }
 
-        // Detect "active" groups — any group with a message in the last 48 hours
+        // Detect "active" groups using last_message_at on the groups table itself —
+        // this avoids RLS blocking access to private group messages for non-members.
         try {
           const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
-          const { data: recentActivity } = await (supabase as any)
-            .from("group_messages")
-            .select("group_id")
-            .gt("created_at", cutoff)
-            .eq("is_system", false)
-            .limit(500);
-          setActiveGroupIds(new Set((recentActivity || []).map((r: any) => r.group_id)));
+          const activeIds = (groupsData || [])
+            .filter((g: any) => g.last_message_at && g.last_message_at > cutoff)
+            .map((g: any) => g.id);
+          setActiveGroupIds(new Set(activeIds));
         } catch { /* non-fatal */ }
       } catch (memberErr) {
         if (import.meta.env.DEV) console.error("fetchGroups memberships:", memberErr);
@@ -695,13 +707,17 @@ export default function Groups() {
         };
         if (payload.eventType === "INSERT") {
           const row = payload.new as any;
-          // Increment unread for non-system messages (handled here via realtime for non-active groups)
-          // (active group is always open so we don't increment it)
-          if (!row.is_system && row.user_id !== user.id) {
+          // Only increment unread when the user is NOT currently viewing this group
+          const isActiveAndViewing = viewRef.current === "group" && activeGroupIdRef.current === row.group_id;
+          if (!row.is_system && row.user_id !== user.id && !isActiveAndViewing) {
             setUnreadCounts(prev => {
               const cur = prev[row.group_id] ?? 0;
               return { ...prev, [row.group_id]: cur + 1 };
             });
+          }
+          // Keep localStorage read timestamp fresh while user is viewing
+          if (isActiveAndViewing && !row.is_system) {
+            try { localStorage.setItem(`prf_read_${user.id}_${row.group_id}`, new Date().toISOString()); } catch { /* ignore */ }
           }
           setMessages(prev => {
             // Already have the real message — skip (idempotent)
@@ -795,7 +811,10 @@ export default function Groups() {
               profile: profile ? { name: profile.name, color: profile.color, avatar_url: profile.avatar_url } : null,
             };
             setJoinRequests(prev => prev.find(r => r.id === row.id) ? prev : [...prev, newReq]);
-            if (row.user_id !== user.id) setPendingRequestCount(prev => prev + 1);
+            if (row.user_id !== user.id) {
+            pendingCountsCacheRef.current[row.group_id] = (pendingCountsCacheRef.current[row.group_id] ?? 0) + 1;
+            setPendingRequestCount(prev => prev + 1);
+          }
           }
           // Update requestedIds if this is the current user's own request
           if (row.user_id === user.id && row.status === "pending") {
@@ -805,6 +824,7 @@ export default function Groups() {
           const row = payload.old as any;
           // Remove from admin's panel instantly
           setJoinRequests(prev => prev.filter(r => r.id !== row.id));
+          pendingCountsCacheRef.current[activeGroup?.id ?? ""] = Math.max(0, (pendingCountsCacheRef.current[activeGroup?.id ?? ""] ?? 1) - 1);
           setPendingRequestCount(prev => Math.max(0, prev - 1));
           // Clear from requester's local state (cancellation or admin resolved it)
           if (row.user_id === user.id) {
@@ -864,22 +884,28 @@ export default function Groups() {
     setMsgMenuId(null);
     setEditingMsgId(null);
     setChatInput("");
+    setReplyTo(null);
     setView("group");
     setMembers([]);
     setSettingsPanel(null);
-    setPendingRequestCount(0);
     setMentionMsgIds([]);
     mentionJumpIdx.current = 0;
-    // Mark this group as read — reset unread counter + persist timestamp
+    // Mark this group as read instantly — reset unread + mentions + persist timestamp
     setUnreadCounts(prev => ({ ...prev, [group.id]: 0 }));
     setMentionGroupIds(prev => { const s = new Set(prev); s.delete(group.id); return s; });
     try { localStorage.setItem(`prf_read_${user.id}_${group.id}`, new Date().toISOString()); } catch { /* storage full */ }
+    // Show cached pending count instantly (no delay), then refresh from API
+    const cached = pendingCountsCacheRef.current[group.id] ?? 0;
+    setPendingRequestCount(cached);
     fetchMessages(group.id);
     fetchMembers(group.id);
-    // Fetch pending request count for private groups (uses backend/supabaseAdmin to bypass RLS)
+    // Refresh pending request count for private groups — cache result for next open
     if (group.visibility === "private") {
       apiGetJoinRequests(group.id)
-        .then(reqs => { if (reqs.length > 0) setPendingRequestCount(reqs.length); })
+        .then(reqs => {
+          pendingCountsCacheRef.current[group.id] = reqs.length;
+          setPendingRequestCount(reqs.length);
+        })
         .catch(() => { /* user isn't admin — ignore */ });
     }
   };
@@ -987,6 +1013,9 @@ export default function Groups() {
     setMentionQuery("");
     setMentionResults([]);
 
+    const replyRef = replyTo;
+    setReplyTo(null);
+
     // Add to UI instantly — no waiting at all
     const tempId = `tmp-${Date.now()}`;
     setMessages(prev => [...prev, {
@@ -1006,6 +1035,9 @@ export default function Groups() {
       author_color: user.color,
       author_avatar_url: user.avatarUrl || undefined,
       author_role: user.role,
+      reply_to_id: replyRef?.id ?? null,
+      reply_to_text: replyRef?.text ?? null,
+      reply_to_author: replyRef?.author_name ?? null,
     }]);
     setChatInput("");
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -1016,6 +1048,7 @@ export default function Groups() {
       text: trimmed || "",
       media_url: mediaUrl || null,
       media_type: mediaType || undefined,
+      reply_to_id: replyRef?.id ?? null,
     }).catch((err: any) => {
       if (import.meta.env.DEV) console.error("Send failed:", err);
       // Remove the optimistic message
@@ -1433,6 +1466,18 @@ export default function Groups() {
               </div>
             ) : (
               <>
+                {/* Reply quote preview */}
+                {m.reply_to_id && (
+                  <div
+                    onClick={() => { const el = document.getElementById(`msg-${m.reply_to_id}`); el?.scrollIntoView({ behavior: "smooth", block: "center" }); }}
+                    className="flex items-start gap-1.5 mb-1 pl-2 border-l-2 border-primary/40 cursor-pointer hover:bg-muted/50 rounded-r-lg transition-colors max-w-xs"
+                  >
+                    <div className="min-w-0">
+                      {m.reply_to_author && <p className="text-[10px] font-semibold text-primary truncate">{m.reply_to_author}</p>}
+                      <p className="text-[11px] text-muted-foreground truncate">{m.reply_to_text ? m.reply_to_text.slice(0, 80) : "📎 Media"}</p>
+                    </div>
+                  </div>
+                )}
                 {m.media_type === "image" && m.media_url && (
                   <div className="mt-1 inline-flex flex-col rounded-2xl overflow-hidden border border-border/40 bg-muted/20 max-w-[320px]">
                     <button
@@ -1471,14 +1516,23 @@ export default function Groups() {
                     <Paperclip className="h-4 w-4 shrink-0 text-muted-foreground" /><span className="truncate">File</span>
                   </a>
                 )}
-                {canMenu && (
-                  <button onClick={e => { e.stopPropagation(); setMsgMenuId(menuOpen ? null : m.id); }}
-                    className="absolute right-0 top-0 opacity-0 group-hover:opacity-100 transition-opacity h-7 w-7 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground z-10">
-                    <MoreHorizontal className="h-3.5 w-3.5" />
-                  </button>
-                )}
+                {/* Reply + 3-dots action buttons — always opens menu upward to avoid hiding behind input */}
+                <div className="absolute right-0 top-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5 z-10">
+                  {isJoined && (
+                    <button onClick={e => { e.stopPropagation(); setReplyTo(m); inputRef.current?.focus(); }}
+                      className="h-7 w-7 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground">
+                      <CornerUpLeft className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                  {canMenu && (
+                    <button onClick={e => { e.stopPropagation(); setMsgMenuId(menuOpen ? null : m.id); }}
+                      className="h-7 w-7 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground">
+                      <MoreHorizontal className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
                 {menuOpen && (
-                  <div className="absolute right-0 top-7 z-40 bg-card border border-border rounded-xl shadow-xl overflow-hidden min-w-[170px]"
+                  <div className="absolute right-0 bottom-full mb-1 z-40 bg-card border border-border rounded-xl shadow-xl overflow-hidden min-w-[170px]"
                     onClick={e => e.stopPropagation()}>
                     {isMe && (
                       <button onClick={() => startEditMsg(m)}
@@ -1981,7 +2035,9 @@ export default function Groups() {
                       <p className="px-4 py-4 text-sm text-muted-foreground text-center">No pending requests.</p>
                     ) : (
                       <div className="overflow-y-auto divide-y divide-border">
-                        {joinRequests.map(r => (
+                        {joinRequests.map(r => {
+                          const isProcessing = processingRequestIds.has(r.id);
+                          return (
                           <div key={r.id} className="flex items-center gap-3 px-4 py-3">
                             <div className={`h-8 w-8 rounded-full ${r.profile?.color || "bg-muted"} flex items-center justify-center text-white text-xs font-semibold shrink-0 overflow-hidden`}>
                               {r.profile?.avatar_url
@@ -1991,29 +2047,47 @@ export default function Groups() {
                             <span className="text-sm text-foreground flex-1 min-w-0 truncate">{r.profile?.name || "Unknown"}</span>
                             <div className="flex gap-1.5 shrink-0">
                               <button
+                                disabled={isProcessing}
                                 onClick={async () => {
+                                  if (isProcessing) return;
+                                  setProcessingRequestIds(prev => new Set([...prev, r.id]));
+                                  // Optimistic remove
+                                  setJoinRequests(prev => prev.filter(x => x.id !== r.id));
                                   try {
                                     await apiRespondJoinRequest(activeGroup.id, r.id, "accepted");
-                                    setJoinRequests(prev => prev.filter(x => x.id !== r.id));
                                     fetchMembers(activeGroup.id);
                                     toast({ title: `${r.profile?.name || "User"} approved` });
-                                  } catch (err: any) { toast({ title: err?.message || "Failed to accept", variant: "destructive" }); }
+                                  } catch (err: any) {
+                                    setJoinRequests(prev => [...prev, r]); // revert
+                                    toast({ title: err?.message || "Failed to accept", variant: "destructive" });
+                                  } finally {
+                                    setProcessingRequestIds(prev => { const s = new Set(prev); s.delete(r.id); return s; });
+                                  }
                                 }}
-                                className="text-xs px-2.5 py-1 rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
-                              >Accept</button>
+                                className="text-xs px-2.5 py-1 rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50"
+                              >{isProcessing ? "…" : "Accept"}</button>
                               <button
+                                disabled={isProcessing}
                                 onClick={async () => {
+                                  if (isProcessing) return;
+                                  setProcessingRequestIds(prev => new Set([...prev, r.id]));
+                                  setJoinRequests(prev => prev.filter(x => x.id !== r.id));
                                   try {
                                     await apiRespondJoinRequest(activeGroup.id, r.id, "rejected");
-                                    setJoinRequests(prev => prev.filter(x => x.id !== r.id));
                                     toast({ title: "Request declined" });
-                                  } catch (err: any) { toast({ title: err?.message || "Failed to decline", variant: "destructive" }); }
+                                  } catch (err: any) {
+                                    setJoinRequests(prev => [...prev, r]);
+                                    toast({ title: err?.message || "Failed to decline", variant: "destructive" });
+                                  } finally {
+                                    setProcessingRequestIds(prev => { const s = new Set(prev); s.delete(r.id); return s; });
+                                  }
                                 }}
-                                className="text-xs px-2.5 py-1 rounded-lg border border-border text-muted-foreground hover:bg-muted transition-colors"
-                              >Decline</button>
+                                className="text-xs px-2.5 py-1 rounded-lg border border-border text-muted-foreground hover:bg-muted transition-colors disabled:opacity-50"
+                              >{isProcessing ? "…" : "Decline"}</button>
                             </div>
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )
                   )}
@@ -2150,7 +2224,7 @@ export default function Groups() {
               >
                 <AtSign className="h-3 w-3" />
                 {mentionMsgIds.length > 1 ? `${mentionMsgIds.length} mentions` : "1 mention"} — jump
-                <ChevronsDown className="h-3 w-3" />
+                <ChevronsUp className="h-3 w-3" />
               </button>
             </div>
           )}
@@ -2177,9 +2251,22 @@ export default function Groups() {
               <input ref={imageRef} type="file" accept="image/*" className="hidden" onChange={e => handleFileInput(e, "image")} />
               <input ref={videoRef} type="file" accept="video/*" className="hidden" onChange={e => handleFileInput(e, "video")} />
               <input ref={fileRef} type="file" className="hidden" onChange={e => handleFileInput(e, "file")} />
+              {/* Reply preview strip */}
+              {replyTo && (
+                <div className="flex items-center gap-2 px-4 py-1.5 bg-muted/60 border-b border-border">
+                  <CornerUpLeft className="h-3.5 w-3.5 text-primary shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[11px] font-semibold text-primary truncate">{replyTo.author_name}</p>
+                    <p className="text-[11px] text-muted-foreground truncate">{replyTo.text ? replyTo.text.slice(0, 80) : "📎 Media"}</p>
+                  </div>
+                  <button onClick={() => setReplyTo(null)} className="h-5 w-5 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground shrink-0">
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              )}
               <div className="p-3">
-                <div className="flex items-center gap-2 bg-muted rounded-xl px-3 py-1.5">
-                  <div className="flex items-center gap-0.5 shrink-0">
+                <div className="flex items-end gap-2 bg-muted rounded-xl px-3 py-1.5">
+                  <div className="flex items-center gap-0.5 shrink-0 pb-0.5">
                     <button type="button" onClick={() => imageRef.current?.click()}
                       className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors" title="Send image">
                       <Image className="h-4 w-4" />
@@ -2193,10 +2280,13 @@ export default function Groups() {
                       <Paperclip className="h-4 w-4" />
                     </button>
                   </div>
-                  <input ref={inputRef} value={chatInput}
+                  <textarea ref={inputRef} value={chatInput} rows={1}
                     onChange={e => {
                       const val = e.target.value;
                       setChatInput(val);
+                      // Auto-resize
+                      e.target.style.height = "auto";
+                      e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px";
                       // @mention detection: find last @ segment
                       const atMatch = val.match(/@(\w*)$/);
                       if (atMatch) {
@@ -2225,11 +2315,12 @@ export default function Groups() {
                         if (e.key === "Escape") { setMentionResults([]); setMentionQuery(""); return; }
                       }
                       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(chatInput); }
+                      // Shift+Enter inserts newline naturally (default textarea behaviour)
                     }}
                     placeholder={`Message ${activeGroup.name}…`}
-                    className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none py-1" />
+                    className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none py-1 resize-none overflow-hidden leading-relaxed" />
                   <button onClick={() => sendMessage(chatInput)} disabled={!chatInput.trim()}
-                    className="h-7 w-7 rounded-lg bg-primary text-primary-foreground flex items-center justify-center hover:opacity-90 transition-opacity disabled:opacity-30 shrink-0">
+                    className="h-7 w-7 rounded-lg bg-primary text-primary-foreground flex items-center justify-center hover:opacity-90 transition-opacity disabled:opacity-30 shrink-0 mb-0.5">
                     <Send className="h-3.5 w-3.5" />
                   </button>
                 </div>
