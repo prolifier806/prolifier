@@ -10,7 +10,7 @@ import {
   Lock, Globe, Plus, Settings, X, Check,
   Crown, Image, Video, Paperclip,
   Link2, Copy, LogOut, Edit3, Trash2, UserX, MoreHorizontal,
-  ShieldOff, RefreshCw, AtSign, ChevronsDown, UserPlus, Bell, SlidersHorizontal,
+  ShieldOff, RefreshCw, AtSign, ChevronsDown, UserPlus, Bell, SlidersHorizontal, Download,
 } from "lucide-react";
 import Layout from "@/components/Layout";
 import { toast } from "@/hooks/use-toast";
@@ -360,6 +360,7 @@ export default function Groups() {
   // Image send modal
   type ImgQuality = "480p" | "720p" | "hd";
   const [imgModal, setImgModal] = useState<{ file: File; previewUrl: string } | null>(null);
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [imgCaption, setImgCaption] = useState("");
   const [imgQuality, setImgQuality] = useState<ImgQuality>("720p");
   const [imgUploading, setImgUploading] = useState(false);
@@ -1422,12 +1423,22 @@ export default function Groups() {
             ) : (
               <>
                 {m.media_type === "image" && m.media_url && (
-                  <div className="rounded-xl overflow-hidden mt-1 max-w-xs">
-                    <img src={m.media_url} alt="shared" className="w-full max-h-72 object-cover" loading="lazy" />
+                  <div className="mt-1 max-w-xs rounded-xl overflow-hidden border border-border/50 bg-muted/30">
+                    <button className="w-full block" onClick={() => setLightboxUrl(m.media_url!)}>
+                      <img src={m.media_url} alt="shared" className="w-full max-h-72 object-cover hover:opacity-95 transition-opacity" loading="lazy" />
+                    </button>
+                    {m.text?.trim() && (
+                      <div className="px-3 py-2">
+                        <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap break-words">
+                          {renderTextWithLinks(m.text.trim(), members.map(mb => mb.name))}
+                          {m.edited && <span className="text-[10px] text-muted-foreground italic ml-1">· edited</span>}
+                        </p>
+                      </div>
+                    )}
                   </div>
                 )}
-                {m.text?.trim() && (
-                  <p className={`text-sm text-foreground leading-relaxed whitespace-pre-wrap break-words${m.media_type === "image" ? " mt-1.5 text-muted-foreground" : ""}`}>
+                {m.media_type !== "image" && m.text?.trim() && (
+                  <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap break-words">
                     {renderTextWithLinks(m.text.trim(), members.map(mb => mb.name))}
                     {m.edited && grouped && <span className="text-[10px] text-muted-foreground italic ml-1">· edited</span>}
                   </p>
@@ -2214,6 +2225,22 @@ export default function Groups() {
             onConfirm={confirmPromoteAdmin}
             onClose={() => setPromoteModal(null)}
           />
+        )}
+
+        {/* Lightbox */}
+        {lightboxUrl && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm"
+            onClick={() => setLightboxUrl(null)}>
+            <button onClick={() => setLightboxUrl(null)}
+              className="absolute top-4 right-4 h-9 w-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors z-10">
+              <X className="h-5 w-5" />
+            </button>
+            <img src={lightboxUrl} alt="full size" className="max-w-[95vw] max-h-[90vh] object-contain rounded-xl shadow-2xl" onClick={e => e.stopPropagation()} />
+            <a href={lightboxUrl} download target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
+              className="absolute bottom-4 right-4 h-9 px-3 rounded-full bg-white/10 hover:bg-white/20 flex items-center gap-2 text-white text-xs transition-colors">
+              <Download className="h-4 w-4" /> Save
+            </a>
+          </div>
         )}
 
         {/* Image send modal */}
