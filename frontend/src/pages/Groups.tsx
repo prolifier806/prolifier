@@ -1425,10 +1425,10 @@ export default function Groups() {
             ) : (
               <>
                 {m.media_type === "image" && m.media_url && (
-                  <div className="mt-1 max-w-xs w-full rounded-2xl border border-border/60 bg-card overflow-hidden shadow-sm flex flex-col items-stretch">
+                  <div className="mt-1 max-w-sm w-full rounded-2xl border border-border/60 bg-card overflow-hidden shadow-sm flex flex-col items-stretch">
                     <div className="p-1.5 shrink-0">
                       <button className="w-full block rounded-xl overflow-hidden" onClick={() => setLightboxUrl(m.media_url!)}>
-                        <img src={m.media_url} alt="shared" className="w-full max-h-72 object-cover hover:opacity-95 transition-opacity" loading="lazy" />
+                        <img src={m.media_url} alt="shared" className="w-full max-h-80 object-cover hover:opacity-95 transition-opacity" loading="lazy" />
                       </button>
                     </div>
                     {m.text?.trim() && (
