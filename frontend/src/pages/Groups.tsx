@@ -403,10 +403,10 @@ export default function Groups() {
   // Cache of pending request counts per group — populated on open so the red dot is instant
   const pendingCountsCacheRef = useRef<Record<string, number>>({});
   // Ref to track current view without stale closure in realtime handlers
+  // Kept as refs (not derived from state) so realtime handlers always read the latest value
+  // without stale closures. Updated synchronously in openGroup + setView calls.
   const viewRef = useRef(view);
-  useEffect(() => { viewRef.current = view; }, [view]);
   const activeGroupIdRef = useRef<string | undefined>(undefined);
-  useEffect(() => { activeGroupIdRef.current = activeGroup?.id; }, [activeGroup?.id]);
 
   const isOwner = activeGroup ? activeGroup.owner_id === user.id : false;
   const isAdmin = isOwner || members.find(m => m.id === user.id)?.role === "admin";
@@ -877,6 +877,10 @@ export default function Groups() {
 
   // ── Open group — don't await; switch view instantly ──────────────────────
   const openGroup = (group: Group) => {
+    // Update refs synchronously BEFORE any state setter so realtime handlers
+    // immediately see the correct active group and don't increment unread counts.
+    viewRef.current = "group";
+    activeGroupIdRef.current = group.id;
     setActiveGroup(group);
     setShowSettings(false);
     setShowShare(false);
@@ -1258,6 +1262,7 @@ export default function Groups() {
       await apiDeleteGroup(activeGroup.id);
       setGroups(prev => prev.filter(g => g.id !== activeGroup.id));
       setJoinedIds(prev => { const s = new Set(prev); s.delete(activeGroup.id); return s; });
+      viewRef.current = "list"; activeGroupIdRef.current = undefined;
       setView("list");
       setActiveGroup(null);
       toast({ title: "Community deleted" });
@@ -2133,7 +2138,7 @@ export default function Groups() {
         <div className="flex h-[calc(100vh-4rem)] md:h-screen max-w-3xl mx-auto flex-col relative">
           {/* Header */}
           <div className="px-4 py-3 border-b border-border flex items-center gap-3 shrink-0 bg-card/80 backdrop-blur-sm">
-            <button onClick={() => { setView("list"); setMsgMenuId(null); setEditingMsgId(null); }}
+            <button onClick={() => { viewRef.current = "list"; activeGroupIdRef.current = undefined; setView("list"); setMsgMenuId(null); setEditingMsgId(null); }}
               className="text-muted-foreground hover:text-foreground transition-colors">
               <ArrowLeft className="h-5 w-5" />
             </button>
