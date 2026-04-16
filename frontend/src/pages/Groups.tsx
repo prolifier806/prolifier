@@ -1425,15 +1425,15 @@ export default function Groups() {
             ) : (
               <>
                 {m.media_type === "image" && m.media_url && (
-                  <div className="mt-1 max-w-xs rounded-2xl border border-border/60 bg-card overflow-hidden shadow-sm">
-                    <div className="p-1.5">
+                  <div className="mt-1 max-w-xs w-full rounded-2xl border border-border/60 bg-card overflow-hidden shadow-sm flex flex-col items-stretch">
+                    <div className="p-1.5 shrink-0">
                       <button className="w-full block rounded-xl overflow-hidden" onClick={() => setLightboxUrl(m.media_url!)}>
                         <img src={m.media_url} alt="shared" className="w-full max-h-72 object-cover hover:opacity-95 transition-opacity" loading="lazy" />
                       </button>
                     </div>
                     {m.text?.trim() && (
-                      <div className="px-3 pb-2.5 pt-0.5">
-                        <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap break-words">
+                      <div className="px-3 pt-1 pb-3 flex flex-col items-start">
+                        <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap break-words text-left w-full">
                           {renderTextWithLinks(m.text.trim(), members.map(mb => mb.name))}
                           {m.edited && <span className="text-[10px] text-muted-foreground italic ml-1">· edited</span>}
                         </p>
