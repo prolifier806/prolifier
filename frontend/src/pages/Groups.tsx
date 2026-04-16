@@ -54,6 +54,7 @@ type GroupMessage = {
   edited: boolean;
   deleted: boolean;
   unsent: boolean;
+  removed_by_admin: boolean;
   is_system: boolean;
   author_name: string;
   author_color: string;
@@ -74,6 +75,7 @@ type AdminPermissions = {
   banUsers: boolean;
   addSubscribers: boolean;
   manageMessages: boolean;
+  promoteAdmins: boolean;
 };
 
 const DEFAULT_ADMIN_PERMISSIONS: AdminPermissions = {
@@ -82,6 +84,7 @@ const DEFAULT_ADMIN_PERMISSIONS: AdminPermissions = {
   banUsers: true,
   addSubscribers: true,
   manageMessages: true,
+  promoteAdmins: false,
 };
 
 type GroupMember = {
@@ -220,6 +223,7 @@ const PERMISSION_LABELS: { key: keyof AdminPermissions; label: string; desc: str
   { key: "banUsers",         label: "Ban Users",           desc: "Can permanently ban members" },
   { key: "addSubscribers",   label: "Add Subscribers",     desc: "Can invite and add new members" },
   { key: "manageMessages",   label: "Manage Messages",     desc: "Can delete any message in the community" },
+  { key: "promoteAdmins",    label: "Promote New Admins",  desc: "Can promote members to admin" },
 ];
 
 const PromoteAdminModal = memo(({ memberName, perms, onChange, onConfirm, onClose }: PromoteAdminModalProps) => (
@@ -547,7 +551,7 @@ export default function Groups() {
       // then reverse to display oldest-first (bottom of chat).
       const { data: msgsDesc, error } = await (supabase as any)
         .from("group_messages")
-        .select("id, group_id, user_id, text, media_url, media_type, created_at, edited, unsent, is_system")
+        .select("id, group_id, user_id, text, media_url, media_type, created_at, edited, unsent, removed_by_admin, is_system")
         .eq("group_id", groupId)
         .order("created_at", { ascending: false })
         .limit(100);
@@ -575,6 +579,7 @@ export default function Groups() {
         edited: row.edited ?? false,
         deleted: false,
         unsent: row.unsent ?? false,
+        removed_by_admin: row.removed_by_admin ?? false,
         is_system: row.is_system ?? false,
         author_name: profileMap[row.user_id]?.name || "Unknown",
         author_color: profileMap[row.user_id]?.color || "bg-primary",
@@ -711,7 +716,7 @@ export default function Groups() {
               id: row.id, group_id: row.group_id, user_id: row.user_id,
               text: row.text, media_url: row.media_url, media_type: row.media_type,
               created_at: row.created_at, edited: row.edited ?? false, deleted: false,
-              unsent: row.unsent ?? false, is_system: row.is_system ?? false,
+              unsent: row.unsent ?? false, removed_by_admin: row.removed_by_admin ?? false, is_system: row.is_system ?? false,
               author_name: profileCache.current[row.user_id]?.name || "…",
               author_color: profileCache.current[row.user_id]?.color || "bg-primary",
               author_avatar_url: profileCache.current[row.user_id]?.avatar_url,
@@ -733,7 +738,7 @@ export default function Groups() {
         } else if (payload.eventType === "UPDATE") {
           const row = payload.new as any;
           setMessages(prev => prev.map(m =>
-            m.id === row.id ? { ...m, text: row.text, edited: row.edited ?? true, unsent: row.unsent ?? false } : m
+            m.id === row.id ? { ...m, text: row.text, edited: row.edited ?? true, unsent: row.unsent ?? false, removed_by_admin: row.removed_by_admin ?? false } : m
           ));
         } else if (payload.eventType === "DELETE") {
           setMessages(prev => prev.filter(m => m.id !== payload.old.id));
@@ -969,6 +974,7 @@ export default function Groups() {
       edited: false,
       deleted: false,
       unsent: false,
+      removed_by_admin: false,
       is_system: false,
       author_name: user.name,
       author_color: user.color,
@@ -1342,7 +1348,7 @@ export default function Groups() {
               : <div className="w-9 shrink-0" />
             }
             <p className="text-xs text-muted-foreground italic py-0.5 select-none">
-              🚫 This message was unsent.
+              {m.removed_by_admin ? "🚫 Message removed by admin." : "🚫 This message was unsent."}
             </p>
           </div>
         );
@@ -1758,7 +1764,7 @@ export default function Groups() {
                             const targetIsAdmin = m.role === "admin" || m.role === "owner";
                             const canRemove = isOwner || (isAdmin && !targetIsAdmin && (myPermissions?.removeUsers ?? true));
                             const canBan    = isOwner || (isAdmin && !targetIsAdmin && (myPermissions?.banUsers ?? true));
-                            const canPromote = isAdmin && !isSelf && m.role === "member";
+                            const canPromote = isOwner || (isAdmin && !isSelf && m.role === "member" && (myPermissions?.promoteAdmins ?? false));
                             const canRevoke  = isOwner && !isSelf && m.role === "admin";
                             const canAct = !isSelf && (canRemove || canBan);
                             return (

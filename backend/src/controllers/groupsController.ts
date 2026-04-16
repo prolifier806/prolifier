@@ -39,6 +39,7 @@ const adminPermissionsSchema = z.object({
   banUsers: z.boolean(),
   addSubscribers: z.boolean(),
   manageMessages: z.boolean(),
+  promoteAdmins: z.boolean().optional().default(false),
 });
 
 export const assignRoleSchema = z.object({
@@ -388,8 +389,9 @@ export async function deleteGroupMessage(req: AuthRequest, res: Response): Promi
     res.status(403).json({ success: false, error: "Not authorized to delete this message" }); return;
   }
 
+  const removedByAdmin = msg.user_id !== userId; // true when admin deletes someone else's message
   await supabaseAdmin.from("group_messages")
-    .update({ unsent: true, text: null, media_url: null, media_type: null })
+    .update({ unsent: true, removed_by_admin: removedByAdmin, text: null, media_url: null, media_type: null })
     .eq("id", messageId);
   res.json({ success: true, data: null });
 }
