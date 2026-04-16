@@ -261,9 +261,29 @@ export async function updateGroup(req: AuthRequest, res: Response): Promise<void
     if (!mod.allowed) { res.status(422).json({ success: false, error: "Content violates guidelines" }); return; }
   }
 
+  // Fetch current group to diff changes
+  const { data: before } = await supabaseAdmin.from("groups").select("name, bio, emoji, image_url, visibility").eq("id", id).single();
+  const { data: actor } = await supabaseAdmin.from("profiles").select("name").eq("id", userId).single();
+  const actorName = actor?.name || "An admin";
+
   const { data, error } = await supabaseAdmin.from("groups")
     .update(body).eq("id", id).select().single();
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
+
+  // Post system messages for each changed field
+  if (before) {
+    if (body.name && body.name !== before.name)
+      await postSystemMsg(id, userId, `${actorName} renamed the community to "${body.name}"`);
+    if (body.bio && body.bio !== before.bio)
+      await postSystemMsg(id, userId, `${actorName} updated the community bio`);
+    if (body.emoji && body.emoji !== before.emoji && !body.image_url)
+      await postSystemMsg(id, userId, `${actorName} changed the community icon`);
+    if (body.image_url !== undefined && body.image_url !== before.image_url)
+      await postSystemMsg(id, userId, `${actorName} updated the community photo`);
+    if (body.visibility && body.visibility !== before.visibility)
+      await postSystemMsg(id, userId, `${actorName} made the community ${body.visibility === "private" ? "private 🔒" : "public 🌐"}`);
+  }
+
   res.json({ success: true, data });
 }
 
