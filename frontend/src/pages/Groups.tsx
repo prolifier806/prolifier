@@ -864,12 +864,11 @@ export default function Groups() {
     try { localStorage.setItem(`prf_read_${user.id}_${group.id}`, new Date().toISOString()); } catch { /* storage full */ }
     fetchMessages(group.id);
     fetchMembers(group.id);
-    // Fetch pending request count for private groups so the red dot shows immediately
+    // Fetch pending request count for private groups (uses backend/supabaseAdmin to bypass RLS)
     if (group.visibility === "private") {
-      (supabase as any).from("group_join_requests")
-        .select("id", { count: "exact", head: true })
-        .eq("group_id", group.id).eq("status", "pending")
-        .then(({ count }: { count: number | null }) => { if ((count ?? 0) > 0) setPendingRequestCount(count ?? 0); });
+      apiGetJoinRequests(group.id)
+        .then(reqs => { if (reqs.length > 0) setPendingRequestCount(reqs.length); })
+        .catch(() => { /* user isn't admin — ignore */ });
     }
   };
 
