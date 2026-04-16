@@ -59,6 +59,7 @@ type GroupMessage = {
   author_name: string;
   author_color: string;
   author_avatar_url?: string;
+  author_role?: string;
 };
 
 type JoinRequest = {
@@ -391,7 +392,7 @@ export default function Groups() {
   const inputRef = useRef<HTMLInputElement>(null);
   const editRef = useRef<HTMLInputElement>(null);
   // Profile cache: avoid re-fetching the same user's profile on every message
-  const profileCache = useRef<Record<string, { name: string; color: string; avatar_url?: string }>>({});
+  const profileCache = useRef<Record<string, { name: string; color: string; avatar_url?: string; role?: string }>>({});
 
   const isOwner = activeGroup ? activeGroup.owner_id === user.id : false;
   const isAdmin = isOwner || members.find(m => m.id === user.id)?.role === "admin";
@@ -575,10 +576,10 @@ export default function Groups() {
       const userIds = [...new Set(msgs.map((m: any) => m.user_id))] as string[];
       const { data: profiles } = await (supabase as any)
         .from("profiles")
-        .select("id, name, color, avatar_url")
+        .select("id, name, color, avatar_url, role")
         .in("id", userIds);
-      const profileMap: Record<string, { name: string; color: string; avatar_url?: string }> = {};
-      (profiles || []).forEach((p: any) => { profileMap[p.id] = { name: p.name, color: p.color, avatar_url: p.avatar_url || undefined }; });
+      const profileMap: Record<string, { name: string; color: string; avatar_url?: string; role?: string }> = {};
+      (profiles || []).forEach((p: any) => { profileMap[p.id] = { name: p.name, color: p.color, avatar_url: p.avatar_url || undefined, role: p.role }; });
 
       const mapped = msgs.map((row: any) => ({
         id: row.id,
@@ -596,6 +597,7 @@ export default function Groups() {
         author_name: profileMap[row.user_id]?.name || "Unknown",
         author_color: profileMap[row.user_id]?.color || "bg-primary",
         author_avatar_url: profileMap[row.user_id]?.avatar_url,
+        author_role: profileMap[row.user_id]?.role,
       }));
       setMessages(mapped);
       // Detect unread messages that mention the current user
@@ -686,8 +688,8 @@ export default function Groups() {
         const getProfile = async (uid: string) => {
           if (profileCache.current[uid]) return profileCache.current[uid];
           const { data } = await (supabase as any)
-            .from("profiles").select("name, color, avatar_url").eq("id", uid).single();
-          const p = { name: data?.name || "Unknown", color: data?.color || "bg-primary", avatar_url: data?.avatar_url || undefined };
+            .from("profiles").select("name, color, avatar_url, role").eq("id", uid).single();
+          const p = { name: data?.name || "Unknown", color: data?.color || "bg-primary", avatar_url: data?.avatar_url || undefined, role: data?.role };
           profileCache.current[uid] = p;
           return p;
         };
@@ -732,6 +734,7 @@ export default function Groups() {
               author_name: profileCache.current[row.user_id]?.name || "…",
               author_color: profileCache.current[row.user_id]?.color || "bg-primary",
               author_avatar_url: profileCache.current[row.user_id]?.avatar_url,
+              author_role: profileCache.current[row.user_id]?.role,
             };
             // Detect new mention for the current user
             if (!row.is_system && row.text?.includes(`@${user.name}`)) {
@@ -744,7 +747,7 @@ export default function Groups() {
           if (!profileCache.current[row.user_id]) {
             const profile = await getProfile(row.user_id);
             setMessages(prev => prev.map(m =>
-              m.id === row.id ? { ...m, author_name: profile.name, author_color: profile.color, author_avatar_url: profile.avatar_url } : m
+              m.id === row.id ? { ...m, author_name: profile.name, author_color: profile.color, author_avatar_url: profile.avatar_url, author_role: profile.role } : m
             ));
           }
         } else if (payload.eventType === "UPDATE") {
@@ -1002,6 +1005,7 @@ export default function Groups() {
       author_name: user.name,
       author_color: user.color,
       author_avatar_url: user.avatarUrl || undefined,
+      author_role: user.role,
     }]);
     setChatInput("");
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -1401,10 +1405,15 @@ export default function Groups() {
           }
           <div className="flex-1 min-w-0">
             {!grouped && (
-              <div className="flex items-baseline gap-2 mb-0.5">
+              <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
                 <button onClick={() => navigate(`/profile/${m.user_id}`)}
-                  className="text-sm font-semibold text-foreground hover:underline">{m.author_name}</button>
-                <span className="text-xs text-muted-foreground">{fmtTime(m.created_at)}</span>
+                  className="text-sm font-semibold text-foreground hover:underline leading-none">{m.author_name}</button>
+                {m.author_role === "admin" && (
+                  <span title="Verified" className="h-3.5 w-3.5 rounded-full bg-blue-500 inline-flex items-center justify-center shrink-0">
+                    <Check className="h-2 w-2 text-white stroke-[3]" />
+                  </span>
+                )}
+                <span className="text-xs text-muted-foreground leading-none">{fmtTime(m.created_at)}</span>
                 {m.edited && <span className="text-[10px] text-muted-foreground italic">· edited</span>}
               </div>
             )}
