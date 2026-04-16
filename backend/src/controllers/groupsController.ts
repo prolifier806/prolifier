@@ -434,9 +434,6 @@ export async function requestToJoin(req: AuthRequest, res: Response): Promise<vo
     await supabaseAdmin.from("group_join_requests")
       .update({ status: "pending" }).eq("id", existing!.id);
 
-    // Post a new JOINREQ system message so admins can act on it from the chat.
-    await postSystemMsg(groupId, userId, `||JOINREQ||${existing!.id}||${userId}||${requesterName}`);
-
     // Notify admins
     const { data: adminMembers } = await supabaseAdmin.from("group_members")
       .select("user_id").eq("group_id", groupId).in("role", ["owner", "admin"]);
@@ -457,15 +454,6 @@ export async function requestToJoin(req: AuthRequest, res: Response): Promise<vo
     return;
   }
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
-
-  // New insert succeeded — fetch the request ID for the JOINREQ system message.
-  const { data: reqRow } = await supabaseAdmin.from("group_join_requests")
-    .select("id").eq("group_id", groupId).eq("user_id", userId).maybeSingle();
-  const reqId = reqRow?.id ?? "unknown";
-
-  // Post a special system message so admins can see & act on the request in chat.
-  // Format: ||JOINREQ||{reqId}||{userId}||{name}  (parsed by the frontend)
-  await postSystemMsg(groupId, userId, `||JOINREQ||${reqId}||${userId}||${requesterName}`);
 
   // Notify all admins + owner
   const { data: adminMembers } = await supabaseAdmin.from("group_members")
@@ -529,13 +517,6 @@ export async function respondJoinRequest(req: AuthRequest, res: Response): Promi
   if (!joinReq) { res.status(404).json({ success: false, error: "Request not found" }); return; }
 
   await supabaseAdmin.from("group_join_requests").update({ status }).eq("id", requestId);
-
-  // Delete the JOINREQ system message for this request (it served its purpose)
-  await supabaseAdmin.from("group_messages")
-    .delete()
-    .eq("group_id", groupId)
-    .eq("is_system", true)
-    .ilike("text", `||JOINREQ||${requestId}||%`);
 
   if (status === "accepted") {
     const { error } = await supabaseAdmin.from("group_members")
@@ -630,12 +611,6 @@ export async function cancelJoinRequest(req: AuthRequest, res: Response): Promis
   // Delete the request
   await supabaseAdmin.from("group_join_requests").delete().eq("id", joinReq.id);
 
-  // Delete the associated JOINREQ system message
-  await supabaseAdmin.from("group_messages")
-    .delete()
-    .eq("group_id", groupId)
-    .eq("is_system", true)
-    .ilike("text", `||JOINREQ||${joinReq.id}||%`);
 
   res.json({ success: true, data: null });
 }

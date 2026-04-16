@@ -322,6 +322,8 @@ export default function Groups() {
   const [joinRequests, setJoinRequests] = useState<JoinRequest[]>([]);
   const [joinRequestsLoading, setJoinRequestsLoading] = useState(false);
   const [showJoinRequests, setShowJoinRequests] = useState(false);
+  // Red dot on settings gear — true when new requests arrived since settings was last opened
+  const [hasUnseenRequests, setHasUnseenRequests] = useState(false);
   // Track whether the current user has sent a join request per group
   const [requestedIds, setRequestedIds] = useState<Set<string>>(new Set());
   // Synchronous ref-based lock to prevent spam clicks — state updates are async
@@ -780,6 +782,8 @@ export default function Groups() {
               profile: profile ? { name: profile.name, color: profile.color, avatar_url: profile.avatar_url } : null,
             };
             setJoinRequests(prev => prev.find(r => r.id === row.id) ? prev : [...prev, newReq]);
+            // Light up the red dot on the settings gear (only for admins/owner)
+            if (row.user_id !== user.id) setHasUnseenRequests(true);
           }
           // Update requestedIds if this is the current user's own request
           if (row.user_id === user.id && row.status === "pending") {
@@ -849,6 +853,7 @@ export default function Groups() {
     setView("group");
     setMembers([]);
     setSettingsPanel(null);
+    setHasUnseenRequests(false);
     setMentionMsgIds([]);
     mentionJumpIdx.current = 0;
     // Mark this group as read — reset unread counter + persist timestamp
@@ -862,6 +867,7 @@ export default function Groups() {
   const openSettings = () => {
     if (!activeGroup) return;
     setShowSettings(true);
+    setHasUnseenRequests(false);
     setShowBanned(false);
     setBannedUsers([]);
     setShowJoinRequests(false);
@@ -1277,51 +1283,10 @@ export default function Groups() {
       const canManageMsg = isOwner || (isAdmin && (myPermissions?.manageMessages ?? true));
       const canMenu = (isMe || canManageMsg) && !m.unsent;
 
-      // System message — handle JOINREQ specially (interactive card for admins)
+      // System message
       if (m.is_system) {
-        const joinReqMatch = m.text?.match(/^\|\|JOINREQ\|\|([^|]+)\|\|([^|]+)\|\|(.+)$/);
-        if (joinReqMatch) {
-          const [, reqId, reqUserId, requesterName] = joinReqMatch;
-          // Only show the interactive card to admins/owner; others see a plain pill
-          if (isAdmin) {
-            els.push(
-              <div key={m.id} className="flex justify-center my-3">
-                <div className="bg-muted border border-border rounded-2xl px-4 py-3 max-w-xs w-full">
-                  <p className="text-xs text-muted-foreground mb-2 text-center">
-                    <span className="font-semibold text-foreground">{requesterName}</span> wants to join
-                  </p>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={async () => {
-                        if (!activeGroup) return;
-                        try {
-                          await apiRespondJoinRequest(activeGroup.id, reqId, "accepted");
-                          setMessages(prev => prev.filter(x => x.id !== m.id));
-                          fetchMembers(activeGroup.id);
-                          toast({ title: `${requesterName} accepted` });
-                        } catch (err: any) { toast({ title: err?.message || "Failed to accept", variant: "destructive" }); }
-                      }}
-                      className="flex-1 text-xs py-1.5 rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity font-medium"
-                    >Accept</button>
-                    <button
-                      onClick={async () => {
-                        if (!activeGroup) return;
-                        try {
-                          await apiRespondJoinRequest(activeGroup.id, reqId, "rejected");
-                          setMessages(prev => prev.filter(x => x.id !== m.id));
-                          toast({ title: "Request declined" });
-                        } catch (err: any) { toast({ title: err?.message || "Failed to decline", variant: "destructive" }); }
-                      }}
-                      className="flex-1 text-xs py-1.5 rounded-lg border border-border text-muted-foreground hover:bg-muted transition-colors font-medium"
-                    >Decline</button>
-                  </div>
-                </div>
-              </div>
-            );
-          }
-          // Non-admins don't see JOINREQ messages at all
-          return;
-        }
+        // JOINREQ messages are legacy — hide them from chat (requests live in settings now)
+        if (m.text?.startsWith("||JOINREQ||")) return;
         els.push(
           <div key={m.id} className="flex justify-center my-2">
             <span className="text-[11px] text-muted-foreground bg-muted px-3 py-1 rounded-full select-none">
@@ -1428,11 +1393,20 @@ export default function Groups() {
                         <Edit3 className="h-3.5 w-3.5" /> Edit message
                       </button>
                     )}
-                    <button onClick={() => unsendMsg(m.id)}
-                      className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-destructive hover:bg-destructive/5 transition-colors">
-                      <Trash2 className="h-3.5 w-3.5" />
-                      Unsend
-                    </button>
+                    {isMe && (
+                      <button onClick={() => unsendMsg(m.id)}
+                        className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-destructive hover:bg-destructive/5 transition-colors">
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Unsend
+                      </button>
+                    )}
+                    {!isMe && canManageMsg && (
+                      <button onClick={() => unsendMsg(m.id)}
+                        className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-destructive hover:bg-destructive/5 transition-colors">
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Remove message
+                      </button>
+                    )}
                   </div>
                 )}
               </>
@@ -2024,8 +1998,11 @@ export default function Groups() {
             </div>
             <div className="flex items-center gap-1">
               <button onClick={openSettings}
-                className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors">
+                className="relative h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors">
                 <Settings className="h-4 w-4" />
+                {hasUnseenRequests && (isOwner || isAdmin) && (
+                  <span className="absolute top-0.5 right-0.5 h-2 w-2 rounded-full bg-red-500" />
+                )}
               </button>
             </div>
           </div>
