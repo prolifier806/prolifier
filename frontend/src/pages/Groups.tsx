@@ -1027,7 +1027,9 @@ export default function Groups() {
   const resizeImage = (file: File, maxW: number, maxH: number): Promise<File> =>
     new Promise(resolve => {
       const img = new window.Image();
+      const objUrl = URL.createObjectURL(file);
       img.onload = () => {
+        URL.revokeObjectURL(objUrl);
         let { width, height } = img;
         const ratio = Math.min(maxW / width, maxH / height, 1);
         width = Math.round(width * ratio);
@@ -1037,7 +1039,7 @@ export default function Groups() {
         canvas.getContext("2d")!.drawImage(img, 0, 0, width, height);
         canvas.toBlob(blob => resolve(new File([blob!], file.name, { type: "image/jpeg" })), "image/jpeg", 0.88);
       };
-      img.src = URL.createObjectURL(file);
+      img.src = objUrl;
     });
 
   // Called when user confirms send in the image modal

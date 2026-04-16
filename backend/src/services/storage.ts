@@ -4,9 +4,11 @@ import { supabaseAdmin } from "../lib/supabase";
 // ── Image ────────────────────────────────────────────────────────────────────
 
 const IMAGE_CONFIG = {
-  feed:   { maxWidthPx: 1080, targetKB: 400, hardLimitMB: 20 },
-  avatar: { maxWidthPx: 400,  targetKB: 150, hardLimitMB: 5  },
-  chat:   { maxWidthPx: 800,  targetKB: 250, hardLimitMB: 20 },
+  feed:   { maxWidthPx: 1080, targetKB: 400,  hardLimitMB: 20 },
+  avatar: { maxWidthPx: 400,  targetKB: 150,  hardLimitMB: 5  },
+  // chat: client controls dimensions via quality selector; backend only enforces
+  // a generous upper bound (1920px) and a higher KB budget so 720p/HD aren't re-shrunk.
+  chat:   { maxWidthPx: 1920, targetKB: 1500, hardLimitMB: 20 },
 } as const;
 
 export type ImageContext = keyof typeof IMAGE_CONFIG;
