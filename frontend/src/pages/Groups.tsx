@@ -357,6 +357,14 @@ export default function Groups() {
   const [uploadingIcon, setUploadingIcon] = useState(false);
   const settingsImageRef = useRef<HTMLInputElement>(null);
 
+  // Image send modal
+  type ImgQuality = "480p" | "720p" | "hd";
+  const [imgModal, setImgModal] = useState<{ file: File; previewUrl: string } | null>(null);
+  const [imgCaption, setImgCaption] = useState("");
+  const [imgQuality, setImgQuality] = useState<ImgQuality>("720p");
+  const [imgUploading, setImgUploading] = useState(false);
+  const [imgUploadPct, setImgUploadPct] = useState(0);
+
   // @mention
   const [mentionQuery, setMentionQuery] = useState("");
   const [mentionResults, setMentionResults] = useState<GroupMember[]>([]);
@@ -1013,19 +1021,64 @@ export default function Groups() {
   };
 
   // ── File upload ──────────────────────────────────────────────────────────
+
+  // Resize image client-side before upload
+  const resizeImage = (file: File, maxW: number, maxH: number): Promise<File> =>
+    new Promise(resolve => {
+      const img = new window.Image();
+      img.onload = () => {
+        let { width, height } = img;
+        const ratio = Math.min(maxW / width, maxH / height, 1);
+        width = Math.round(width * ratio);
+        height = Math.round(height * ratio);
+        const canvas = document.createElement("canvas");
+        canvas.width = width; canvas.height = height;
+        canvas.getContext("2d")!.drawImage(img, 0, 0, width, height);
+        canvas.toBlob(blob => resolve(new File([blob!], file.name, { type: "image/jpeg" })), "image/jpeg", 0.88);
+      };
+      img.src = URL.createObjectURL(file);
+    });
+
+  // Called when user confirms send in the image modal
+  const sendImageMsg = async () => {
+    if (!imgModal || !activeGroup) return;
+    setImgUploading(true);
+    setImgUploadPct(0);
+    try {
+      let fileToUpload = imgModal.file;
+      if (imgQuality === "480p")  fileToUpload = await resizeImage(imgModal.file, 854, 480);
+      if (imgQuality === "720p")  fileToUpload = await resizeImage(imgModal.file, 1280, 720);
+      const uploaded = await uploadPostImage(fileToUpload, "chat", pct => setImgUploadPct(pct));
+      sendMessage(imgCaption.trim() || undefined, uploaded.url, "image");
+      setImgModal(null);
+      setImgCaption("");
+      setImgQuality("720p");
+    } catch {
+      toast({ title: "Upload failed", variant: "destructive" });
+    } finally {
+      setImgUploading(false);
+      setImgUploadPct(0);
+    }
+  };
+
   const handleFileInput = async (e: React.ChangeEvent<HTMLInputElement>, type: MediaType) => {
     const file = e.target.files?.[0];
     if (!file || !activeGroup) return;
+    if (type === "image") {
+      // Show preview modal instead of uploading immediately
+      setImgModal({ file, previewUrl: URL.createObjectURL(file) });
+      setImgCaption("");
+      setImgQuality("720p");
+      e.target.value = "";
+      return;
+    }
     try {
       let url: string;
       if (type === "video") {
         const uploaded = await uploadVideo(file, "chat");
         url = uploaded.fallbackUrl;
-      } else if (type === "file") {
-        const uploaded = await uploadFile(file);
-        url = uploaded.url;
       } else {
-        const uploaded = await uploadPostImage(file, "chat");
+        const uploaded = await uploadFile(file);
         url = uploaded.url;
       }
       sendMessage(undefined, url, type);
@@ -1368,16 +1421,16 @@ export default function Groups() {
               </div>
             ) : (
               <>
+                {m.media_type === "image" && m.media_url && (
+                  <div className="rounded-xl overflow-hidden mt-1 max-w-xs">
+                    <img src={m.media_url} alt="shared" className="w-full max-h-72 object-cover" loading="lazy" />
+                  </div>
+                )}
                 {m.text?.trim() && (
-                  <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap break-words">
+                  <p className={`text-sm text-foreground leading-relaxed whitespace-pre-wrap break-words${m.media_type === "image" ? " mt-1.5 text-muted-foreground" : ""}`}>
                     {renderTextWithLinks(m.text.trim(), members.map(mb => mb.name))}
                     {m.edited && grouped && <span className="text-[10px] text-muted-foreground italic ml-1">· edited</span>}
                   </p>
-                )}
-                {m.media_type === "image" && m.media_url && (
-                  <div className="rounded-xl overflow-hidden mt-1 max-w-xs">
-                    <img src={m.media_url} alt="shared" className="w-full max-h-56 object-cover" loading="lazy" />
-                  </div>
                 )}
                 {m.media_type === "video" && m.media_url && (
                   <video src={m.media_url} controls className="rounded-xl mt-1 max-w-xs max-h-56 bg-black" />
@@ -2161,6 +2214,56 @@ export default function Groups() {
             onConfirm={confirmPromoteAdmin}
             onClose={() => setPromoteModal(null)}
           />
+        )}
+
+        {/* Image send modal */}
+        {imgModal && (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+            onClick={e => { if (e.target === e.currentTarget && !imgUploading) setImgModal(null); }}>
+            <div className="w-full max-w-sm bg-card border border-border rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+              <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-border">
+                <p className="font-semibold text-foreground">Send Image</p>
+                <button onClick={() => !imgUploading && setImgModal(null)}
+                  className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="relative bg-black/10">
+                <img src={imgModal.previewUrl} alt="preview" className="w-full max-h-64 object-contain" />
+                {imgUploading && (
+                  <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center gap-2">
+                    <p className="text-white text-sm font-medium">Uploading… {imgUploadPct}%</p>
+                    <div className="w-48 h-1.5 bg-white/20 rounded-full overflow-hidden">
+                      <div className="h-full bg-white rounded-full transition-all duration-200" style={{ width: `${imgUploadPct}%` }} />
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="px-4 py-3 space-y-3">
+                <textarea value={imgCaption} onChange={e => setImgCaption(e.target.value)}
+                  placeholder="Add a caption… (optional)" rows={2} disabled={imgUploading}
+                  className="w-full bg-muted rounded-xl px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none resize-none" />
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-2">Quality</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    {([["480p", "480p", "Smaller"], ["720p", "720p", "Balanced"], ["hd", "HD", "Original"]] as [ImgQuality, string, string][]).map(([val, label, sub]) => (
+                      <button key={val} onClick={() => setImgQuality(val)} disabled={imgUploading}
+                        className={`flex flex-col items-center py-2 rounded-xl border text-xs transition-all ${imgQuality === val ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-foreground/30"}`}>
+                        <span className="font-semibold">{label}</span>
+                        <span className="text-[10px] opacity-70 mt-0.5">{sub}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <button onClick={sendImageMsg} disabled={imgUploading}
+                  className="w-full h-10 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2">
+                  {imgUploading
+                    ? <><div className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin" /> Uploading…</>
+                    : <><Send className="h-4 w-4" /> Send</>}
+                </button>
+              </div>
+            </div>
+          </div>
         )}
       </Layout>
     );
