@@ -808,6 +808,19 @@ export default function Groups() {
     ),
   );
 
+  // Realtime: re-fetch members when any group_members row changes (role promotions/revocations)
+  // This ensures a promoted user sees their new admin powers without needing to reopen the group.
+  useRealtimeChannel(
+    activeGroup?.id ? `members-${activeGroup.id}` : null,
+    ch => ch.on(
+      "postgres_changes",
+      { event: "UPDATE", schema: "public", table: "group_members", filter: `group_id=eq.${activeGroup?.id}` },
+      () => {
+        if (activeGroup?.id) fetchMembers(activeGroup.id);
+      }
+    ),
+  );
+
   // Scroll to bottom on new messages
   useEffect(() => {
     if (messages.length > 0) {
@@ -1566,7 +1579,7 @@ export default function Groups() {
                     <p className="text-xs text-muted-foreground mt-1">Tap the icon to change it</p>
                   )}
                 </div>
-                {isOwner && !editingGroup && (
+                {(isOwner || (isAdmin && (myPermissions?.changeChannelInfo ?? false))) && !editingGroup && (
                   <button
                     onClick={() => { setEditDesc(activeGroup.description); setEditBio(activeGroup.bio); setEditEmoji(activeGroup.emoji); setEditVisibility(activeGroup.visibility); setEditImageUrl(activeGroup.image_url ?? null); setEditImagePreview(activeGroup.image_url ?? null); setEditingGroup(true); }}
                     className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors shrink-0"
@@ -1654,8 +1667,8 @@ export default function Groups() {
                   </button>
                 )}
 
-                {/* Banned Users — owner only */}
-                {isOwner && (
+                {/* Banned Users — owner or admin with banUsers permission */}
+                {(isOwner || (isAdmin && (myPermissions?.banUsers ?? true))) && (
                   <button
                     onClick={async () => {
                       setSettingsPanel("banned");
