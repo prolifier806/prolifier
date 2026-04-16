@@ -35,6 +35,7 @@ import {
   getJoinRequests as apiGetJoinRequests,
   respondJoinRequest as apiRespondJoinRequest,
   addMemberToGroup as apiAddMember,
+  deleteGroupMessage as apiDeleteGroupMessage,
 } from "@/api/groups";
 import { uploadPostImage, uploadVideo, uploadFile } from "@/api/uploads";
 
@@ -1030,24 +1031,21 @@ export default function Groups() {
 
   // ── Unsend — optimistic soft-delete then hard delete ─────────────────────
   const unsendMsg = async (msgId: string) => {
+    if (!activeGroup) return;
     setMsgMenuId(null);
-    // Show tombstone immediately for this user
+    // Show tombstone immediately (optimistic)
     setMessages(prev => prev.map(m =>
       m.id === msgId ? { ...m, unsent: true, text: null, media_url: null, media_type: null } : m
     ));
 
-    // UPDATE row — keeps it in DB as tombstone, realtime fires to ALL members
-    const { error, data } = await (supabase as any)
-      .from("group_messages")
-      .update({ unsent: true, text: null, media_url: null, media_type: null })
-      .eq("id", msgId)
-      .select();
-
-    if (error || !data || data.length === 0) {
-      if (import.meta.env.DEV) console.error("Unsend failed:", error);
+    try {
+      // Use backend API — it uses supabaseAdmin so admins can delete any message (RLS bypass)
+      await apiDeleteGroupMessage(activeGroup.id, msgId);
+    } catch (err) {
+      if (import.meta.env.DEV) console.error("Unsend failed:", err);
       // Revert
       setMessages(prev => prev.map(m => m.id === msgId ? { ...m, unsent: false } : m));
-      if (activeGroup) fetchMessages(activeGroup.id);
+      fetchMessages(activeGroup.id);
       toast({ title: "Could not unsend", variant: "destructive" });
     }
   };
@@ -1257,7 +1255,8 @@ export default function Groups() {
       const isMe = m.user_id === user.id;
       const isEditingThis = editingMsgId === m.id;
       const menuOpen = msgMenuId === m.id;
-      const canMenu = (isMe || isOwner) && !m.unsent;
+      const canManageMsg = isOwner || (isAdmin && (myPermissions?.manageMessages ?? true));
+      const canMenu = (isMe || canManageMsg) && !m.unsent;
 
       // System message — handle JOINREQ specially (interactive card for admins)
       if (m.is_system) {

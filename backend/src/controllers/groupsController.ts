@@ -388,7 +388,9 @@ export async function deleteGroupMessage(req: AuthRequest, res: Response): Promi
     res.status(403).json({ success: false, error: "Not authorized to delete this message" }); return;
   }
 
-  await supabaseAdmin.from("group_messages").delete().eq("id", messageId);
+  await supabaseAdmin.from("group_messages")
+    .update({ unsent: true, text: null, media_url: null, media_type: null })
+    .eq("id", messageId);
   res.json({ success: true, data: null });
 }
 
