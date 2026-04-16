@@ -1513,166 +1513,15 @@ export default function Groups() {
   };
 
   // ══════════════════════════════════════════════════════════════════════════
-  // UNIFIED TWO-PANEL LAYOUT
+  // VIEW: Create
   // ══════════════════════════════════════════════════════════════════════════
-
-  const joinedGroups = groups
-    .filter(g => joinedIds.has(g.id) || g.owner_id === user.id)
-    .filter(g => !search || g.name.toLowerCase().includes(search.toLowerCase()))
-    .sort((a, b) => {
-      const ua = unreadCounts[a.id] ?? 0, ub = unreadCounts[b.id] ?? 0;
-      if (ub !== ua) return ub - ua;
-      return a.name.localeCompare(b.name);
-    });
-
-  // Right panel content helpers
-  const showCreate   = view === "create";
-  const showSettings_ = view === "group" && !!activeGroup && showSettings;
-  const showChat     = view === "group" && !!activeGroup && !showSettings;
-  const showBrowse   = view === "list";
-
-  return (
-    <Layout>
-      {/* Global overlays */}
-      {msgMenuId !== null && <div className="fixed inset-0 z-30" onClick={() => setMsgMenuId(null)} />}
-      {showShare && activeGroup && <ShareLinkModal group={activeGroup} onClose={() => setShowShare(false)} />}
-      {promoteModal && (
-        <PromoteAdminModal
-          memberName={promoteModal.memberName}
-          perms={promotePerms}
-          onChange={setPromotePerms}
-          onConfirm={confirmPromoteAdmin}
-          onClose={() => setPromoteModal(null)}
-        />
-      )}
-      {lightboxUrl && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm" onClick={() => setLightboxUrl(null)}>
-          <button onClick={() => setLightboxUrl(null)} className="absolute top-4 right-4 h-9 w-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors z-10"><X className="h-5 w-5" /></button>
-          <img src={lightboxUrl} alt="full size" className="max-w-[95vw] max-h-[90vh] object-contain rounded-xl shadow-2xl" onClick={e => e.stopPropagation()} />
-          <a href={lightboxUrl} download target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="absolute bottom-4 right-4 h-9 px-3 rounded-full bg-white/10 hover:bg-white/20 flex items-center gap-2 text-white text-xs transition-colors"><Download className="h-4 w-4" /> Save</a>
-        </div>
-      )}
-      {imgModal && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={e => { if (e.target === e.currentTarget && !imgUploading) setImgModal(null); }}>
-          <div className="w-full max-w-sm bg-card border border-border rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-border">
-              <p className="font-semibold text-foreground">Send Image</p>
-              <button onClick={() => !imgUploading && setImgModal(null)} className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors"><X className="h-4 w-4" /></button>
-            </div>
-            <div className="relative bg-black/10">
-              <img src={imgModal.previewUrl} alt="preview" className="w-full max-h-64 object-contain" />
-              {imgUploading && (
-                <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center gap-2">
-                  <p className="text-white text-sm font-medium">Uploading… {imgUploadPct}%</p>
-                  <div className="w-48 h-1.5 bg-white/20 rounded-full overflow-hidden"><div className="h-full bg-white rounded-full transition-all duration-200" style={{ width: `${imgUploadPct}%` }} /></div>
-                </div>
-              )}
-            </div>
-            <div className="px-4 py-3 space-y-3">
-              <textarea value={imgCaption} onChange={e => setImgCaption(e.target.value)} placeholder="Add a caption… (optional)" rows={2} disabled={imgUploading} className="w-full bg-muted rounded-xl px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none resize-none" />
-              <div>
-                <p className="text-xs font-medium text-muted-foreground mb-2">Quality</p>
-                <div className="grid grid-cols-3 gap-2">
-                  {([["480p", "480p", "Smaller"], ["720p", "720p", "Balanced"], ["hd", "HD", "Original"]] as [ImgQuality, string, string][]).map(([val, label, sub]) => (
-                    <button key={val} onClick={() => setImgQuality(val)} disabled={imgUploading} className={`flex flex-col items-center py-2 rounded-xl border text-xs transition-all ${imgQuality === val ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-foreground/30"}`}>
-                      <span className="font-semibold">{label}</span>
-                      <span className="text-[10px] opacity-70 mt-0.5">{sub}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <button onClick={sendImageMsg} disabled={imgUploading} className="w-full h-10 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2">
-                {imgUploading ? <><div className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin" /> Uploading…</> : <><Send className="h-4 w-4" /> Send</>}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="flex h-[calc(100vh-4rem)] md:h-screen overflow-hidden">
-
-        {/* ── Left Sidebar ─────────────────────────────────────────────────── */}
-        <div className={`w-80 shrink-0 border-r border-border flex flex-col bg-card/30 ${(showChat || showCreate || showSettings_) ? "hidden md:flex" : "flex"}`}>
-          {/* Header */}
-          <div className="px-4 h-16 flex items-center justify-between border-b border-border shrink-0">
-            <h2 className="font-bold text-base">Communities</h2>
-            <div className="flex items-center gap-1">
-              <button onClick={fetchGroups} title="Refresh" className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors">
-                <RefreshCw className={`h-4 w-4 ${loadingGroups ? "animate-spin" : ""}`} />
-              </button>
-              <button onClick={() => setView("create")} title="Create community" className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors">
-                <Plus className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
-          {/* Search */}
-          <div className="px-3 py-2.5 border-b border-border shrink-0">
-            <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search communities…" className="w-full pl-8 pr-3 py-1.5 text-sm bg-muted rounded-lg outline-none text-foreground placeholder:text-muted-foreground" />
-            </div>
-          </div>
-          {/* Joined group list */}
-          <div className="flex-1 overflow-y-auto">
-            {loadingGroups ? (
-              <div className="flex items-center justify-center py-8"><div className="h-5 w-5 rounded-full border-2 border-primary border-t-transparent animate-spin" /></div>
-            ) : joinedGroups.length === 0 ? (
-              <div className="px-4 py-8 text-center">
-                <p className="text-sm text-muted-foreground mb-1">{search ? "No results" : "No communities joined yet."}</p>
-              </div>
-            ) : (
-              joinedGroups.map(g => {
-                const unread = unreadCounts[g.id] ?? 0;
-                const isActive = activeGroup?.id === g.id && view === "group";
-                const hasMention = mentionGroupIds.has(g.id);
-                return (
-                  <button key={g.id} onClick={() => openGroup(g)}
-                    className={`w-full flex items-center gap-3 px-3 py-3 transition-colors text-left border-r-2 ${isActive ? "bg-primary/10 border-primary" : "hover:bg-muted border-transparent"}`}>
-                    <div className="relative shrink-0">
-                      <div className="h-11 w-11 rounded-xl bg-muted flex items-center justify-center text-xl overflow-hidden">
-                        {g.image_url ? <img src={g.image_url} alt={g.name} className="w-full h-full object-cover" /> : g.emoji}
-                      </div>
-                      {unread > 0 && (
-                        <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center">
-                          {unread > 99 ? "99+" : unread}
-                        </span>
-                      )}
-                      {hasMention && !unread && (
-                        <span className="absolute -bottom-0.5 -right-0.5 h-4 w-4 rounded-full bg-emerald-500 text-white flex items-center justify-center">
-                          <AtSign className="h-2.5 w-2.5" />
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1 justify-between">
-                        <p className={`text-sm truncate ${unread > 0 ? "font-semibold text-foreground" : "font-medium text-foreground/80"}`}>{g.name}</p>
-                        {g.visibility === "private" && <Lock className="h-3 w-3 text-muted-foreground shrink-0" />}
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-0.5 truncate">{g.member_count} members</p>
-                    </div>
-                  </button>
-                );
-              })
-            )}
-            <div className="px-3 py-2 border-t border-border mt-1">
-              <button onClick={() => { setView("list"); setActiveGroup(null); setShowSettings(false); }}
-                className="w-full text-xs text-center text-muted-foreground hover:text-primary transition-colors py-1.5">
-                Browse all communities
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* ── Right Panel ──────────────────────────────────────────────────── */}
-        <div className="flex-1 flex flex-col overflow-hidden min-w-0">
-
-        {/* ── CREATE ─────────────────────────────────────────────────────── */}
-        {showCreate && (
-          <div className="flex-1 overflow-y-auto">
-            <div className="max-w-lg mx-auto px-6 py-6">
-              <button onClick={() => setView(activeGroup ? "group" : "list")} className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-6">
-                <ArrowLeft className="h-4 w-4" /> Back
-              </button>
+  if (view === "create") {
+    return (
+      <Layout>
+        <div className="max-w-lg mx-auto px-4 py-6">
+          <button onClick={() => setView("list")} className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-6">
+            <ArrowLeft className="h-4 w-4" /> Back
+          </button>
           <h1 className="text-xl font-bold mb-6">Create a Community</h1>
           <div className="space-y-5">
             <div>
@@ -1749,18 +1598,22 @@ export default function Groups() {
             </Button>
           </div>
         </div>
-          </div>
-        )}
+      </Layout>
+    );
+  }
 
-        {/* ── SETTINGS ───────────────────────────────────────────────────── */}
-        {showSettings_ && activeGroup && (
-          <div className="flex-1 overflow-y-auto">
-            <div className="max-w-lg mx-auto px-6 py-6">
-              <button onClick={() => { setShowSettings(false); setEditingGroup(false); }}
-                className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-6">
-                <ArrowLeft className="h-4 w-4" /> Back to chat
-              </button>
-              <h2 className="text-lg font-bold mb-5">Community Settings</h2>
+  // ══════════════════════════════════════════════════════════════════════════
+  // VIEW: Settings
+  // ══════════════════════════════════════════════════════════════════════════
+  if (view === "group" && activeGroup && showSettings) {
+    return (
+      <Layout>
+        <div className="max-w-lg mx-auto px-4 py-6">
+          <button onClick={() => { setShowSettings(false); setEditingGroup(false); }}
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-6">
+            <ArrowLeft className="h-4 w-4" /> Back to chat
+          </button>
+          <h2 className="text-lg font-bold mb-5">Community Settings</h2>
 
           <div className="space-y-3">
             {/* Group info */}
@@ -2179,27 +2032,45 @@ export default function Groups() {
               </button>
             )}
           </div>
-            </div>
-          </div>
+        </div>
+        {showShare && <ShareLinkModal group={activeGroup} onClose={() => setShowShare(false)} />}
+        {promoteModal && (
+          <PromoteAdminModal
+            memberName={promoteModal.memberName}
+            perms={promotePerms}
+            onChange={setPromotePerms}
+            onConfirm={confirmPromoteAdmin}
+            onClose={() => setPromoteModal(null)}
+          />
         )}
+      </Layout>
+    );
+  }
 
-        {/* ── CHAT ───────────────────────────────────────────────────────── */}
-        {showChat && activeGroup && (
-          <div className="flex flex-col flex-1 overflow-hidden relative">
+  // ══════════════════════════════════════════════════════════════════════════
+  // VIEW: Group Chat
+  // ══════════════════════════════════════════════════════════════════════════
+  if (view === "group" && activeGroup) {
+    return (
+      <Layout>
+        {msgMenuId !== null && <div className="fixed inset-0 z-30" onClick={() => setMsgMenuId(null)} />}
+        {showShare && <ShareLinkModal group={activeGroup} onClose={() => setShowShare(false)} />}
+
+        <div className="flex h-[calc(100vh-4rem)] md:h-screen max-w-3xl mx-auto flex-col relative">
           {/* Header */}
-          <div className="px-4 h-16 border-b border-border flex items-center gap-3 shrink-0 bg-card/80 backdrop-blur-sm">
+          <div className="px-4 py-3 border-b border-border flex items-center gap-3 shrink-0 bg-card/80 backdrop-blur-sm">
             <button onClick={() => { setView("list"); setMsgMenuId(null); setEditingMsgId(null); }}
-              className="md:hidden text-muted-foreground hover:text-foreground transition-colors">
+              className="text-muted-foreground hover:text-foreground transition-colors">
               <ArrowLeft className="h-5 w-5" />
             </button>
-            <div className="h-10 w-10 rounded-xl bg-muted flex items-center justify-center text-xl shrink-0 overflow-hidden">
+            <div className="h-9 w-9 rounded-xl bg-muted flex items-center justify-center text-xl shrink-0 overflow-hidden">
               {activeGroup.image_url
                 ? <img src={activeGroup.image_url} alt={activeGroup.name} className="w-full h-full object-cover" />
                 : activeGroup.emoji}
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-1.5">
-                <p className="font-semibold text-base text-foreground truncate">{activeGroup.name}</p>
+                <p className="font-semibold text-sm text-foreground truncate">{activeGroup.name}</p>
                 {activeGroup.visibility === "private" && <Lock className="h-3 w-3 text-muted-foreground shrink-0" />}
               </div>
               <p className="text-xs text-muted-foreground flex items-center gap-1.5">
@@ -2209,13 +2080,16 @@ export default function Groups() {
                   (wsStatus === "connected" ? "bg-emerald-500" :
                    wsStatus === "error" ? "bg-red-500 animate-pulse" :
                    "bg-yellow-400 animate-pulse")
-                } title={wsStatus === "connected" ? "Live" : wsStatus === "error" ? "Connection error" : "Connecting…"} />
+                } title={
+                  wsStatus === "connected" ? "Live" :
+                  wsStatus === "error" ? "Connection error" : "Connecting…"
+                } />
               </p>
             </div>
             <div className="flex items-center gap-1">
               <button onClick={openSettings}
-                className="relative h-9 w-9 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors">
-                <Settings className="h-4.5 w-4.5 h-5 w-5" />
+                className="relative h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors">
+                <Settings className="h-4 w-4" />
                 {pendingRequestCount > 0 && (isOwner || isAdmin) && (
                   <span className="absolute top-0.5 right-0.5 h-2 w-2 rounded-full bg-red-500" />
                 )}
@@ -2362,158 +2236,251 @@ export default function Groups() {
               </div>
             </div>
           )}
+        </div>
+        {promoteModal && (
+          <PromoteAdminModal
+            memberName={promoteModal.memberName}
+            perms={promotePerms}
+            onChange={setPromotePerms}
+            onConfirm={confirmPromoteAdmin}
+            onClose={() => setPromoteModal(null)}
+          />
+        )}
+
+        {/* Lightbox */}
+        {lightboxUrl && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm"
+            onClick={() => setLightboxUrl(null)}>
+            <button onClick={() => setLightboxUrl(null)}
+              className="absolute top-4 right-4 h-9 w-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors z-10">
+              <X className="h-5 w-5" />
+            </button>
+            <img src={lightboxUrl} alt="full size" className="max-w-[95vw] max-h-[90vh] object-contain rounded-xl shadow-2xl" onClick={e => e.stopPropagation()} />
+            <a href={lightboxUrl} download target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
+              className="absolute bottom-4 right-4 h-9 px-3 rounded-full bg-white/10 hover:bg-white/20 flex items-center gap-2 text-white text-xs transition-colors">
+              <Download className="h-4 w-4" /> Save
+            </a>
           </div>
         )}
 
-        {/* ── BROWSE (list view) ──────────────────────────────────────────── */}
-        {showBrowse && (
-          <div className="flex-1 overflow-y-auto">
-            <div className="max-w-4xl mx-auto px-6 py-6">
-              <div className="flex items-center justify-between mb-5">
-                <h1 className="font-display text-xl font-bold">Discover Communities</h1>
-                <Button size="sm" className="gap-1.5" onClick={() => setView("create")}>
-                  <Plus className="h-4 w-4" /> Create
-                </Button>
-              </div>
-
-              <div className="flex gap-2 mb-4">
-                <div className="relative flex-1">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input placeholder="Search communities..." value={search} onChange={e => setSearch(e.target.value)} className="pl-10 h-10" />
-                </div>
-                <div className="relative">
-                  <button onClick={() => setShowSortMenu(v => !v)}
-                    className={`h-10 px-3 rounded-xl border flex items-center gap-1.5 text-sm font-medium transition-colors ${showSortMenu ? "border-primary text-primary bg-primary/5" : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/30"}`}>
-                    <SlidersHorizontal className="h-4 w-4" />
-                    <span className="hidden sm:inline">{sort === "popular" ? "Popular" : sort === "newest" ? "Newest" : "Active"}</span>
-                  </button>
-                  {showSortMenu && (
-                    <>
-                      <div className="fixed inset-0 z-30" onClick={() => setShowSortMenu(false)} />
-                      <div className="absolute right-0 top-11 z-40 bg-card border border-border rounded-xl shadow-xl overflow-hidden w-36 animate-in fade-in zoom-in-95 duration-100">
-                        {(["popular", "newest", "active"] as const).map(s => (
-                          <button key={s} onClick={() => { setSort(s); setShowSortMenu(false); }}
-                            className={`w-full px-4 py-2.5 text-sm text-left flex items-center justify-between transition-colors hover:bg-muted ${sort === s ? "text-primary font-medium" : "text-foreground"}`}>
-                            {s === "popular" ? "Popular" : s === "newest" ? "Newest" : "Active"}
-                            {sort === s && <Check className="h-3.5 w-3.5" />}
-                          </button>
-                        ))}
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex bg-muted rounded-xl p-1 mb-4">
-                <button onClick={() => setFilter("all")}
-                  className={`flex-1 text-sm font-medium py-1.5 rounded-lg transition-all ${filter === "all" ? "bg-card shadow text-foreground" : "text-muted-foreground hover:text-foreground"}`}>
-                  All Communities
-                </button>
-                <button onClick={() => setFilter("joined")}
-                  className={`flex-1 text-sm font-medium py-1.5 rounded-lg transition-all ${filter === "joined" ? "bg-card shadow text-foreground" : "text-muted-foreground hover:text-foreground"}`}>
-                  <span className="flex items-center justify-center gap-1.5">
-                    Joined ({joinedCount})
-                    {totalUnread > 0 && (
-                      <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center">
-                        {totalUnread > 99 ? "99+" : totalUnread}
-                      </span>
-                    )}
-                  </span>
+        {/* Image send modal */}
+        {imgModal && (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+            onClick={e => { if (e.target === e.currentTarget && !imgUploading) setImgModal(null); }}>
+            <div className="w-full max-w-sm bg-card border border-border rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+              <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-border">
+                <p className="font-semibold text-foreground">Send Image</p>
+                <button onClick={() => !imgUploading && setImgModal(null)}
+                  className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors">
+                  <X className="h-4 w-4" />
                 </button>
               </div>
-
-              <div className="flex gap-2 flex-wrap mb-4">
-                <Badge variant={topic === "" ? "default" : "outline"} className="cursor-pointer" onClick={() => setTopic("")}>All</Badge>
-                {TOPICS.map(t => (
-                  <Badge key={t} variant={topic === t ? "default" : "outline"} className="cursor-pointer" onClick={() => setTopic(topic === t ? "" : t)}>{t}</Badge>
-                ))}
+              <div className="relative bg-black/10">
+                <img src={imgModal.previewUrl} alt="preview" className="w-full max-h-64 object-contain" />
+                {imgUploading && (
+                  <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center gap-2">
+                    <p className="text-white text-sm font-medium">Uploading… {imgUploadPct}%</p>
+                    <div className="w-48 h-1.5 bg-white/20 rounded-full overflow-hidden">
+                      <div className="h-full bg-white rounded-full transition-all duration-200" style={{ width: `${imgUploadPct}%` }} />
+                    </div>
+                  </div>
+                )}
               </div>
+              <div className="px-4 py-3 space-y-3">
+                <textarea value={imgCaption} onChange={e => setImgCaption(e.target.value)}
+                  placeholder="Add a caption… (optional)" rows={2} disabled={imgUploading}
+                  className="w-full bg-muted rounded-xl px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none resize-none" />
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-2">Quality</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    {([["480p", "480p", "Smaller"], ["720p", "720p", "Balanced"], ["hd", "HD", "Original"]] as [ImgQuality, string, string][]).map(([val, label, sub]) => (
+                      <button key={val} onClick={() => setImgQuality(val)} disabled={imgUploading}
+                        className={`flex flex-col items-center py-2 rounded-xl border text-xs transition-all ${imgQuality === val ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-foreground/30"}`}>
+                        <span className="font-semibold">{label}</span>
+                        <span className="text-[10px] opacity-70 mt-0.5">{sub}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <button onClick={sendImageMsg} disabled={imgUploading}
+                  className="w-full h-10 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2">
+                  {imgUploading
+                    ? <><div className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin" /> Uploading…</>
+                    : <><Send className="h-4 w-4" /> Send</>}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </Layout>
+    );
+  }
 
-              {loadingGroups ? (
-                <div className="flex items-center justify-center py-16"><div className="h-8 w-8 rounded-full border-2 border-primary border-t-transparent animate-spin" /></div>
-              ) : filtered.length === 0 ? (
-                <div className="text-center py-14 text-muted-foreground">
-                  <Users className="h-8 w-8 mx-auto mb-2 opacity-30" />
-                  <p className="text-sm font-medium mb-1">No communities found</p>
-                  <p className="text-xs mb-3">{filter === "joined" ? "You haven't joined any communities yet." : "Try a different search or create one."}</p>
-                  {filter === "joined" && <button className="text-xs text-primary hover:underline" onClick={() => setFilter("all")}>Browse all communities</button>}
+  // ══════════════════════════════════════════════════════════════════════════
+  // VIEW: Groups List
+  // ══════════════════════════════════════════════════════════════════════════
+
+  return (
+    <Layout>
+      <div className="max-w-4xl mx-auto px-4 py-6">
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="font-display text-2xl font-bold">Communities</h1>
+          <div className="flex items-center gap-2">
+            <button onClick={fetchGroups} title="Refresh"
+              className="h-9 w-9 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors">
+              <RefreshCw className={`h-4 w-4 ${loadingGroups ? "animate-spin" : ""}`} />
+            </button>
+            <Button size="sm" className="gap-1.5" onClick={() => setView("create")}>
+              <Plus className="h-4 w-4" /> Create Community
+            </Button>
+          </div>
+        </div>
+
+        <div className="flex gap-2 mb-4">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input placeholder="Search communities..." value={search} onChange={e => setSearch(e.target.value)} className="pl-10 h-11" />
+          </div>
+          {/* Sort dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setShowSortMenu(v => !v)}
+              className={`h-11 px-3 rounded-xl border flex items-center gap-1.5 text-sm font-medium transition-colors ${
+                showSortMenu ? "border-primary text-primary bg-primary/5" : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/30"
+              }`}>
+              <SlidersHorizontal className="h-4 w-4" />
+              <span className="hidden sm:inline">{sort === "popular" ? "Popular" : sort === "newest" ? "Newest" : "Active"}</span>
+            </button>
+            {showSortMenu && (
+              <>
+                <div className="fixed inset-0 z-30" onClick={() => setShowSortMenu(false)} />
+                <div className="absolute right-0 top-12 z-40 bg-card border border-border rounded-xl shadow-xl overflow-hidden w-36 animate-in fade-in zoom-in-95 duration-100">
+                  {(["popular", "newest", "active"] as const).map(s => (
+                    <button key={s} onClick={() => { setSort(s); setShowSortMenu(false); }}
+                      className={`w-full px-4 py-2.5 text-sm text-left flex items-center justify-between transition-colors hover:bg-muted ${sort === s ? "text-primary font-medium" : "text-foreground"}`}>
+                      {s === "popular" ? "Popular" : s === "newest" ? "Newest" : "Active"}
+                      {sort === s && <Check className="h-3.5 w-3.5" />}
+                    </button>
+                  ))}
                 </div>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {filtered.map(g => {
-                    const joined = joinedIds.has(g.id);
-                    const isMine = g.owner_id === user.id;
-                    const unread = unreadCounts[g.id] ?? 0;
-                    const requested = requestedIds.has(g.id);
-                    return (
-                      <div key={g.id} onClick={() => openGroup(g)}
-                        className="flex flex-col rounded-2xl border border-border bg-card hover:shadow-md hover:-translate-y-0.5 transition-all duration-150 cursor-pointer overflow-hidden group">
-                        <div className="h-2 w-full bg-gradient-to-r from-primary/60 to-accent/60" />
-                        <div className="flex flex-col flex-1 p-5">
-                          <div className="flex items-start justify-between mb-3">
-                            <div className="relative">
-                              <div className="h-12 w-12 rounded-2xl bg-muted flex items-center justify-center text-2xl group-hover:scale-110 transition-transform duration-150 overflow-hidden">
-                                {g.image_url ? <img src={g.image_url} alt={g.name} className="w-full h-full object-cover" /> : g.emoji}
-                              </div>
-                              {unread > 0 && (
-                                <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center">
-                                  {unread > 99 ? "99+" : unread}
-                                </span>
-                              )}
-                              {mentionGroupIds.has(g.id) && (
-                                <span className="absolute -bottom-1 -right-1 h-4 w-4 rounded-full bg-emerald-500 text-white flex items-center justify-center" title="Unread mention">
-                                  <AtSign className="h-2.5 w-2.5" />
-                                </span>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-1.5 flex-wrap justify-end">
-                              {g.visibility === "private" ? (
-                                <span className="flex items-center gap-0.5 text-[10px] font-medium text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full"><Lock className="h-2.5 w-2.5" /> Private</span>
-                              ) : (
-                                <span className="flex items-center gap-0.5 text-[10px] font-medium text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full"><Globe className="h-2.5 w-2.5" /> Public</span>
-                              )}
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-1.5 mb-1">
-                            <p className="font-semibold text-foreground leading-snug truncate">{g.name}</p>
-                            {activeGroupIds.has(g.id) && (
-                              <span className="shrink-0 text-[9px] font-semibold tracking-wide text-emerald-600 bg-emerald-50 dark:bg-emerald-950 dark:text-emerald-400 px-1.5 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">Active</span>
-                            )}
-                          </div>
-                          <p className="text-xs text-muted-foreground line-clamp-2 flex-1">{g.description}</p>
-                          <div className="mt-4 pt-3 border-t border-border flex items-center justify-between">
-                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                              <span className="flex items-center gap-1"><Users className="h-3 w-3" />{g.member_count.toLocaleString()}</span>
-                              <Badge variant="outline" className="text-[10px] h-4 px-1.5">{g.topic}</Badge>
-                            </div>
-                            <button
-                              onClick={e => { e.stopPropagation(); (joined || isMine) ? openGroup(g) : toggleJoin(g.id, false, e); }}
-                              className={`h-7 px-3 rounded-lg text-xs font-medium transition-colors ${joined || isMine ? "bg-muted text-foreground hover:bg-secondary" : "bg-primary text-primary-foreground hover:opacity-90"}`}>
-                              {joined || isMine ? "Joined" : requested ? "Requested" : g.visibility === "private" ? "Request" : "Join"}
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Primary tabs: All / Joined */}
+        <div className="flex bg-muted rounded-xl p-1 mb-4">
+          <button onClick={() => setFilter("all")}
+            className={`flex-1 text-sm font-medium py-1.5 rounded-lg transition-all ${filter === "all" ? "bg-card shadow text-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+            All Communities
+          </button>
+          <button onClick={() => setFilter("joined")}
+            className={`flex-1 text-sm font-medium py-1.5 rounded-lg transition-all ${filter === "joined" ? "bg-card shadow text-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+            <span className="flex items-center justify-center gap-1.5">
+              Joined ({joinedCount})
+              {totalUnread > 0 && (
+                <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center">
+                  {totalUnread > 99 ? "99+" : totalUnread}
+                </span>
               )}
-            </div>
+            </span>
+          </button>
+        </div>
+
+        {/* Secondary: topic filter pills */}
+        <div className="flex gap-2 flex-wrap mb-4">
+          <Badge variant={topic === "" ? "default" : "outline"} className="cursor-pointer" onClick={() => setTopic("")}>All</Badge>
+          {TOPICS.map(t => (
+            <Badge key={t} variant={topic === t ? "default" : "outline"} className="cursor-pointer" onClick={() => setTopic(topic === t ? "" : t)}>{t}</Badge>
+          ))}
+        </div>
+
+        {loadingGroups ? (
+          <div className="flex items-center justify-center py-16">
+            <div className="h-8 w-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="text-center py-14 text-muted-foreground">
+            <Users className="h-8 w-8 mx-auto mb-2 opacity-30" />
+            <p className="text-sm font-medium mb-1">No communities found</p>
+            <p className="text-xs mb-3">{filter === "joined" ? "You haven't joined any communities yet." : "Try a different search or create one."}</p>
+            {filter === "joined" && <button className="text-xs text-primary hover:underline" onClick={() => setFilter("all")}>Browse all communities</button>}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {filtered.map(g => {
+              const joined = joinedIds.has(g.id);
+              const isMine = g.owner_id === user.id;
+              const unread = unreadCounts[g.id] ?? 0;
+              const requested = requestedIds.has(g.id);
+              return (
+                <div key={g.id} onClick={() => openGroup(g)}
+                  className="flex flex-col rounded-2xl border border-border bg-card hover:shadow-md hover:-translate-y-0.5 transition-all duration-150 cursor-pointer overflow-hidden group">
+                  <div className="h-2 w-full bg-gradient-to-r from-primary/60 to-accent/60" />
+                  <div className="flex flex-col flex-1 p-5">
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="relative">
+                        <div className="h-12 w-12 rounded-2xl bg-muted flex items-center justify-center text-2xl group-hover:scale-110 transition-transform duration-150 overflow-hidden">
+                          {g.image_url
+                            ? <img src={g.image_url} alt={g.name} className="w-full h-full object-cover" />
+                            : g.emoji}
+                        </div>
+                        {unread > 0 && (
+                          <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center">
+                            {unread > 99 ? "99+" : unread}
+                          </span>
+                        )}
+                        {mentionGroupIds.has(g.id) && (
+                          <span className="absolute -bottom-1 -right-1 h-4 w-4 rounded-full bg-emerald-500 text-white flex items-center justify-center" title="Unread mention">
+                            <AtSign className="h-2.5 w-2.5" />
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                        {g.visibility === "private" ? (
+                          <span className="flex items-center gap-0.5 text-[10px] font-medium text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full">
+                            <Lock className="h-2.5 w-2.5" /> Private
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-0.5 text-[10px] font-medium text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full">
+                            <Globe className="h-2.5 w-2.5" /> Public
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <p className="font-semibold text-foreground leading-snug truncate">{g.name}</p>
+                      {activeGroupIds.has(g.id) && (
+                        <span className="shrink-0 text-[9px] font-semibold tracking-wide text-emerald-600 bg-emerald-50 dark:bg-emerald-950 dark:text-emerald-400 px-1.5 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
+                          Active
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground line-clamp-2 flex-1">{g.description}</p>
+                    <div className="mt-4 pt-3 border-t border-border flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <span className="flex items-center gap-1"><Users className="h-3 w-3" />{g.member_count.toLocaleString()}</span>
+                        <Badge variant="outline" className="text-[10px] h-4 px-1.5">{g.topic}</Badge>
+                      </div>
+                      <button
+                        onClick={e => { e.stopPropagation(); (joined || isMine) ? openGroup(g) : toggleJoin(g.id, false, e); }}
+                        className={`h-7 px-3 rounded-lg text-xs font-medium transition-colors ${
+                          joined || isMine ? "bg-muted text-foreground hover:bg-secondary"
+                            : "bg-primary text-primary-foreground hover:opacity-90"
+                        }`}>
+                        {joined || isMine ? "Joined"
+                          : requested ? "Requested"
+                          : g.visibility === "private" ? "Request"
+                          : "Join"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
-
-        {/* Empty state when no panel is active (shouldn't happen but safe fallback) */}
-        {!showCreate && !showSettings_ && !showChat && !showBrowse && (
-          <div className="flex-1 flex items-center justify-center text-muted-foreground">
-            <div className="text-center">
-              <MessageCircle className="h-10 w-10 mx-auto mb-3 opacity-20" />
-              <p className="text-sm">Select a community to start chatting</p>
-            </div>
-          </div>
-        )}
-
-        </div>{/* end right panel */}
-      </div>{/* end two-panel flex */}
+      </div>
     </Layout>
   );
 }
