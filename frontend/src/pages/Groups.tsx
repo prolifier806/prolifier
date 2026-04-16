@@ -1425,15 +1425,22 @@ export default function Groups() {
             ) : (
               <>
                 {m.media_type === "image" && m.media_url && (
-                  <div className="mt-1 w-full rounded-2xl border border-border/60 bg-card overflow-hidden shadow-sm flex flex-col items-stretch">
-                    <div className="p-1.5 shrink-0">
-                      <button className="w-full block rounded-xl overflow-hidden" onClick={() => setLightboxUrl(m.media_url!)}>
-                        <img src={m.media_url} alt="shared" className="w-full max-h-96 object-cover hover:opacity-95 transition-opacity" loading="lazy" />
-                      </button>
-                    </div>
+                  <div className="mt-1 inline-flex flex-col rounded-2xl overflow-hidden border border-border/40 bg-muted/20 max-w-[320px]">
+                    <button
+                      onClick={() => setLightboxUrl(m.media_url!)}
+                      className="block w-full"
+                    >
+                      <img
+                        src={m.media_url}
+                        alt="shared"
+                        className="w-full object-cover block"
+                        style={{ maxHeight: "280px", minHeight: "120px" }}
+                        loading="lazy"
+                      />
+                    </button>
                     {m.text?.trim() && (
-                      <div className="px-3 pt-1 pb-3 flex flex-col items-start">
-                        <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap break-words text-left w-full">
+                      <div className="px-3 py-2 border-t border-border/30">
+                        <p className="text-sm text-foreground leading-snug whitespace-pre-wrap break-words">
                           {renderTextWithLinks(m.text.trim(), members.map(mb => mb.name))}
                           {m.edited && <span className="text-[10px] text-muted-foreground italic ml-1">· edited</span>}
                         </p>
