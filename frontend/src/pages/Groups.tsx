@@ -295,6 +295,7 @@ export default function Groups() {
 
   // Settings
   const [editingGroup, setEditingGroup] = useState(false);
+  const [editName, setEditName] = useState("");
   const [editDesc, setEditDesc] = useState("");
   const [editBio, setEditBio] = useState("");
   const [editEmoji, setEditEmoji] = useState("");
@@ -322,8 +323,8 @@ export default function Groups() {
   const [joinRequests, setJoinRequests] = useState<JoinRequest[]>([]);
   const [joinRequestsLoading, setJoinRequestsLoading] = useState(false);
   const [showJoinRequests, setShowJoinRequests] = useState(false);
-  // Red dot on settings gear — true when new requests arrived since settings was last opened
-  const [hasUnseenRequests, setHasUnseenRequests] = useState(false);
+  // Count of pending join requests — drives red dot on gear + badge on Requests button
+  const [pendingRequestCount, setPendingRequestCount] = useState(0);
   // Track whether the current user has sent a join request per group
   const [requestedIds, setRequestedIds] = useState<Set<string>>(new Set());
   // Synchronous ref-based lock to prevent spam clicks — state updates are async
@@ -782,8 +783,7 @@ export default function Groups() {
               profile: profile ? { name: profile.name, color: profile.color, avatar_url: profile.avatar_url } : null,
             };
             setJoinRequests(prev => prev.find(r => r.id === row.id) ? prev : [...prev, newReq]);
-            // Light up the red dot on the settings gear (only for admins/owner)
-            if (row.user_id !== user.id) setHasUnseenRequests(true);
+            if (row.user_id !== user.id) setPendingRequestCount(prev => prev + 1);
           }
           // Update requestedIds if this is the current user's own request
           if (row.user_id === user.id && row.status === "pending") {
@@ -793,6 +793,7 @@ export default function Groups() {
           const row = payload.old as any;
           // Remove from admin's panel instantly
           setJoinRequests(prev => prev.filter(r => r.id !== row.id));
+          setPendingRequestCount(prev => Math.max(0, prev - 1));
           // Clear from requester's local state (cancellation or admin resolved it)
           if (row.user_id === user.id) {
             setRequestedIds(prev => { const s = new Set(prev); s.delete(row.group_id ?? activeGroup?.id); return s; });
@@ -802,6 +803,7 @@ export default function Groups() {
           // Remove resolved requests from admin panel
           if (row.status !== "pending") {
             setJoinRequests(prev => prev.filter(r => r.id !== row.id));
+            setPendingRequestCount(prev => Math.max(0, prev - 1));
           }
           // If this user's request was accepted, update joinedIds
           if (row.user_id === user.id) {
@@ -853,7 +855,7 @@ export default function Groups() {
     setView("group");
     setMembers([]);
     setSettingsPanel(null);
-    setHasUnseenRequests(false);
+    setPendingRequestCount(0);
     setMentionMsgIds([]);
     mentionJumpIdx.current = 0;
     // Mark this group as read — reset unread counter + persist timestamp
@@ -862,12 +864,18 @@ export default function Groups() {
     try { localStorage.setItem(`prf_read_${user.id}_${group.id}`, new Date().toISOString()); } catch { /* storage full */ }
     fetchMessages(group.id);
     fetchMembers(group.id);
+    // Fetch pending request count for private groups so the red dot shows immediately
+    if (group.visibility === "private") {
+      (supabase as any).from("group_join_requests")
+        .select("id", { count: "exact", head: true })
+        .eq("group_id", group.id).eq("status", "pending")
+        .then(({ count }: { count: number | null }) => { if ((count ?? 0) > 0) setPendingRequestCount(count ?? 0); });
+    }
   };
 
   const openSettings = () => {
     if (!activeGroup) return;
     setShowSettings(true);
-    setHasUnseenRequests(false);
     setShowBanned(false);
     setBannedUsers([]);
     setShowJoinRequests(false);
@@ -912,17 +920,18 @@ export default function Groups() {
             setRequestedIds(prev => new Set([...prev, groupId])); // revert
             toast({ title: "Could not cancel request", variant: "destructive" });
           }
-          return;
+        } else {
+          // Optimistic: mark as requested immediately
+          setRequestedIds(prev => new Set([...prev, groupId]));
+          try {
+            await apiRequestToJoin(groupId);
+            toast({ title: "Request sent!", description: "An admin will review your request." });
+          } catch {
+            setRequestedIds(prev => { const s = new Set(prev); s.delete(groupId); return s; }); // revert
+            toast({ title: "Could not send request", variant: "destructive" });
+          }
         }
-        // Optimistic: mark as requested immediately
-        setRequestedIds(prev => new Set([...prev, groupId]));
-        try {
-          await apiRequestToJoin(groupId);
-          toast({ title: "Request sent!", description: "An admin will review your request." });
-        } catch {
-          setRequestedIds(prev => { const s = new Set(prev); s.delete(groupId); return s; }); // revert
-          toast({ title: "Could not send request", variant: "destructive" });
-        }
+        joiningRef.current.delete(groupId);
         return;
       }
       // Optimistic update for public join/leave
@@ -1211,12 +1220,13 @@ export default function Groups() {
   // ── Admin: save group edit ───────────────────────────────────────────────
   const saveGroupEdit = async () => {
     if (!activeGroup) return;
-    const updated = { ...activeGroup, description: editDesc, bio: editBio, emoji: editEmoji, visibility: editVisibility, image_url: editImageUrl };
+    const trimmedName = editName.trim() || activeGroup.name;
+    const updated = { ...activeGroup, name: trimmedName, bio: editBio, emoji: editEmoji, visibility: editVisibility, image_url: editImageUrl };
     setActiveGroup(updated);
-    setGroups(prev => prev.map(g => g.id === activeGroup.id ? { ...g, description: editDesc, bio: editBio, emoji: editEmoji, visibility: editVisibility, image_url: editImageUrl } : g));
+    setGroups(prev => prev.map(g => g.id === activeGroup.id ? { ...g, name: trimmedName, bio: editBio, emoji: editEmoji, visibility: editVisibility, image_url: editImageUrl } : g));
     setEditingGroup(false);
     try {
-      await apiUpdateGroup(activeGroup.id, { description: editDesc, bio: editBio, emoji: editEmoji, visibility: editVisibility, image_url: editImageUrl });
+      await apiUpdateGroup(activeGroup.id, { name: trimmedName, bio: editBio, emoji: editEmoji, visibility: editVisibility, image_url: editImageUrl });
       toast({ title: "Community updated ✓" });
     } catch {
       setActiveGroup(activeGroup);
@@ -1477,10 +1487,6 @@ export default function Groups() {
               <Input value={newName} onChange={e => setNewName(e.target.value)} placeholder="e.g. AI Builders, Design Crew…" className="h-11" />
             </div>
             <div>
-              <label className="text-sm font-medium block mb-1.5">Short description</label>
-              <Input value={newDesc} onChange={e => setNewDesc(e.target.value)} placeholder="One line about your community" className="h-11" />
-            </div>
-            <div>
               <label className="text-sm font-medium block mb-1.5">Bio</label>
               <Textarea value={newBio} onChange={e => setNewBio(e.target.value)} placeholder="Tell people what this community is about…" rows={3} />
             </div>
@@ -1561,7 +1567,7 @@ export default function Groups() {
                 </div>
                 {(isOwner || (isAdmin && (myPermissions?.changeChannelInfo ?? false))) && !editingGroup && (
                   <button
-                    onClick={() => { setEditDesc(activeGroup.description); setEditBio(activeGroup.bio); setEditEmoji(activeGroup.emoji); setEditVisibility(activeGroup.visibility); setEditImageUrl(activeGroup.image_url ?? null); setEditImagePreview(activeGroup.image_url ?? null); setEditingGroup(true); }}
+                    onClick={() => { setEditName(activeGroup.name); setEditBio(activeGroup.bio); setEditEmoji(activeGroup.emoji); setEditVisibility(activeGroup.visibility); setEditImageUrl(activeGroup.image_url ?? null); setEditImagePreview(activeGroup.image_url ?? null); setEditingGroup(true); }}
                     className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors shrink-0"
                     title="Edit community info"
                   >
@@ -1591,8 +1597,8 @@ export default function Groups() {
                     </div>
                   </div>
                   <div>
-                    <label className="text-xs font-medium text-muted-foreground block mb-1">Description</label>
-                    <Input value={editDesc} onChange={e => setEditDesc(e.target.value)} className="h-9 text-sm" />
+                    <label className="text-xs font-medium text-muted-foreground block mb-1">Community Name</label>
+                    <Input value={editName} onChange={e => setEditName(e.target.value)} className="h-9 text-sm" />
                   </div>
                   <div>
                     <label className="text-xs font-medium text-muted-foreground block mb-1">Bio</label>
@@ -1611,12 +1617,12 @@ export default function Groups() {
                   </div>
                 </div>
               ) : (
-                <>
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Description</p>
-                  <p className="text-sm text-foreground mb-3">{activeGroup.description}</p>
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Bio</p>
-                  <p className="text-sm text-foreground mb-3">{activeGroup.bio}</p>
-                </>
+                activeGroup.bio ? (
+                  <>
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Bio</p>
+                    <p className="text-sm text-foreground mb-3">{activeGroup.bio}</p>
+                  </>
+                ) : null
               )}
             </div>
 
@@ -1673,6 +1679,7 @@ export default function Groups() {
                   <button
                     onClick={async () => {
                       setSettingsPanel("requests");
+                      setPendingRequestCount(0); // mark as seen
                       setJoinRequestsLoading(true);
                       try { setJoinRequests(await apiGetJoinRequests(activeGroup.id)); }
                       catch { toast({ title: "Failed to load requests", variant: "destructive" }); }
@@ -1682,9 +1689,9 @@ export default function Groups() {
                   >
                     <div className="h-12 w-12 rounded-2xl bg-amber-500/10 flex items-center justify-center group-hover:bg-amber-500/20 transition-colors relative">
                       <Bell className="h-5 w-5 text-amber-500" />
-                      {joinRequests.length > 0 && (
+                      {pendingRequestCount > 0 && (
                         <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-amber-500 text-white text-[9px] font-bold flex items-center justify-center">
-                          {joinRequests.length > 9 ? "9+" : joinRequests.length}
+                          {pendingRequestCount > 9 ? "9+" : pendingRequestCount}
                         </span>
                       )}
                     </div>
@@ -2000,7 +2007,7 @@ export default function Groups() {
               <button onClick={openSettings}
                 className="relative h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors">
                 <Settings className="h-4 w-4" />
-                {hasUnseenRequests && (isOwner || isAdmin) && (
+                {pendingRequestCount > 0 && (isOwner || isAdmin) && (
                   <span className="absolute top-0.5 right-0.5 h-2 w-2 rounded-full bg-red-500" />
                 )}
               </button>

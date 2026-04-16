@@ -3,7 +3,7 @@ import { apiPost, apiPatch, apiDelete, apiGet, apiPut } from "./client";
 export const createGroup = (body: { name: string; description?: string; bio?: string; is_private?: boolean; emoji?: string; topic?: string; image_url?: string | null }) =>
   apiPost<any>("/api/groups", body);
 
-export const updateGroup = (id: string, body: { description?: string; bio?: string; visibility?: "public" | "private"; emoji?: string; topic?: string; image_url?: string | null }) =>
+export const updateGroup = (id: string, body: { name?: string; description?: string; bio?: string; visibility?: "public" | "private"; emoji?: string; topic?: string; image_url?: string | null }) =>
   apiPatch<any>(`/api/groups/${id}`, body);
 
 export const deleteGroup = (id: string) => apiDelete(`/api/groups/${id}`);
