@@ -125,7 +125,7 @@ type Group = {
 
 const TOPICS = ["General", "AI", "Design", "Marketing", "Tech"];
 
-function renderTextWithLinks(text: string, validMentionNames?: string[]) {
+function renderTextWithLinks(text: string, validMentionNames?: string[], isOwn?: boolean) {
   // Build a regex that only matches @MemberName for real member names.
   // Sort longest-first so "John Doe" matches before "John".
   let TOKEN_RE: RegExp;
@@ -142,14 +142,14 @@ function renderTextWithLinks(text: string, validMentionNames?: string[]) {
     if (/^https?:\/\//i.test(part)) {
       return (
         <a key={i} href={part} target="_blank" rel="noopener noreferrer"
-          className="underline text-primary hover:opacity-80 break-all"
+          className={`underline break-all hover:opacity-80 ${isOwn ? "text-white/95 decoration-white/60" : "text-blue-600 dark:text-blue-400"}`}
           onClick={e => e.stopPropagation()}>
           {part}
         </a>
       );
     }
     if (/^@/i.test(part)) {
-      return <span key={i} className="text-emerald-500 font-medium">{part}</span>;
+      return <span key={i} className={isOwn ? "text-white font-medium" : "text-emerald-500 font-medium"}>{part}</span>;
     }
     return <span key={i}>{part}</span>;
   });
@@ -1027,6 +1027,10 @@ export default function Groups() {
     setSettingsPanel(null);
     setMentionMsgIds([]);
     mentionJumpIdx.current = 0;
+    // Reset chat search so reopening the same group doesn't show stale results
+    setShowSearch(false);
+    setSearchQuery("");
+    setSearchResults([]);
     // Mark this group as read instantly — reset unread + mentions + persist timestamp
     setUnreadCounts(prev => ({ ...prev, [group.id]: 0 }));
     setMentionGroupIds(prev => { const s = new Set(prev); s.delete(group.id); return s; });
@@ -1337,7 +1341,11 @@ export default function Groups() {
 
   // ── Chat search ───────────────────────────────────────────────────────────
   const runSearch = useCallback(async (q: string) => {
-    if (!activeGroup || q.trim().length < 2) { setSearchResults([]); return; }
+    if (!activeGroup || q.trim().length < 2) {
+      setSearchResults([]);
+      setSearchLoading(false);
+      return;
+    }
     setSearchLoading(true);
     try {
       const res = await searchGroupMessages(activeGroup.id, q, 30);
@@ -1354,12 +1362,29 @@ export default function Groups() {
     if (!activeGroup) return;
     setReactionPickerMsgId(null);
     const msgReactions = reactions[msgId] ?? {};
-    const existing = msgReactions[emoji];
-    const alreadyReacted = existing?.userIds.includes(user.id) ?? false;
+    const alreadyReacted = msgReactions[emoji]?.userIds.includes(user.id) ?? false;
+
+    // Find any existing reaction by this user on a *different* emoji (1 reaction per user)
+    const existingEmoji = Object.entries(msgReactions).find(
+      ([e, data]) => e !== emoji && data.userIds.includes(user.id)
+    )?.[0];
 
     // Optimistic update
     setReactions(prev => {
-      const msg = { ...(prev[msgId] ?? {}) };
+      let msg = { ...(prev[msgId] ?? {}) };
+
+      // Remove their previous reaction on a different emoji
+      if (existingEmoji) {
+        const newUserIds = (msg[existingEmoji]?.userIds ?? []).filter(id => id !== user.id);
+        if (newUserIds.length === 0) {
+          const { [existingEmoji]: _removed, ...rest } = msg;
+          msg = rest;
+        } else {
+          msg = { ...msg, [existingEmoji]: { count: newUserIds.length, userIds: newUserIds } };
+        }
+      }
+
+      // Toggle the clicked emoji
       if (alreadyReacted) {
         const newUserIds = (msg[emoji]?.userIds ?? []).filter(id => id !== user.id);
         if (newUserIds.length === 0) {
@@ -1374,6 +1399,10 @@ export default function Groups() {
     });
 
     try {
+      // If switching from a different emoji, remove that one first
+      if (existingEmoji && !alreadyReacted) {
+        await apiToggleReaction(activeGroup.id, msgId, existingEmoji);
+      }
       await apiToggleReaction(activeGroup.id, msgId, emoji);
     } catch {
       // Revert by re-fetching reactions for this message
@@ -1611,7 +1640,7 @@ export default function Groups() {
       if (m.unsent) {
         const isMyTombstone = m.user_id === user.id;
         els.push(
-          <div key={m.id} className={"flex items-end gap-2 " + (grouped ? "mt-0.5" : "mt-4") + (isMyTombstone ? " justify-end" : "")}>
+          <div key={m.id} className={"flex items-end gap-2 " + (grouped ? "mt-1" : "mt-5") + (isMyTombstone ? " justify-end" : "")}>
             {!isMyTombstone && (!grouped
               ? (
                 <button onClick={() => navigate(`/profile/${m.user_id}`)}
@@ -1637,7 +1666,7 @@ export default function Groups() {
         // ── Own message — right-aligned bubble ───────────────────────────────
         els.push(
           <div key={m.id} id={`msg-${m.id}`}
-            className={"flex items-end justify-end gap-2 group relative " + (grouped ? "mt-0.5" : "mt-4") + (isMentioned ? " -mx-1 px-1 rounded-xl bg-emerald-500/5" : "")}>
+            className={"flex items-end justify-end gap-2 group relative " + (grouped ? "mt-1" : "mt-5") + (isMentioned ? " -mx-1 px-1 rounded-xl bg-emerald-500/5" : "")}>
             <div className="max-w-[72%] min-w-0 flex flex-col items-end">
               {!grouped && (
                 <div className="flex items-center gap-1.5 mb-1 mr-1">
@@ -1703,14 +1732,14 @@ export default function Groups() {
                         </button>
                         {m.text?.trim() && (
                           <p className="text-sm leading-snug whitespace-pre-wrap break-words px-3 py-2">
-                            {renderTextWithLinks(m.text.trim(), members.map(mb => mb.name))}
+                            {renderTextWithLinks(m.text.trim(), members.map(mb => mb.name), true)}
                           </p>
                         )}
                       </div>
                     )}
                     {m.media_type !== "image" && m.text?.trim() && (
                       <p className="text-sm leading-relaxed whitespace-pre-wrap break-words px-3 py-2">
-                        {renderTextWithLinks(m.text.trim(), members.map(mb => mb.name))}
+                        {renderTextWithLinks(m.text.trim(), members.map(mb => mb.name), true)}
                       </p>
                     )}
                     {m.media_type === "video" && m.media_url && (
@@ -1773,7 +1802,7 @@ export default function Groups() {
         // ── Other user's message — left-aligned bubble ────────────────────────
         els.push(
           <div key={m.id} id={`msg-${m.id}`}
-            className={"flex items-end gap-2 group relative " + (grouped ? "mt-0.5" : "mt-4") + (isMentioned ? " -mx-1 px-1 rounded-xl bg-emerald-500/5" : "")}>
+            className={"flex items-end gap-2 group relative " + (grouped ? "mt-1" : "mt-5") + (isMentioned ? " -mx-1 px-1 rounded-xl bg-emerald-500/5" : "")}>
             {/* Avatar */}
             {!grouped
               ? (
@@ -2523,7 +2552,7 @@ export default function Groups() {
               </p>
             </div>
             <div className="flex items-center gap-1">
-              <button onClick={() => { setShowSearch(s => !s); setSearchQuery(""); setSearchResults([]); }}
+              <button onClick={() => { setShowSearch(s => !s); setSearchQuery(""); setSearchResults([]); setSearchLoading(false); if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current); }}
                 className={`h-8 w-8 rounded-full flex items-center justify-center transition-colors ${showSearch ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted"}`}>
                 <Search className="h-4 w-4" />
               </button>
@@ -2549,6 +2578,8 @@ export default function Groups() {
                     const q = e.target.value;
                     setSearchQuery(q);
                     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+                    // Instantly clear results + spinner if query is too short
+                    if (q.trim().length < 2) { setSearchResults([]); setSearchLoading(false); return; }
                     searchDebounceRef.current = setTimeout(() => runSearch(q), 350);
                   }}
                   placeholder="Search messages…"

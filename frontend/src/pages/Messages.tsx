@@ -77,7 +77,11 @@ function renderTextWithLinks(text: string, isMe: boolean) {
         href={part}
         target="_blank"
         rel="noopener noreferrer"
-        className={`underline break-all ${isMe ? "text-primary-foreground/90 hover:text-primary-foreground" : "text-primary hover:opacity-80"}`}
+        className={`underline break-all ${
+          isMe
+            ? "text-white/95 decoration-white/60 hover:decoration-white"
+            : "text-blue-600 dark:text-blue-400 hover:opacity-80"
+        }`}
         onClick={e => e.stopPropagation()}
       >
         {part}
@@ -901,14 +905,21 @@ export default function Messages() {
             ? `/feed?tab=collabs&collab=${share.id}`
             : "/feed";
         return (
-          <div key={m.id} className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
+          <div key={m.id} className={`flex mb-1 ${isMe ? "justify-end" : "justify-start"}`}>
             <div className="flex flex-col gap-0.5 max-w-[75%]">
               <button
                 onClick={() => navigate(link)}
                 className={`rounded-2xl overflow-hidden border text-left transition-opacity hover:opacity-90 ${isMe ? "border-primary/30 bg-primary/10" : "border-border bg-card"}`}
               >
                 {share.image && (
-                  <img src={share.image} alt="preview" className="w-full max-h-36 object-cover" loading="lazy" />
+                  <div className="w-full" style={{ aspectRatio: "16/9" }}>
+                    <img
+                      src={share.image}
+                      alt="preview"
+                      className="w-full h-full object-contain bg-muted"
+                      loading="lazy"
+                    />
+                  </div>
                 )}
                 <div className="px-3 py-2.5">
                   <p className="text-[10px] font-semibold text-primary uppercase tracking-wide mb-0.5">
@@ -933,7 +944,7 @@ export default function Messages() {
     }
 
     return (
-      <div key={m.id} className={`group flex items-end gap-1.5 ${isMe ? "justify-end" : "justify-start"}`}>
+      <div key={m.id} className={`group flex items-end gap-1.5 mb-1 ${isMe ? "justify-end" : "justify-start"}`}>
         {/* Reply button — other person's messages, left side */}
         {!isMe && (
           <button
@@ -962,13 +973,25 @@ export default function Messages() {
           )}
 
           {m.text && (!m.media_type || m.media_type === "text") && (
-            <div className={`px-4 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap break-words ${isMe ? "bg-primary text-primary-foreground rounded-br-md" : "bg-secondary text-secondary-foreground rounded-bl-md"}`}>
+            <div className={`relative px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap break-words ${
+              isMe
+                ? "bg-primary text-primary-foreground rounded-t-2xl rounded-bl-2xl rounded-br-sm"
+                : "bg-secondary text-secondary-foreground rounded-t-2xl rounded-br-2xl rounded-bl-sm"
+            }`}>
               {renderTextWithLinks(m.text, isMe)}
+              {/* WhatsApp-style chat tail */}
+              {isMe ? (
+                <span className="absolute bottom-0 right-[-6px] w-0 h-0 block"
+                  style={{ borderLeft: "7px solid hsl(var(--primary))", borderTop: "7px solid transparent" }} />
+              ) : (
+                <span className="absolute bottom-0 left-[-6px] w-0 h-0 block"
+                  style={{ borderRight: "7px solid hsl(var(--secondary))", borderTop: "7px solid transparent" }} />
+              )}
             </div>
           )}
           {m.media_type === "image" && m.media_url && (
             <div className="rounded-2xl overflow-hidden cursor-pointer" onClick={() => setMediaPreview({ type: "image", url: m.media_url! })}>
-              <img src={m.media_url} alt="shared" className="max-w-full max-h-56 object-cover" loading="lazy" />
+              <img src={m.media_url} alt="shared" className="max-w-full max-h-56 object-contain bg-muted" loading="lazy" />
             </div>
           )}
           {m.media_type === "video" && m.media_url && (
@@ -984,7 +1007,7 @@ export default function Messages() {
             </button>
           )}
           {m.media_type === "audio" && m.media_url && <AudioPlayer src={m.media_url} isMe={isMe} />}
-          <div className={`flex items-center gap-1 ${isMe ? "justify-end" : "justify-start"}`}>
+          <div className={`flex items-center gap-1 mt-0.5 ${isMe ? "justify-end" : "justify-start"}`}>
             <span className="text-xs text-muted-foreground">{fmtTime(m.created_at)}</span>
             {isMe && (m.read
               ? <CheckCheck className="h-3 w-3 text-primary" />
@@ -1157,7 +1180,7 @@ export default function Messages() {
               </div>
 
               {/* Messages */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              <div className="flex-1 overflow-y-auto p-4 space-y-4">
                 {loadingMsgs ? (
                   <div className="flex items-center justify-center py-12">
                     <div className="h-5 w-5 rounded-full border-2 border-primary border-t-transparent animate-spin" />
