@@ -1494,20 +1494,21 @@ export default function Groups() {
 
       // Tombstone — shown to everyone when a message is unsent
       if (m.unsent) {
+        const isMyTombstone = m.user_id === user.id;
         els.push(
-          <div key={m.id} className={"flex gap-3 " + (grouped ? "mt-0.5" : "mt-4")}>
-            {!grouped
+          <div key={m.id} className={"flex items-end gap-2 " + (grouped ? "mt-0.5" : "mt-4") + (isMyTombstone ? " justify-end" : "")}>
+            {!isMyTombstone && (!grouped
               ? (
                 <button onClick={() => navigate(`/profile/${m.user_id}`)}
-                  className={"h-9 w-9 rounded-full " + m.author_color + " flex items-center justify-center text-white text-xs font-semibold shrink-0 mt-0.5 overflow-hidden hover:opacity-80 transition-opacity"}>
+                  className={"h-8 w-8 rounded-full " + m.author_color + " flex items-center justify-center text-white text-xs font-semibold shrink-0 overflow-hidden hover:opacity-80 transition-opacity"}>
                   {m.author_avatar_url
                     ? <img src={m.author_avatar_url} alt={m.author_name} className="w-full h-full object-cover" />
                     : initials(m.author_name)}
                 </button>
               )
-              : <div className="w-9 shrink-0" />
-            }
-            <p className="text-xs text-muted-foreground italic py-0.5 select-none">
+              : <div className="w-8 shrink-0" />
+            )}
+            <p className="text-xs text-muted-foreground italic py-1.5 px-3 select-none bg-muted rounded-2xl">
               {m.removed_by_admin ? "🚫 Message removed by admin." : "🚫 This message was unsent."}
             </p>
           </div>
@@ -1516,144 +1517,228 @@ export default function Groups() {
       }
 
       const isMentioned = !m.is_system && m.text?.includes(`@${user.name}`);
-      els.push(
-        <div key={m.id} id={`msg-${m.id}`} className={"flex gap-3 group relative " + (grouped ? "mt-0.5" : "mt-4") + (isMentioned ? " bg-emerald-500/5 rounded-xl -mx-1 px-1" : "")}>
-          {!grouped
-            ? (
-              <button onClick={() => navigate(`/profile/${m.user_id}`)}
-                className={"h-9 w-9 rounded-full " + m.author_color + " flex items-center justify-center text-white text-xs font-semibold shrink-0 mt-0.5 overflow-hidden hover:opacity-80 transition-opacity"}>
-                {m.author_avatar_url
-                  ? <img src={m.author_avatar_url} alt={m.author_name} className="w-full h-full object-cover" />
-                  : initials(m.author_name)}
-              </button>
-            )
-            : <div className="w-9 shrink-0" />
-          }
-          <div className="flex-1 min-w-0">
-            {!grouped && (
-              <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
-                <button onClick={() => navigate(`/profile/${m.user_id}`)}
-                  className="text-sm font-semibold text-foreground hover:underline leading-none">{m.author_name}</button>
-                {m.author_role === "admin" && (
-                  <span title="Verified" className="h-3.5 w-3.5 rounded-full bg-blue-500 inline-flex items-center justify-center shrink-0">
-                    <Check className="h-2 w-2 text-white stroke-[3]" />
-                  </span>
-                )}
-                <span className="text-xs text-muted-foreground leading-none">{fmtTime(m.created_at)}</span>
-                {m.edited && <span className="text-[10px] text-muted-foreground italic">· edited</span>}
-              </div>
-            )}
-            {isEditingThis ? (
-              <div className="flex items-center gap-2 mt-0.5">
-                <input ref={editRef} value={editMsgText}
-                  onChange={e => setEditMsgText(e.target.value)}
-                  onKeyDown={e => { if (e.key === "Enter") saveEditMsg(); if (e.key === "Escape") { setEditingMsgId(null); setEditMsgText(""); } }}
-                  className="flex-1 px-3 py-1.5 rounded-xl text-sm bg-secondary border border-primary outline-none text-foreground" />
-                <button onClick={saveEditMsg} className="h-7 w-7 rounded-full bg-primary text-primary-foreground flex items-center justify-center shrink-0">
-                  <Check className="h-3.5 w-3.5" />
-                </button>
-                <button onClick={() => { setEditingMsgId(null); setEditMsgText(""); }}
-                  className="h-7 w-7 rounded-full bg-muted flex items-center justify-center shrink-0 text-muted-foreground">
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            ) : (
-              <>
-                {/* Reply quote preview */}
-                {m.reply_to_id && (
-                  <div
-                    onClick={() => { const el = document.getElementById(`msg-${m.reply_to_id}`); el?.scrollIntoView({ behavior: "smooth", block: "center" }); }}
-                    className="flex items-start gap-1.5 mb-1 pl-2 border-l-2 border-primary/40 cursor-pointer hover:bg-muted/50 rounded-r-lg transition-colors max-w-xs"
-                  >
-                    <div className="min-w-0">
-                      {m.reply_to_author && <p className="text-[10px] font-semibold text-primary truncate">{m.reply_to_author}</p>}
-                      <p className="text-[11px] text-muted-foreground truncate">{m.reply_to_text ? m.reply_to_text.slice(0, 80) : "📎 Media"}</p>
-                    </div>
-                  </div>
-                )}
-                {m.media_type === "image" && m.media_url && (
-                  <div className="mt-1 inline-flex flex-col rounded-2xl overflow-hidden border border-border/40 bg-muted/20 max-w-[320px]">
-                    <button
-                      onClick={() => setLightboxUrl(m.media_url!)}
-                      className="block w-full"
-                    >
-                      <img
-                        src={m.media_url}
-                        alt="shared"
-                        className="w-full object-cover block"
-                        style={{ maxHeight: "280px", minHeight: "120px" }}
-                        loading="lazy"
-                      />
-                    </button>
-                    {m.text?.trim() && (
-                      <div className="px-3 py-2 border-t border-border/30">
-                        <p className="text-sm text-foreground leading-snug whitespace-pre-wrap break-words">
-                          {renderTextWithLinks(m.text.trim(), members.map(mb => mb.name))}
-                          {m.edited && <span className="text-[10px] text-muted-foreground italic ml-1">· edited</span>}
-                        </p>
-                      </div>
+
+      if (isMe) {
+        // ── Own message — right-aligned bubble ───────────────────────────────
+        els.push(
+          <div key={m.id} id={`msg-${m.id}`}
+            className={"flex items-end justify-end gap-2 group relative " + (grouped ? "mt-0.5" : "mt-4") + (isMentioned ? " -mx-1 px-1 rounded-xl bg-emerald-500/5" : "")}>
+            <div className="max-w-[72%] min-w-0 flex flex-col items-end">
+              {!grouped && (
+                <div className="flex items-center gap-1.5 mb-1 mr-1">
+                  {m.edited && <span className="text-[10px] text-muted-foreground italic">edited ·</span>}
+                  <span className="text-[10px] text-muted-foreground">{fmtTime(m.created_at)}</span>
+                  <span className="text-xs font-semibold text-foreground">You</span>
+                </div>
+              )}
+              {isEditingThis ? (
+                <div className="flex items-center gap-2 w-full">
+                  <input ref={editRef} value={editMsgText}
+                    onChange={e => setEditMsgText(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter") saveEditMsg(); if (e.key === "Escape") { setEditingMsgId(null); setEditMsgText(""); } }}
+                    className="flex-1 px-3 py-1.5 rounded-xl text-sm bg-secondary border border-primary outline-none text-foreground" />
+                  <button onClick={saveEditMsg} className="h-7 w-7 rounded-full bg-primary text-primary-foreground flex items-center justify-center shrink-0">
+                    <Check className="h-3.5 w-3.5" />
+                  </button>
+                  <button onClick={() => { setEditingMsgId(null); setEditMsgText(""); }}
+                    className="h-7 w-7 rounded-full bg-muted flex items-center justify-center shrink-0 text-muted-foreground">
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <div className="relative group/bbl w-full flex flex-col items-end">
+                  {/* Hover actions — appear to the left of own bubble */}
+                  <div className="absolute right-full top-0 pr-1 opacity-0 group-hover/bbl:opacity-100 transition-opacity flex items-center gap-0.5 z-10">
+                    {canMenu && (
+                      <button onClick={e => { e.stopPropagation(); setMsgMenuId(menuOpen ? null : m.id); }}
+                        className="h-7 w-7 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground">
+                        <MoreHorizontal className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                    {isJoined && (
+                      <button onClick={e => { e.stopPropagation(); setReplyTo(m); inputRef.current?.focus(); }}
+                        className="h-7 w-7 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground">
+                        <CornerUpLeft className="h-3.5 w-3.5" />
+                      </button>
                     )}
                   </div>
-                )}
-                {m.media_type !== "image" && m.text?.trim() && (
-                  <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap break-words">
-                    {renderTextWithLinks(m.text.trim(), members.map(mb => mb.name))}
-                    {m.edited && grouped && <span className="text-[10px] text-muted-foreground italic ml-1">· edited</span>}
-                  </p>
-                )}
-                {m.media_type === "video" && m.media_url && (
-                  <video src={m.media_url} controls className="rounded-xl mt-1 max-w-xs max-h-56 bg-black" />
-                )}
-                {m.media_type === "file" && m.media_url && (
-                  <a href={m.media_url} download className="inline-flex items-center gap-2 mt-1 px-3 py-2 rounded-xl bg-secondary text-sm text-foreground hover:bg-muted transition-colors max-w-xs">
-                    <Paperclip className="h-4 w-4 shrink-0 text-muted-foreground" /><span className="truncate">File</span>
-                  </a>
-                )}
-                {/* Reply + 3-dots action buttons — always opens menu upward to avoid hiding behind input */}
-                <div className="absolute right-0 top-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5 z-10">
-                  {isJoined && (
-                    <button onClick={e => { e.stopPropagation(); setReplyTo(m); inputRef.current?.focus(); }}
-                      className="h-7 w-7 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground">
-                      <CornerUpLeft className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                  {canMenu && (
-                    <button onClick={e => { e.stopPropagation(); setMsgMenuId(menuOpen ? null : m.id); }}
-                      className="h-7 w-7 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground">
-                      <MoreHorizontal className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                </div>
-                {menuOpen && (
-                  <div className="absolute right-0 bottom-full mb-1 z-40 bg-card border border-border rounded-xl shadow-xl overflow-hidden min-w-[170px]"
-                    onClick={e => e.stopPropagation()}>
-                    {isMe && (
+                  {/* Primary bubble */}
+                  <div className="bg-primary text-primary-foreground rounded-2xl rounded-tr-sm px-3 py-2 max-w-full">
+                    {m.reply_to_id && (
+                      <div
+                        onClick={() => { const el = document.getElementById(`msg-${m.reply_to_id}`); el?.scrollIntoView({ behavior: "smooth", block: "center" }); }}
+                        className="flex items-start gap-1.5 mb-1.5 pl-2 border-l-2 border-white/40 cursor-pointer hover:bg-white/10 rounded-r-lg transition-colors"
+                      >
+                        <div className="min-w-0">
+                          {m.reply_to_author && <p className="text-[10px] font-semibold text-white/80 truncate">{m.reply_to_author}</p>}
+                          <p className="text-[11px] text-white/60 truncate">{m.reply_to_text ? m.reply_to_text.slice(0, 80) : "📎 Media"}</p>
+                        </div>
+                      </div>
+                    )}
+                    {m.media_type === "image" && m.media_url && (
+                      <div className="rounded-xl overflow-hidden -mx-1">
+                        <button onClick={() => setLightboxUrl(m.media_url!)} className="block w-full">
+                          <img src={m.media_url} alt="shared" className="w-full object-cover block" style={{ maxHeight: "260px", minHeight: "100px" }} loading="lazy" />
+                        </button>
+                        {m.text?.trim() && (
+                          <p className="text-sm leading-snug whitespace-pre-wrap break-words mt-1.5 px-1">
+                            {renderTextWithLinks(m.text.trim(), members.map(mb => mb.name))}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    {m.media_type !== "image" && m.text?.trim() && (
+                      <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
+                        {renderTextWithLinks(m.text.trim(), members.map(mb => mb.name))}
+                      </p>
+                    )}
+                    {m.media_type === "video" && m.media_url && (
+                      <video src={m.media_url} controls className="rounded-xl mt-1 max-w-xs max-h-48 bg-black" />
+                    )}
+                    {m.media_type === "file" && m.media_url && (
+                      <a href={m.media_url} download className="inline-flex items-center gap-2 mt-1 px-3 py-2 rounded-xl bg-white/10 text-sm text-white hover:bg-white/20 transition-colors max-w-xs">
+                        <Paperclip className="h-4 w-4 shrink-0" /><span className="truncate">File</span>
+                      </a>
+                    )}
+                  </div>
+                  {menuOpen && (
+                    <div className="absolute right-0 bottom-full mb-1 z-40 bg-card border border-border rounded-xl shadow-xl overflow-hidden min-w-[170px]"
+                      onClick={e => e.stopPropagation()}>
                       <button onClick={() => startEditMsg(m)}
                         className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-foreground hover:bg-muted transition-colors">
                         <Edit3 className="h-3.5 w-3.5" /> Edit message
                       </button>
-                    )}
-                    {isMe && (
                       <button onClick={() => unsendMsg(m.id)}
                         className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-destructive hover:bg-destructive/5 transition-colors">
                         <Trash2 className="h-3.5 w-3.5" />
                         Unsend
                       </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      } else {
+        // ── Other user's message — left-aligned bubble ────────────────────────
+        els.push(
+          <div key={m.id} id={`msg-${m.id}`}
+            className={"flex items-end gap-2 group relative " + (grouped ? "mt-0.5" : "mt-4") + (isMentioned ? " -mx-1 px-1 rounded-xl bg-emerald-500/5" : "")}>
+            {/* Avatar */}
+            {!grouped
+              ? (
+                <button onClick={() => navigate(`/profile/${m.user_id}`)}
+                  className={"h-8 w-8 rounded-full " + m.author_color + " flex items-center justify-center text-white text-xs font-semibold shrink-0 overflow-hidden hover:opacity-80 transition-opacity"}>
+                  {m.author_avatar_url
+                    ? <img src={m.author_avatar_url} alt={m.author_name} className="w-full h-full object-cover" />
+                    : initials(m.author_name)}
+                </button>
+              )
+              : <div className="w-8 shrink-0" />
+            }
+            <div className="max-w-[72%] min-w-0">
+              {!grouped && (
+                <div className="flex items-center gap-1.5 mb-1 ml-1 flex-wrap">
+                  <button onClick={() => navigate(`/profile/${m.user_id}`)}
+                    className="text-xs font-semibold text-foreground hover:underline leading-none">{m.author_name}</button>
+                  {m.author_role === "admin" && (
+                    <span title="Admin" className="h-3.5 w-3.5 rounded-full bg-blue-500 inline-flex items-center justify-center shrink-0">
+                      <Check className="h-2 w-2 text-white stroke-[3]" />
+                    </span>
+                  )}
+                  <span className="text-[10px] text-muted-foreground leading-none">{fmtTime(m.created_at)}</span>
+                  {m.edited && <span className="text-[10px] text-muted-foreground italic">· edited</span>}
+                </div>
+              )}
+              {isEditingThis ? (
+                <div className="flex items-center gap-2">
+                  <input ref={editRef} value={editMsgText}
+                    onChange={e => setEditMsgText(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter") saveEditMsg(); if (e.key === "Escape") { setEditingMsgId(null); setEditMsgText(""); } }}
+                    className="flex-1 px-3 py-1.5 rounded-xl text-sm bg-secondary border border-primary outline-none text-foreground" />
+                  <button onClick={saveEditMsg} className="h-7 w-7 rounded-full bg-primary text-primary-foreground flex items-center justify-center shrink-0">
+                    <Check className="h-3.5 w-3.5" />
+                  </button>
+                  <button onClick={() => { setEditingMsgId(null); setEditMsgText(""); }}
+                    className="h-7 w-7 rounded-full bg-muted flex items-center justify-center shrink-0 text-muted-foreground">
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <div className="relative group/bbl">
+                  {/* Hover actions — appear to the right of others' bubble */}
+                  <div className="absolute left-full top-0 pl-1 opacity-0 group-hover/bbl:opacity-100 transition-opacity flex items-center gap-0.5 z-10">
+                    {isJoined && (
+                      <button onClick={e => { e.stopPropagation(); setReplyTo(m); inputRef.current?.focus(); }}
+                        className="h-7 w-7 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground">
+                        <CornerUpLeft className="h-3.5 w-3.5" />
+                      </button>
                     )}
-                    {!isMe && canManageMsg && (
-                      <button onClick={() => unsendMsg(m.id)}
-                        className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-destructive hover:bg-destructive/5 transition-colors">
-                        <Trash2 className="h-3.5 w-3.5" />
-                        Remove message
+                    {canMenu && (
+                      <button onClick={e => { e.stopPropagation(); setMsgMenuId(menuOpen ? null : m.id); }}
+                        className="h-7 w-7 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground">
+                        <MoreHorizontal className="h-3.5 w-3.5" />
                       </button>
                     )}
                   </div>
-                )}
-              </>
-            )}
+                  {/* Muted bubble */}
+                  <div className="bg-muted rounded-2xl rounded-tl-sm px-3 py-2">
+                    {m.reply_to_id && (
+                      <div
+                        onClick={() => { const el = document.getElementById(`msg-${m.reply_to_id}`); el?.scrollIntoView({ behavior: "smooth", block: "center" }); }}
+                        className="flex items-start gap-1.5 mb-1.5 pl-2 border-l-2 border-primary/40 cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 rounded-r-lg transition-colors"
+                      >
+                        <div className="min-w-0">
+                          {m.reply_to_author && <p className="text-[10px] font-semibold text-primary truncate">{m.reply_to_author}</p>}
+                          <p className="text-[11px] text-muted-foreground truncate">{m.reply_to_text ? m.reply_to_text.slice(0, 80) : "📎 Media"}</p>
+                        </div>
+                      </div>
+                    )}
+                    {m.media_type === "image" && m.media_url && (
+                      <div className="rounded-xl overflow-hidden -mx-1">
+                        <button onClick={() => setLightboxUrl(m.media_url!)} className="block w-full">
+                          <img src={m.media_url} alt="shared" className="w-full object-cover block" style={{ maxHeight: "260px", minHeight: "100px" }} loading="lazy" />
+                        </button>
+                        {m.text?.trim() && (
+                          <p className="text-sm text-foreground leading-snug whitespace-pre-wrap break-words mt-1.5 px-1">
+                            {renderTextWithLinks(m.text.trim(), members.map(mb => mb.name))}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    {m.media_type !== "image" && m.text?.trim() && (
+                      <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap break-words">
+                        {renderTextWithLinks(m.text.trim(), members.map(mb => mb.name))}
+                      </p>
+                    )}
+                    {m.media_type === "video" && m.media_url && (
+                      <video src={m.media_url} controls className="rounded-xl mt-1 max-w-xs max-h-48 bg-black" />
+                    )}
+                    {m.media_type === "file" && m.media_url && (
+                      <a href={m.media_url} download className="inline-flex items-center gap-2 mt-1 px-3 py-2 rounded-xl bg-secondary text-sm text-foreground hover:bg-card transition-colors max-w-xs">
+                        <Paperclip className="h-4 w-4 shrink-0 text-muted-foreground" /><span className="truncate">File</span>
+                      </a>
+                    )}
+                  </div>
+                  {menuOpen && (
+                    <div className="absolute left-0 bottom-full mb-1 z-40 bg-card border border-border rounded-xl shadow-xl overflow-hidden min-w-[170px]"
+                      onClick={e => e.stopPropagation()}>
+                      {canManageMsg && (
+                        <button onClick={() => unsendMsg(m.id)}
+                          className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-destructive hover:bg-destructive/5 transition-colors">
+                          <Trash2 className="h-3.5 w-3.5" />
+                          Remove message
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-      );
+        );
+      }
     });
 
     return <>{els}</>;
