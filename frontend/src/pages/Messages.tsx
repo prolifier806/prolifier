@@ -929,12 +929,10 @@ export default function Messages() {
                   <p className="text-xs text-muted-foreground leading-relaxed line-clamp-3">{share.caption}</p>
                   <div className="flex items-center justify-between mt-1.5">
                     <p className="text-[11px] text-primary font-medium">Tap to view →</p>
-                    {m.views !== undefined && (
-                      <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                        <Eye className="h-3 w-3" />
-                        {m.views}
-                      </span>
-                    )}
+                    <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                      <Eye className="h-3 w-3" />
+                      {m.views ?? 0}
+                    </span>
                   </div>
                 </div>
               </button>
@@ -1022,12 +1020,10 @@ export default function Messages() {
           )}
           {m.media_type === "audio" && m.media_url && <AudioPlayer src={m.media_url} isMe={isMe} />}
           <div className={`flex items-center gap-1.5 mt-0.5 ${isMe ? "justify-end" : "justify-start"}`}>
-            {m.views !== undefined && (
-              <span className="flex items-center gap-0.5 text-[11px] text-muted-foreground">
-                <Eye className="h-3 w-3" />
-                {m.views}
-              </span>
-            )}
+            <span className="flex items-center gap-0.5 text-[11px] text-muted-foreground">
+              <Eye className="h-3 w-3" />
+              {m.views ?? 0}
+            </span>
             <span className="text-xs text-muted-foreground">{fmtTime(m.created_at)}</span>
             {isMe && (m.read
               ? <CheckCheck className="h-3 w-3 text-primary" />
