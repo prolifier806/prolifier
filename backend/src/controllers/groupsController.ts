@@ -632,6 +632,66 @@ export async function cancelJoinRequest(req: AuthRequest, res: Response): Promis
   // Delete the request
   await supabaseAdmin.from("group_join_requests").delete().eq("id", joinReq.id);
 
-
   res.json({ success: true, data: null });
+}
+
+// ── Reactions ─────────────────────────────────────────────────────────────────
+
+export const toggleReactionSchema = z.object({
+  emoji: z.string().min(1).max(8),
+});
+
+/** POST /api/groups/:id/messages/:messageId/reactions — toggle a reaction */
+export async function toggleReaction(req: AuthRequest, res: Response): Promise<void> {
+  const { messageId } = req.params;
+  const userId = req.user.id;
+  const { emoji } = req.body as { emoji: string };
+
+  const { data: existing } = await supabaseAdmin
+    .from("group_message_reactions")
+    .select("id")
+    .eq("message_id", messageId)
+    .eq("user_id", userId)
+    .eq("emoji", emoji)
+    .maybeSingle();
+
+  if (existing) {
+    await supabaseAdmin.from("group_message_reactions").delete().eq("id", existing.id);
+    res.json({ success: true, data: { action: "removed" } });
+  } else {
+    const { error } = await supabaseAdmin.from("group_message_reactions").insert({
+      message_id: messageId,
+      user_id: userId,
+      emoji,
+    });
+    if (error) { res.status(500).json({ success: false, error: error.message }); return; }
+    res.status(201).json({ success: true, data: { action: "added" } });
+  }
+}
+
+/** GET /api/groups/:id/messages/reactions?messageIds=a,b,c — batch-fetch reactions */
+export async function getReactions(req: AuthRequest, res: Response): Promise<void> {
+  const { messageIds } = req.query as { messageIds?: string };
+  if (!messageIds) { res.json({ success: true, data: {} }); return; }
+
+  const ids = messageIds.split(",").filter(Boolean).slice(0, 100);
+  if (ids.length === 0) { res.json({ success: true, data: {} }); return; }
+
+  const { data, error } = await supabaseAdmin
+    .from("group_message_reactions")
+    .select("message_id, user_id, emoji")
+    .in("message_id", ids);
+
+  if (error) { res.status(500).json({ success: false, error: error.message }); return; }
+
+  // Group by message_id → emoji → { count, userIds }
+  const result: Record<string, Record<string, { count: number; userIds: string[] }>> = {};
+  for (const row of data ?? []) {
+    if (!result[row.message_id]) result[row.message_id] = {};
+    if (!result[row.message_id][row.emoji]) result[row.message_id][row.emoji] = { count: 0, userIds: [] };
+    result[row.message_id][row.emoji].count++;
+    result[row.message_id][row.emoji].userIds.push(row.user_id);
+  }
+
+  res.json({ success: true, data: result });
 }

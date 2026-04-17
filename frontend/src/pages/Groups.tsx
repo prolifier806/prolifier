@@ -12,7 +12,7 @@ import {
   Lock, Globe, Plus, Settings, X, Check,
   Crown, Image, Video, Paperclip,
   Link2, Copy, LogOut, Edit3, Trash2, UserX, MoreHorizontal,
-  ShieldOff, RefreshCw, AtSign, ChevronsUp, UserPlus, Bell, SlidersHorizontal, Download, CornerUpLeft,
+  ShieldOff, RefreshCw, AtSign, ChevronsUp, UserPlus, Bell, SlidersHorizontal, Download, CornerUpLeft, Smile,
 } from "lucide-react";
 import Layout from "@/components/Layout";
 import { toast } from "@/hooks/use-toast";
@@ -37,6 +37,8 @@ import {
   respondJoinRequest as apiRespondJoinRequest,
   addMemberToGroup as apiAddMember,
   deleteGroupMessage as apiDeleteGroupMessage,
+  toggleReaction as apiToggleReaction,
+  getMessageReactions as apiGetMessageReactions,
 } from "@/api/groups";
 import { uploadPostImage, uploadVideo, uploadFile } from "@/api/uploads";
 
@@ -320,6 +322,11 @@ export default function Groups() {
   const [wsStatus, setWsStatus] = useState<"connecting" | "connected" | "error">("connecting");
   // Reply-to
   const [replyTo, setReplyTo] = useState<GroupMessage | null>(null);
+  // Reactions: messageId → emoji → { count, userIds }
+  type ReactionMap = Record<string, Record<string, { count: number; userIds: string[] }>>;
+  const [reactions, setReactions] = useState<ReactionMap>({});
+  // Which message's emoji picker is open
+  const [reactionPickerMsgId, setReactionPickerMsgId] = useState<string | null>(null);
   // Track in-progress join request accept/decline to prevent double-clicks
   const [processingRequestIds, setProcessingRequestIds] = useState<Set<string>>(new Set());
   // Typing indicators — map of userId → name (ephemeral, not stored in DB)
@@ -708,6 +715,15 @@ export default function Groups() {
         author_role: profileMap[row.user_id]?.role,
       }));
       setMessages(mapped);
+
+      // Fetch reactions for loaded messages
+      const visibleIds = mapped.filter((m: GroupMessage) => !m.is_system && !m.unsent).map((m: GroupMessage) => m.id);
+      if (visibleIds.length > 0) {
+        apiGetMessageReactions(groupId, visibleIds)
+          .then(res => { if (res.success && res.data) setReactions(res.data); })
+          .catch(() => {});
+      }
+
       // Detect unread messages that mention the current user
       // Only show mention button for messages AFTER the last-read timestamp
       if (user.name && groupId) {
@@ -1268,6 +1284,42 @@ export default function Groups() {
     }
   };
 
+  // ── Toggle reaction ───────────────────────────────────────────────────────
+  const QUICK_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
+
+  const handleReaction = async (msgId: string, emoji: string) => {
+    if (!activeGroup) return;
+    setReactionPickerMsgId(null);
+    const msgReactions = reactions[msgId] ?? {};
+    const existing = msgReactions[emoji];
+    const alreadyReacted = existing?.userIds.includes(user.id) ?? false;
+
+    // Optimistic update
+    setReactions(prev => {
+      const msg = { ...(prev[msgId] ?? {}) };
+      if (alreadyReacted) {
+        const newUserIds = (msg[emoji]?.userIds ?? []).filter(id => id !== user.id);
+        if (newUserIds.length === 0) {
+          const { [emoji]: _removed, ...rest } = msg;
+          return { ...prev, [msgId]: rest };
+        }
+        return { ...prev, [msgId]: { ...msg, [emoji]: { count: newUserIds.length, userIds: newUserIds } } };
+      } else {
+        const userIds = [...(msg[emoji]?.userIds ?? []), user.id];
+        return { ...prev, [msgId]: { ...msg, [emoji]: { count: userIds.length, userIds } } };
+      }
+    });
+
+    try {
+      await apiToggleReaction(activeGroup.id, msgId, emoji);
+    } catch {
+      // Revert by re-fetching reactions for this message
+      apiGetMessageReactions(activeGroup.id, [msgId])
+        .then(res => { if (res.success && res.data) setReactions(prev => ({ ...prev, ...res.data })); })
+        .catch(() => {});
+    }
+  };
+
   // ── Admin: remove member ─────────────────────────────────────────────────
   const removeMember = async (memberId: string, memberName: string) => {
     if (!activeGroup) return;
@@ -1549,6 +1601,12 @@ export default function Groups() {
                 <div className="relative group/bbl w-full flex flex-col items-end">
                   {/* Hover actions — appear to the left of own bubble */}
                   <div className="absolute right-full top-0 pr-1 opacity-0 group-hover/bbl:opacity-100 transition-opacity flex items-center gap-0.5 z-10">
+                    {isJoined && (
+                      <button onClick={e => { e.stopPropagation(); setReactionPickerMsgId(reactionPickerMsgId === m.id ? null : m.id); }}
+                        className="h-7 w-7 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground">
+                        <Smile className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                     {canMenu && (
                       <button onClick={e => { e.stopPropagation(); setMsgMenuId(menuOpen ? null : m.id); }}
                         className="h-7 w-7 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground">
@@ -1615,6 +1673,34 @@ export default function Groups() {
                       </button>
                     </div>
                   )}
+                  {/* Emoji picker */}
+                  {reactionPickerMsgId === m.id && (
+                    <div className="absolute right-0 bottom-full mb-1 z-50 bg-card border border-border rounded-2xl shadow-xl px-2 py-1.5 flex gap-1"
+                      onClick={e => e.stopPropagation()}>
+                      {QUICK_EMOJIS.map(e => (
+                        <button key={e} onClick={() => handleReaction(m.id, e)}
+                          className="text-lg hover:scale-125 transition-transform px-0.5 leading-none">
+                          {e}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {/* Reaction pills */}
+                  {reactions[m.id] && Object.keys(reactions[m.id]).length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1 justify-end">
+                      {Object.entries(reactions[m.id]).map(([emoji, { count, userIds }]) => (
+                        <button key={emoji} onClick={() => handleReaction(m.id, emoji)}
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border transition-colors ${
+                            userIds.includes(user.id)
+                              ? "bg-primary/15 border-primary/40 text-primary"
+                              : "bg-muted border-border text-foreground hover:bg-muted/80"
+                          }`}>
+                          <span>{emoji}</span>
+                          <span className="font-medium">{count}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1675,6 +1761,12 @@ export default function Groups() {
                         <CornerUpLeft className="h-3.5 w-3.5" />
                       </button>
                     )}
+                    {isJoined && (
+                      <button onClick={e => { e.stopPropagation(); setReactionPickerMsgId(reactionPickerMsgId === m.id ? null : m.id); }}
+                        className="h-7 w-7 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground">
+                        <Smile className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                     {canMenu && (
                       <button onClick={e => { e.stopPropagation(); setMsgMenuId(menuOpen ? null : m.id); }}
                         className="h-7 w-7 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground">
@@ -1731,6 +1823,34 @@ export default function Groups() {
                           Remove message
                         </button>
                       )}
+                    </div>
+                  )}
+                  {/* Emoji picker */}
+                  {reactionPickerMsgId === m.id && (
+                    <div className="absolute left-0 bottom-full mb-1 z-50 bg-card border border-border rounded-2xl shadow-xl px-2 py-1.5 flex gap-1"
+                      onClick={e => e.stopPropagation()}>
+                      {QUICK_EMOJIS.map(e => (
+                        <button key={e} onClick={() => handleReaction(m.id, e)}
+                          className="text-lg hover:scale-125 transition-transform px-0.5 leading-none">
+                          {e}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {/* Reaction pills */}
+                  {reactions[m.id] && Object.keys(reactions[m.id]).length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {Object.entries(reactions[m.id]).map(([emoji, { count, userIds }]) => (
+                        <button key={emoji} onClick={() => handleReaction(m.id, emoji)}
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border transition-colors ${
+                            userIds.includes(user.id)
+                              ? "bg-primary/15 border-primary/40 text-primary"
+                              : "bg-muted border-border text-foreground hover:bg-muted/80"
+                          }`}>
+                          <span>{emoji}</span>
+                          <span className="font-medium">{count}</span>
+                        </button>
+                      ))}
                     </div>
                   )}
                 </div>
@@ -2306,6 +2426,7 @@ export default function Groups() {
     return (
       <Layout>
         {msgMenuId !== null && <div className="fixed inset-0 z-30" onClick={() => setMsgMenuId(null)} />}
+        {reactionPickerMsgId !== null && <div className="fixed inset-0 z-40" onClick={() => setReactionPickerMsgId(null)} />}
         {showShare && <ShareLinkModal group={activeGroup} onClose={() => setShowShare(false)} />}
 
         <div className="flex h-[calc(100vh-4rem)] md:h-screen max-w-3xl mx-auto flex-col relative">

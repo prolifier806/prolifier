@@ -47,6 +47,14 @@ export const sendGroupMessage = (groupId: string, body: {
 export const deleteGroupMessage = (groupId: string, messageId: string) =>
   apiDelete(`/api/groups/${groupId}/messages/${messageId}`);
 
+export const toggleReaction = (groupId: string, messageId: string, emoji: string) =>
+  apiPost<{ action: "added" | "removed" }>(`/api/groups/${groupId}/messages/${messageId}/reactions`, { emoji });
+
+export const getMessageReactions = (groupId: string, messageIds: string[]) =>
+  apiGet<Record<string, Record<string, { count: number; userIds: string[] }>>>(
+    `/api/groups/${groupId}/messages/reactions?messageIds=${messageIds.join(",")}`
+  );
+
 export const getBannedUsers = (groupId: string) =>
   apiGet<any[]>(`/api/groups/${groupId}/bans`);
 

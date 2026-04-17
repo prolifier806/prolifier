@@ -8,8 +8,9 @@ import {
   sendGroupMessage, deleteGroupMessage,
   requestToJoin, cancelJoinRequest, getJoinRequests, respondJoinRequest,
   addMember,
+  toggleReaction, getReactions,
   createGroupSchema, updateGroupSchema, sendGroupMessageSchema,
-  assignRoleSchema, respondJoinRequestSchema, addMemberSchema,
+  assignRoleSchema, respondJoinRequestSchema, addMemberSchema, toggleReactionSchema,
 } from "../controllers/groupsController";
 
 const router = Router();
@@ -39,5 +40,9 @@ router.delete("/:id/bans/:userId", unbanMember as any);
 
 router.post("/:id/messages", validate(sendGroupMessageSchema), sendGroupMessage as any);
 router.delete("/:id/messages/:messageId", deleteGroupMessage as any);
+
+// Reactions
+router.get("/:id/messages/reactions", getReactions as any);
+router.post("/:id/messages/:messageId/reactions", validate(toggleReactionSchema), toggleReaction as any);
 
 export default router;
