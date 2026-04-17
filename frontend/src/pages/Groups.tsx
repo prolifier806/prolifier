@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect, useCallback, useMemo, memo } from "react";
 import { useParams } from "react-router-dom";
+import { v4 as uuidv4 } from "uuid";
 import { useRealtimeChannel } from "@/hooks/useRealtimeChannel";
+import { useGroupSocket } from "@/hooks/useGroupSocket";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -27,7 +29,6 @@ import {
   deleteGroup as apiDeleteGroup,
   updateGroup as apiUpdateGroup,
   createGroup as apiCreateGroup,
-  sendGroupMessage as apiSendGroupMessage,
   getBannedUsers as apiGetBannedUsers,
   unbanUser as apiUnbanUser,
   requestToJoin as apiRequestToJoin,
@@ -321,6 +322,12 @@ export default function Groups() {
   const [replyTo, setReplyTo] = useState<GroupMessage | null>(null);
   // Track in-progress join request accept/decline to prevent double-clicks
   const [processingRequestIds, setProcessingRequestIds] = useState<Set<string>>(new Set());
+  // Typing indicators — map of userId → name (ephemeral, not stored in DB)
+  const [typingUsers, setTypingUsers] = useState<Record<string, string>>({});
+  // Typing debounce ref — stop typing after 3s of inactivity
+  const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Online presence for active group
+  const [onlineUsers, setOnlineUsers] = useState<Record<string, boolean>>({});
 
   // Banned users (settings panel)
   const [bannedUsers, setBannedUsers] = useState<BannedUser[]>([]);
@@ -411,6 +418,95 @@ export default function Groups() {
   const isOwner = activeGroup ? activeGroup.owner_id === user.id : false;
   const isAdmin = isOwner || members.find(m => m.id === user.id)?.role === "admin";
   const isJoined = activeGroup ? (joinedIds.has(activeGroup.id) || isOwner) : false;
+
+  // ── Socket.IO — primary realtime transport ───────────────────────────────
+  // Get the Supabase session token for Socket.IO auth
+  const [socketToken, setSocketToken] = useState<string | null>(null);
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setSocketToken(data.session?.access_token ?? null);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => {
+      setSocketToken(session?.access_token ?? null);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const { sendMessage: socketSend, startTyping, stopTyping, markRead } = useGroupSocket({
+    token: socketToken,
+    activeGroupId: view === "group" ? (activeGroup?.id ?? null) : null,
+
+    // New message from another user via Socket.IO
+    onMessage: useCallback((msg) => {
+      const isActive = viewRef.current === "group" && activeGroupIdRef.current === msg.group_id;
+      if (!isActive && !msg.is_system) {
+        setUnreadCounts(prev => ({ ...prev, [msg.group_id]: (prev[msg.group_id] ?? 0) + 1 }));
+      } else if (isActive) {
+        try { localStorage.setItem(`prf_read_${user.id}_${msg.group_id}`, new Date().toISOString()); } catch { /* ignore */ }
+      }
+      setMessages(prev => {
+        if (prev.find(m => m.id === msg.id)) return prev;
+        return [...prev, {
+          id: msg.id, group_id: msg.group_id, user_id: msg.user_id,
+          text: msg.text, media_url: msg.media_url, media_type: msg.media_type,
+          created_at: msg.created_at, edited: msg.edited, deleted: false,
+          unsent: msg.unsent, removed_by_admin: msg.removed_by_admin,
+          is_system: msg.is_system, reply_to_id: msg.reply_to_id,
+          reply_to_text: null, reply_to_author: null,
+          author_name: msg.author_name, author_color: msg.author_color,
+          author_avatar_url: msg.author_avatar_url ?? undefined,
+          author_role: msg.author_role ?? undefined,
+        }];
+      });
+      if (!msg.is_system && msg.text?.includes(`@${user.name}`)) {
+        setMentionMsgIds(prev => prev.includes(msg.id) ? prev : [...prev, msg.id]);
+      }
+    }, [user.id, user.name]),
+
+    // Server ack — replace temp UUID with real DB row
+    onAck: useCallback((clientId, msg) => {
+      setWsStatus("connected");
+      setMessages(prev => prev.map(m =>
+        m.id === clientId ? {
+          ...m,
+          id: msg.id,
+          created_at: msg.created_at,
+          // patch any denormalised fields the server returns
+        } : m
+      ));
+    }, []),
+
+    onMessageUpdated: useCallback((partial) => {
+      setMessages(prev => prev.map(m =>
+        m.id === partial.id
+          ? { ...m, ...partial, id: (partial as any).new_id ?? partial.id }
+          : m
+      ));
+    }, []),
+
+    onMessageDeleted: useCallback((id) => {
+      setMessages(prev => prev.filter(m => m.id !== id));
+    }, []),
+
+    onPresenceSnapshot: useCallback((_groupId, users) => {
+      const map: Record<string, boolean> = {};
+      users.forEach(u => { map[u.userId] = true; });
+      setOnlineUsers(map);
+    }, []),
+
+    onPresenceUpdate: useCallback((_groupId, presenceUser, online) => {
+      setOnlineUsers(prev => ({ ...prev, [presenceUser.userId]: online }));
+    }, []),
+
+    onTypingStart: useCallback((_groupId, userId, userName) => {
+      if (userId === user.id) return;
+      setTypingUsers(prev => ({ ...prev, [userId]: userName }));
+    }, [user.id]),
+
+    onTypingStop: useCallback((_groupId, userId) => {
+      setTypingUsers(prev => { const s = { ...prev }; delete s[userId]; return s; });
+    }, []),
+  });
 
   // ── Broadcast total unread count to Layout sidebar ───────────────────────
   useEffect(() => {
@@ -707,9 +803,15 @@ export default function Groups() {
         };
         if (payload.eventType === "INSERT") {
           const row = payload.new as any;
+
+          // Own messages are handled by Socket.IO ack — skip to avoid duplicates.
+          // The Socket.IO path adds the message optimistically with a UUID id and
+          // then replaces it on ack; Supabase CDC would cause a double entry.
+          if (row.user_id === user.id) return;
+
           // Only increment unread when the user is NOT currently viewing this group
           const isActiveAndViewing = viewRef.current === "group" && activeGroupIdRef.current === row.group_id;
-          if (!row.is_system && row.user_id !== user.id && !isActiveAndViewing) {
+          if (!row.is_system && !isActiveAndViewing) {
             setUnreadCounts(prev => {
               const cur = prev[row.group_id] ?? 0;
               return { ...prev, [row.group_id]: cur + 1 };
@@ -720,28 +822,10 @@ export default function Groups() {
             try { localStorage.setItem(`prf_read_${user.id}_${row.group_id}`, new Date().toISOString()); } catch { /* ignore */ }
           }
           setMessages(prev => {
-            // Already have the real message — skip (idempotent)
+            // Already delivered by Socket.IO (real id or UUID since replaced) — skip
             if (prev.find(m => m.id === row.id)) return prev;
-            // Replace the matching optimistic temp message from the same sender.
-            // This prevents the double-message caused by optimistic add + realtime echo.
-            const tempIdx = prev.findIndex(m =>
-              m.id.startsWith("tmp-") &&
-              m.user_id === row.user_id &&
-              (m.text ?? null) === (row.text ?? null) &&
-              (m.media_url ?? null) === (row.media_url ?? null)
-            );
-            if (tempIdx !== -1) {
-              const next = [...prev];
-              next[tempIdx] = {
-                ...next[tempIdx],
-                id: row.id,
-                created_at: row.created_at,
-                edited: row.edited ?? false,
-                unsent: row.unsent ?? false,
-              };
-              return next;
-            }
-            // Message from someone else — append normally
+            // Append (Socket.IO message:new + message:updated should have already
+            // replaced the UUID, but this catches any edge-case timing gap)
             const newMsg = {
               id: row.id, group_id: row.group_id, user_id: row.user_id,
               text: row.text, media_url: row.media_url, media_type: row.media_type,
@@ -898,6 +982,7 @@ export default function Groups() {
     setUnreadCounts(prev => ({ ...prev, [group.id]: 0 }));
     setMentionGroupIds(prev => { const s = new Set(prev); s.delete(group.id); return s; });
     try { localStorage.setItem(`prf_read_${user.id}_${group.id}`, new Date().toISOString()); } catch { /* storage full */ }
+    markRead(group.id);
     // Show cached pending count instantly (no delay), then refresh from API
     const cached = pendingCountsCacheRef.current[group.id] ?? 0;
     setPendingRequestCount(cached);
@@ -1011,19 +1096,26 @@ export default function Groups() {
   };
 
   // ── Send message ─────────────────────────────────────────────────────────
+  // Primary path: Socket.IO (immediate broadcast + DB persist on server).
+  // The server acks with the real DB id; we replace the temp UUID via onAck.
   const sendMessage = (text?: string, mediaUrl?: string, mediaType?: string) => {
     const trimmed = text?.trim();
     if ((!trimmed && !mediaUrl) || !activeGroup) return;
     setMentionQuery("");
     setMentionResults([]);
+    // Stop typing indicator on send
+    if (typingTimerRef.current) { clearTimeout(typingTimerRef.current); typingTimerRef.current = null; }
+    stopTyping(activeGroup.id);
 
     const replyRef = replyTo;
     setReplyTo(null);
 
-    // Add to UI instantly — no waiting at all
-    const tempId = `tmp-${Date.now()}`;
+    // Client-generated UUID — used for dedup on server + optimistic replacement
+    const clientId = uuidv4();
+
+    // Add to UI instantly with the UUID as the temp id
     setMessages(prev => [...prev, {
-      id: tempId,
+      id: clientId,
       group_id: activeGroup.id,
       user_id: user.id,
       text: trimmed || null,
@@ -1047,18 +1139,14 @@ export default function Groups() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     inputRef.current?.focus();
 
-    // Fire insert in background — no await, no spinner
-    apiSendGroupMessage(activeGroup.id, {
-      text: trimmed || "",
-      media_url: mediaUrl || null,
-      media_type: mediaType || undefined,
-      reply_to_id: replyRef?.id ?? null,
-    }).catch((err: any) => {
-      if (import.meta.env.DEV) console.error("Send failed:", err);
-      // Remove the optimistic message
-      setMessages(prev => prev.filter(m => m.id !== tempId));
-      setChatInput(trimmed || "");
-      toast({ title: "Failed to send", variant: "destructive" });
+    // Send via Socket.IO — server broadcasts then persists, acks back with real id
+    socketSend({
+      clientId,
+      groupId: activeGroup.id,
+      text: trimmed || null,
+      mediaUrl: mediaUrl || null,
+      mediaType: mediaType || null,
+      replyToId: replyRef?.id ?? null,
     });
   };
 
@@ -2250,6 +2338,22 @@ export default function Groups() {
             </div>
           )}
 
+          {/* Typing indicator */}
+          {Object.keys(typingUsers).length > 0 && (
+            <div className="px-5 py-1 flex items-center gap-1.5">
+              <span className="flex gap-0.5 items-end shrink-0">
+                <span className="h-1 w-1 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: "0ms" }} />
+                <span className="h-1 w-1 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: "150ms" }} />
+                <span className="h-1 w-1 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: "300ms" }} />
+              </span>
+              <span className="text-xs text-muted-foreground truncate">
+                {Object.values(typingUsers).length === 1
+                  ? `${Object.values(typingUsers)[0]} is typing…`
+                  : `${Object.values(typingUsers).slice(0, 2).join(", ")} are typing…`}
+              </span>
+            </div>
+          )}
+
           {/* Input bar — voice removed */}
           {isJoined && (
             <div className="border-t border-border shrink-0">
@@ -2302,6 +2406,18 @@ export default function Groups() {
                       } else {
                         setMentionQuery("");
                         setMentionResults([]);
+                      }
+                      // Typing indicator — emit start, debounce stop after 3s
+                      if (activeGroup && val.length > 0) {
+                        startTyping(activeGroup.id);
+                        if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+                        typingTimerRef.current = setTimeout(() => {
+                          stopTyping(activeGroup.id);
+                          typingTimerRef.current = null;
+                        }, 3000);
+                      } else if (activeGroup && val.length === 0) {
+                        if (typingTimerRef.current) { clearTimeout(typingTimerRef.current); typingTimerRef.current = null; }
+                        stopTyping(activeGroup.id);
                       }
                     }}
                     onKeyDown={e => {

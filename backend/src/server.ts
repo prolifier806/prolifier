@@ -1,9 +1,11 @@
 import "dotenv/config";
+import http from "http";
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import compression from "compression";
+import { initSocketServer } from "./lib/socketServer";
 
 import postsRouter from "./routes/posts";
 import connectionsRouter from "./routes/connections";
@@ -132,8 +134,14 @@ app.use((err: Error, req: express.Request, res: express.Response, _next: express
   res.status(500).json({ success: false, error: message });
 });
 
-app.listen(Number(PORT), "0.0.0.0", () => {
-  console.log(`[server] Prolifier API running on http://0.0.0.0:${PORT}`);
+// ── HTTP server + Socket.IO ───────────────────────────────────────────────────
+// WHY: socket.io must attach to an http.Server, not directly to the express app.
+// Wrapping express in http.createServer lets both REST and WebSocket share port.
+const httpServer = http.createServer(app);
+initSocketServer(httpServer, allowedOrigins);
+
+httpServer.listen(Number(PORT), "0.0.0.0", () => {
+  console.log(`[server] Prolifier API + Socket.IO running on http://0.0.0.0:${PORT}`);
 });
 
 export default app;

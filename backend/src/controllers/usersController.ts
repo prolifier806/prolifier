@@ -115,75 +115,101 @@ export async function discoverProfiles(req: AuthRequest, res: Response): Promise
   // We fetch up to 200 candidates then rank and slice to PAGE_SIZE.
   const fetchLimit = rankSkills ? 200 : PAGE_SIZE;
 
-  let query = supabaseAdmin
-    .from("profiles")
-    .select("id, name, avatar, color, avatar_url, location, bio, project, skills, open_to_collab, created_at, role")
-    .eq("profile_complete", true)
-    .is("deleted_at", null)
-    .neq("permanently_deleted", true)
-    .order("created_at", { ascending: false })
-    .limit(fetchLimit);
+  // Helper: apply common optional filters to any query builder
+  const applyCommon = (q: any) => {
+    q = q
+      .eq("profile_complete", true)
+      .is("deleted_at", null)
+      .neq("permanently_deleted", true)
+      .order("created_at", { ascending: false })
+      .limit(fetchLimit);
+    if (cursor)     q = q.lt("created_at", cursor);
+    if (collabOnly) q = q.eq("open_to_collab", true);
+    if (location)   q = q.eq("location", location);
+    if (skills)     q = q.overlaps("skills", skills.split(","));
+    return q;
+  };
 
-  if (cursor) query = query.lt("created_at", cursor);
-  if (collabOnly) query = query.eq("open_to_collab", true);
-  if (location) query = query.eq("location", location);
-  if (skills) query = query.overlaps("skills", skills.split(","));
+  const BASE_SELECT = "id, name, avatar, color, avatar_url, location, bio, project, skills, open_to_collab, created_at, role";
+
+  let rawData: any[] = [];
+
+  // WHY: Always fire blocks queries concurrently with profile queries — never wait
+  // for profiles to finish before starting the blocks fetch.
+  const blocksPromise = Promise.all([
+    supabaseAdmin.from("blocks").select("blocked_id").eq("blocker_id", userId),
+    supabaseAdmin.from("blocks").select("blocker_id").eq("blocked_id", userId),
+  ]);
+
   if (search) {
     // WHY: Sanitize to prevent PostgREST filter injection.
     const safe = search.replace(/[%_,.()"']/g, "").slice(0, 100);
     if (safe) {
-      const q = `%${safe}%`;
-      query = query.or(`name.ilike.${q},bio.ilike.${q},location.ilike.${q}`);
-    }
-  }
-
-  // Fire blocks and profiles queries in parallel
-  const [blockedRes, blockerRes, { data, error }] = await Promise.all([
-    supabaseAdmin.from("blocks").select("blocked_id").eq("blocker_id", userId),
-    supabaseAdmin.from("blocks").select("blocker_id").eq("blocked_id", userId),
-    query,
-  ]);
-
-  if (error) { res.status(500).json({ success: false, error: error.message }); return; }
-
-  const hiddenIds = new Set([
-    userId,
-    ...(blockedRes.data ?? []).map((r: any) => r.blocked_id),
-    ...(blockerRes.data ?? []).map((r: any) => r.blocker_id),
-  ]);
-
-  let filtered = (data ?? []).filter((p: any) => !hiddenIds.has(p.id));
-
-  // ── Skill-based ranking ───────────────────────────────────────────────────
-  // WHY: We rank server-side so the client receives profiles already in the
-  // correct order on the first response — no visible re-ordering on the page.
-  if (rankSkills) {
-    // Normalise the requested skills: lowercase + trim + split on comma
-    const wantedRaw = rankSkills.split(",").map(s => s.toLowerCase().trim()).filter(Boolean).slice(0, 20);
-
-    // Score each profile: count how many of their skills match any wanted skill.
-    // Matching rules (as specified):
-    //   • Case-insensitive
-    //   • Partial/keyword match — "java" matches "JavaScript" and "Java Spring"
-    //   • Exact match scores 2 pts, partial match scores 1 pt
-    const scored = filtered.map((p: any) => {
-      const profileSkills: string[] = (p.skills ?? []).map((s: string) => s.toLowerCase().trim());
-      let score = 0;
-      for (const want of wantedRaw) {
-        for (const have of profileSkills) {
-          if (have === want) { score += 2; break; }         // exact
-          if (have.includes(want) || want.includes(have)) { score += 1; break; } // partial
-        }
+      const likeVal = `%${safe}%`;
+      // WHY: Run text-field search, skill-array search, AND blocks all in parallel.
+      // A query for "React" finds profiles that mention React in text fields
+      // AND profiles that have React as a tagged skill — results are merged.
+      const [textRes, skillRes, [blockedRes, blockerRes]] = await Promise.all([
+        applyCommon(supabaseAdmin.from("profiles").select(BASE_SELECT))
+          .or(`name.ilike.${likeVal},bio.ilike.${likeVal},location.ilike.${likeVal},project.ilike.${likeVal}`),
+        applyCommon(supabaseAdmin.from("profiles").select(BASE_SELECT))
+          .overlaps("skills", [safe]),
+        blocksPromise,
+      ]);
+      const merged = [...(textRes.data ?? [])];
+      const seen = new Set(merged.map((p: any) => p.id));
+      for (const p of (skillRes.data ?? [])) {
+        if (!seen.has(p.id)) { merged.push(p); seen.add(p.id); }
       }
-      return { profile: p, score };
-    });
+      rawData = merged;
 
-    // Stable sort: higher score first, preserve created_at order within same score
-    scored.sort((a, b) => b.score - a.score);
-    filtered = scored.map(s => s.profile).slice(0, PAGE_SIZE);
+      const hiddenIds = new Set([
+        userId,
+        ...(blockedRes.data ?? []).map((r: any) => r.blocked_id),
+        ...(blockerRes.data ?? []).map((r: any) => r.blocker_id),
+      ]);
+      let filtered = rawData.filter((p: any) => !hiddenIds.has(p.id));
+      // No rankSkills when search is active — return merged results ordered by created_at
+      return res.json({ success: true, data: filtered.slice(0, PAGE_SIZE) });
+    }
+    // safe was empty after sanitisation — fall through to return empty
+    await blocksPromise; // drain the promise
+    return res.json({ success: true, data: [] });
+  } else {
+    const [profileRes, [blockedRes, blockerRes]] = await Promise.all([
+      applyCommon(supabaseAdmin.from("profiles").select(BASE_SELECT)),
+      blocksPromise,
+    ]);
+    if (profileRes.error) { res.status(500).json({ success: false, error: profileRes.error.message }); return; }
+    rawData = profileRes.data ?? [];
+
+    const hiddenIds = new Set([
+      userId,
+      ...(blockedRes.data ?? []).map((r: any) => r.blocked_id),
+      ...(blockerRes.data ?? []).map((r: any) => r.blocker_id),
+    ]);
+    let filtered = rawData.filter((p: any) => !hiddenIds.has(p.id));
+
+    // ── Skill-based ranking ─────────────────────────────────────────────────
+    if (rankSkills) {
+      const wantedRaw = rankSkills.split(",").map(s => s.toLowerCase().trim()).filter(Boolean).slice(0, 20);
+      const scored = filtered.map((p: any) => {
+        const profileSkills: string[] = (p.skills ?? []).map((s: string) => s.toLowerCase().trim());
+        let score = 0;
+        for (const want of wantedRaw) {
+          for (const have of profileSkills) {
+            if (have === want) { score += 2; break; }
+            if (have.includes(want) || want.includes(have)) { score += 1; break; }
+          }
+        }
+        return { profile: p, score };
+      });
+      scored.sort((a, b) => b.score - a.score);
+      filtered = scored.map(s => s.profile).slice(0, PAGE_SIZE);
+    }
+
+    return res.json({ success: true, data: filtered });
   }
-
-  res.json({ success: true, data: filtered });
 }
 
 export async function blockUser(req: AuthRequest, res: Response): Promise<void> {

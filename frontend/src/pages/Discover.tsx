@@ -103,6 +103,7 @@ export default function Discover() {
     } catch { return true; }
   });
   const [loadingMore, setLoadingMore] = useState(false);
+  const [searching, setSearching] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -188,8 +189,8 @@ export default function Discover() {
     // on first paint — no flash of wrong state while API loads.
     // Cache is keyed on collabSkills so a new collab post invalidates it.
     const cacheKey = `${DISCOVER_CACHE_KEY}:${collabSkills.slice().sort().join(",")}`;
-    // Only use cache on plain initial load (no search, no filters)
-    const hasFilters = !!debouncedSearch || collabOnly || collabSkills.length > 0;
+    // Only use cache on plain initial load (no user-applied search/filters)
+    const hasFilters = !!debouncedSearch || collabOnly;
     if (!cursor && !hasFilters) {
       try {
         const raw = localStorage.getItem(cacheKey);
@@ -207,13 +208,19 @@ export default function Discover() {
       } catch { /* ignore */ }
     }
 
-    if (cursor) setLoadingMore(true); else setLoading(true);
+    if (cursor) setLoadingMore(true);
+    // Only show full skeleton on initial load with no existing profiles to display.
+    // For search/filter changes, show a subtle spinner in the search bar instead.
+    else if (profiles.length === 0) setLoading(true);
+    else setSearching(true);
     try {
       const params: Record<string, string> = {};
       if (cursor) params.cursor = cursor;
       if (debouncedSearch) params.search = debouncedSearch;
       if (collabOnly) params.collabOnly = "true";
-      if (collabSkills.length > 0 && !cursor) params.rankSkills = collabSkills.join(",");
+      // Only send rankSkills when there's no explicit text search — when searching,
+      // the server already finds skill-matched profiles via the overlaps query.
+      if (collabSkills.length > 0 && !cursor && !debouncedSearch) params.rankSkills = collabSkills.join(",");
 
       if (!cursor) {
         // Fetch profiles first — show them immediately, don't wait for connections
@@ -223,6 +230,7 @@ export default function Discover() {
         setHasMore(data.length === PAGE_SIZE);
         if (data.length > 0) cursorRef.current = data[data.length - 1].created_at;
         setLoading(false);
+        setSearching(false);
 
         // Fetch connections + blocks in background — buttons update after profiles are visible
         Promise.all([
@@ -260,6 +268,7 @@ export default function Discover() {
       toast({ title: "Failed to load profiles", description: err.message, variant: "destructive" });
       setLoading(false);
       setLoadingMore(false);
+      setSearching(false);
     }
   }, [user.id, debouncedSearch, collabOnly, collabSkills]);
 
@@ -481,9 +490,12 @@ export default function Discover() {
           <TabsContent value="discover" className="space-y-4">
             <div className="flex gap-3 mb-4">
               <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                {searching
+                  ? <div className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+                  : <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                }
                 <Input
-                  placeholder="Search by name, skill, project..."
+                  placeholder="Search by name, skill, bio, project..."
                   value={search}
                   onChange={e => setSearch(e.target.value)}
                   className="pl-10 h-11"
