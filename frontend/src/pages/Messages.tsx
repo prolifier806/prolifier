@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import {
   Search, Send, ArrowLeft, Image, Video, Paperclip,
   X, Play, Pause, Mic, StopCircle, RefreshCw, Check, CheckCheck,
-  BellOff, Bell, Flag, Trash2, Reply, MessageCircle,
+  BellOff, Bell, Flag, Trash2, Reply, MessageCircle, Eye,
 } from "lucide-react";
 import Layout from "@/components/Layout";
 import { toast } from "@/hooks/use-toast";
@@ -40,6 +40,7 @@ type Message = {
   read: boolean;
   reply_to_id: string | null;
   reply_to_text: string | null;
+  views?: number;
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -912,14 +913,13 @@ export default function Messages() {
                 className={`rounded-2xl overflow-hidden border text-left transition-opacity hover:opacity-90 ${isMe ? "border-primary/30 bg-primary/10" : "border-border bg-card"}`}
               >
                 {share.image && (
-                  <div className="w-full" style={{ aspectRatio: "16/9" }}>
-                    <img
-                      src={share.image}
-                      alt="preview"
-                      className="w-full h-full object-contain bg-muted"
-                      loading="lazy"
-                    />
-                  </div>
+                  <img
+                    src={share.image}
+                    alt="preview"
+                    className="w-full object-contain bg-muted block"
+                    style={{ maxHeight: "320px" }}
+                    loading="lazy"
+                  />
                 )}
                 <div className="px-3 py-2.5">
                   <p className="text-[10px] font-semibold text-primary uppercase tracking-wide mb-0.5">
@@ -927,10 +927,24 @@ export default function Messages() {
                   </p>
                   {share.title && <p className="text-sm font-semibold text-foreground leading-snug mb-1">{share.title}</p>}
                   <p className="text-xs text-muted-foreground leading-relaxed line-clamp-3">{share.caption}</p>
-                  <p className="text-[11px] text-primary font-medium mt-1.5">Tap to view →</p>
+                  <div className="flex items-center justify-between mt-1.5">
+                    <p className="text-[11px] text-primary font-medium">Tap to view →</p>
+                    {m.views !== undefined && (
+                      <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                        <Eye className="h-3 w-3" />
+                        {m.views}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </button>
-              <div className={`flex items-center gap-1 ${isMe ? "justify-end" : "justify-start"}`}>
+              <div className={`flex items-center gap-1.5 mt-0.5 ${isMe ? "justify-end" : "justify-start"}`}>
+                {m.views !== undefined && (
+                  <span className="flex items-center gap-0.5 text-[11px] text-muted-foreground">
+                    <Eye className="h-3 w-3" />
+                    {m.views}
+                  </span>
+                )}
                 <span className="text-xs text-muted-foreground">{fmtTime(m.created_at)}</span>
                 {isMe && (m.read
                   ? <CheckCheck className="h-3 w-3 text-primary" />
@@ -1007,7 +1021,13 @@ export default function Messages() {
             </button>
           )}
           {m.media_type === "audio" && m.media_url && <AudioPlayer src={m.media_url} isMe={isMe} />}
-          <div className={`flex items-center gap-1 mt-0.5 ${isMe ? "justify-end" : "justify-start"}`}>
+          <div className={`flex items-center gap-1.5 mt-0.5 ${isMe ? "justify-end" : "justify-start"}`}>
+            {m.views !== undefined && (
+              <span className="flex items-center gap-0.5 text-[11px] text-muted-foreground">
+                <Eye className="h-3 w-3" />
+                {m.views}
+              </span>
+            )}
             <span className="text-xs text-muted-foreground">{fmtTime(m.created_at)}</span>
             {isMe && (m.read
               ? <CheckCheck className="h-3 w-3 text-primary" />
