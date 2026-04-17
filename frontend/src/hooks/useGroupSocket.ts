@@ -12,7 +12,7 @@
  */
 
 import { useEffect, useRef, useCallback } from "react";
-import { io, Socket } from "socket.io-client";
+import { getSharedSocket, type AppSocket } from "@/lib/socket";
 import type {
   ClientToServerEvents,
   ServerToClientEvents,
@@ -22,25 +22,6 @@ import type {
 } from "../../../backend/src/lib/socketEvents";
 
 export type { WsMessage, PresenceUser };
-
-type AppSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
-
-// ── Singleton socket — one connection for the entire app session ───────────
-let _socket: AppSocket | null = null;
-
-function getSocket(token: string): AppSocket {
-  if (!_socket || _socket.disconnected) {
-    _socket = io(import.meta.env.VITE_API_URL ?? "http://localhost:3001", {
-      auth: { token },
-      transports: ["websocket", "polling"],
-      reconnection: true,
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000,
-      reconnectionAttempts: Infinity,
-    });
-  }
-  return _socket;
-}
 
 // ── Hook ───────────────────────────────────────────────────────────────────
 
@@ -106,7 +87,7 @@ export function useGroupSocket(options: UseGroupSocketOptions): UseGroupSocketRe
   useEffect(() => {
     if (!token) return;
 
-    const socket = getSocket(token);
+    const socket = getSharedSocket(token);
     socketRef.current = socket;
 
     const onConnect = () => { connectedRef.current = true; };

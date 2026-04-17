@@ -6,28 +6,49 @@
 // ── Events emitted by CLIENT → SERVER ────────────────────────────────────────
 
 export interface ClientToServerEvents {
+  // ── Group chat ──────────────────────────────────────────────────────────
   /** Join a group room to receive its messages */
   "group:join": (groupId: string) => void;
 
   /** Leave a group room */
   "group:leave": (groupId: string) => void;
 
-  /** Send a new message */
+  /** Send a new group message */
   "message:send": (payload: MessageSendPayload) => void;
 
   /** Mark a group as fully read */
   "group:read": (groupId: string) => void;
 
-  /** Typing indicator — start */
+  /** Group typing indicator — start */
   "typing:start": (groupId: string) => void;
 
-  /** Typing indicator — stop */
+  /** Group typing indicator — stop */
   "typing:stop": (groupId: string) => void;
+
+  // ── Direct messages ─────────────────────────────────────────────────────
+  /** Join the DM room with another user */
+  "dm:join": (otherId: string) => void;
+
+  /** Leave the DM room with another user */
+  "dm:leave": (otherId: string) => void;
+
+  /** Send a direct message */
+  "dm:send": (payload: DmSendPayload) => void;
+
+  /** Mark all messages from this user as read */
+  "dm:read": (otherId: string) => void;
+
+  /** DM typing indicator — start */
+  "dm:typing:start": (otherId: string) => void;
+
+  /** DM typing indicator — stop */
+  "dm:typing:stop": (otherId: string) => void;
 }
 
 // ── Events emitted by SERVER → CLIENT ────────────────────────────────────────
 
 export interface ServerToClientEvents {
+  // ── Group chat ──────────────────────────────────────────────────────────
   /** A new message arrived in a group */
   "message:new": (msg: WsMessage) => void;
 
@@ -40,10 +61,10 @@ export interface ServerToClientEvents {
   /** Delivery confirmation back to the sender with the persisted row */
   "message:ack": (payload: { clientId: string; message: WsMessage }) => void;
 
-  /** A user started typing */
+  /** A user started typing in a group */
   "typing:start": (payload: { groupId: string; userId: string; userName: string }) => void;
 
-  /** A user stopped typing */
+  /** A user stopped typing in a group */
   "typing:stop": (payload: { groupId: string; userId: string }) => void;
 
   /** Current online presence snapshot for a group */
@@ -54,6 +75,25 @@ export interface ServerToClientEvents {
 
   /** Unread count update for the current user */
   "unread:update": (payload: { groupId: string; count: number }) => void;
+
+  // ── Direct messages ─────────────────────────────────────────────────────
+  /** A new DM arrived */
+  "dm:new": (msg: WsDmMessage) => void;
+
+  /** Delivery confirmation back to the DM sender with the persisted row */
+  "dm:ack": (payload: { clientId: string; message: WsDmMessage }) => void;
+
+  /** Replace a temp UUID with the real DB id */
+  "dm:updated": (payload: { id: string; new_id: string }) => void;
+
+  /** The other user read your messages */
+  "dm:read": (payload: { fromId: string }) => void;
+
+  /** The other user started typing */
+  "dm:typing:start": (payload: { fromId: string }) => void;
+
+  /** The other user stopped typing */
+  "dm:typing:stop": (payload: { fromId: string }) => void;
 
   /** Server error */
   "error": (message: string) => void;
@@ -96,4 +136,28 @@ export interface PresenceUser {
   name: string;
   color: string;
   avatarUrl: string | null;
+}
+
+export interface DmSendPayload {
+  /** Client-generated UUID v4 — used for dedup and optimistic replacement */
+  clientId: string;
+  receiverId: string;
+  text: string | null;
+  mediaUrl: string | null;
+  mediaType: string | null;
+  replyToId: string | null;
+  replyToText: string | null;
+}
+
+export interface WsDmMessage {
+  id: string;
+  sender_id: string;
+  receiver_id: string;
+  text: string | null;
+  media_url: string | null;
+  media_type: string | null;
+  created_at: string;
+  read: boolean;
+  reply_to_id: string | null;
+  reply_to_text: string | null;
 }

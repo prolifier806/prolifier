@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { v4 as uuidv4 } from "uuid";
 import VideoPlayer from "@/components/VideoPlayer";
 import { useRealtimeChannel } from "@/hooks/useRealtimeChannel";
+import { useDmSocket } from "@/hooks/useDmSocket";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -179,9 +181,8 @@ function useVoiceRecorder(onStop: (blob: Blob) => void) {
   return { recording, seconds, start, stop, cancel };
 }
 
-import { createNotification } from "@/api/notifications";
 import { createReport } from "@/api/reports";
-import { sendMessage as apiSendMessage, hideConversation } from "@/api/messages";
+import { hideConversation } from "@/api/messages";
 import { uploadPostImage, uploadVideo as apiUploadVideo } from "@/api/uploads";
 import { unblockUser } from "@/api/users";
 import { apiPost, apiUpload, isAbortError } from "@/api/client";
@@ -246,6 +247,106 @@ export default function Messages() {
   const [deletingChat, setDeletingChat] = useState(false);
   // Reply-to state
   const [replyTo, setReplyTo] = useState<{ id: string; text: string } | null>(null);
+
+  // Socket.IO — primary realtime transport
+  const [socketToken, setSocketToken] = useState<string | null>(null);
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setSocketToken(data.session?.access_token ?? null);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => {
+      setSocketToken(session?.access_token ?? null);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // Typing indicator — true when the other user is typing
+  const [peerTyping, setPeerTyping] = useState(false);
+  const peerTypingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Own typing debounce
+  const myTypingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Socket.IO DM hook ────────────────────────────────────────────────────
+  const { sendDm, startTyping: dmStartTyping, stopTyping: dmStopTyping, markRead: dmMarkRead } = useDmSocket({
+    token: socketToken,
+    activeDmId: selectedId,
+
+    onMessage: useCallback((msg) => {
+      // Only append if this conversation is open; otherwise bump unread
+      if (msg.sender_id === selectedIdRef.current) {
+        setMessages(prev => {
+          if (prev.find(m => m.id === msg.id)) return prev;
+          return [...prev, {
+            id: msg.id, sender_id: msg.sender_id,
+            text: msg.text, media_url: msg.media_url, media_type: msg.media_type,
+            created_at: msg.created_at, read: false,
+            reply_to_id: msg.reply_to_id, reply_to_text: msg.reply_to_text,
+          }];
+        });
+        scrollBehaviorRef.current = "smooth";
+        // Mark as read immediately since conversation is open
+        dmMarkRead(msg.sender_id);
+        // Unhide if this chat was hidden
+        removeHiddenId(msg.sender_id);
+      } else {
+        setConversations(prev => {
+          const exists = prev.find(c => c.id === msg.sender_id);
+          if (exists) {
+            return prev.map(c => c.id === msg.sender_id
+              ? { ...c, unread: c.unread + 1, lastMsg: previewText(msg.text, msg.media_type), lastTime: fmtTime(msg.created_at) }
+              : c
+            );
+          }
+          // New conversation — trigger a full refresh to get profile info
+          fetchConversations();
+          return prev;
+        });
+        removeHiddenId(msg.sender_id);
+      }
+    }, [dmMarkRead]),
+
+    onAck: useCallback((clientId, msg) => {
+      // Replace temp UUID with real DB id
+      setMessages(prev => prev.map(m =>
+        m.id === clientId ? { ...m, id: msg.id, created_at: msg.created_at } : m
+      ));
+      // Update conversation sidebar with latest message
+      setConversations(prev => prev.map(c =>
+        c.id === msg.receiver_id
+          ? { ...c, lastMsg: previewText(msg.text, msg.media_type), lastTime: fmtTime(msg.created_at) }
+          : c
+      ));
+    }, []),
+
+    onUpdated: useCallback((payload) => {
+      // Receiver: replace temp UUID with real DB id
+      setMessages(prev => prev.map(m =>
+        m.id === payload.id ? { ...m, id: payload.new_id } : m
+      ));
+    }, []),
+
+    onRead: useCallback(() => {
+      // Mark all my sent messages in this conversation as read
+      setMessages(prev => prev.map(m =>
+        m.sender_id === user.id ? { ...m, read: true } : m
+      ));
+    }, [user.id]),
+
+    onTypingStart: useCallback(() => {
+      setPeerTyping(true);
+      // Auto-clear after 4s in case stop event is missed
+      if (peerTypingTimerRef.current) clearTimeout(peerTypingTimerRef.current);
+      peerTypingTimerRef.current = setTimeout(() => {
+        setPeerTyping(false);
+        peerTypingTimerRef.current = null;
+      }, 4000);
+    }, []),
+
+    onTypingStop: useCallback(() => {
+      if (peerTypingTimerRef.current) { clearTimeout(peerTypingTimerRef.current); peerTypingTimerRef.current = null; }
+      setPeerTyping(false);
+    }, []),
+  });
 
   // Load both block directions + mutes on mount
   useEffect(() => {
@@ -593,44 +694,43 @@ export default function Messages() {
     }
   }, [user.id, loadingOlderMsgs]);
 
-  // ── Realtime for incoming messages + read receipts ───────────────────
+  // ── Supabase Realtime — fallback consistency layer ───────────────────
+  // Socket.IO is the primary path. Supabase CDC fires after DB insert and
+  // catches any messages that arrived while the socket was temporarily
+  // disconnected or before the socket connection was established.
   useRealtimeChannel(
     user.id ? `dm-${user.id}` : null,
     ch => ch
-      // New messages sent TO current user
+      // Fallback: messages sent TO current user that Socket.IO may have missed
       .on("postgres_changes", {
         event: "INSERT", schema: "public", table: "messages",
         filter: `receiver_id=eq.${user.id}`,
-      }, async (payload) => {
+      }, (payload) => {
         const row = payload.new as any;
-        // Drop realtime messages if I have blocked the sender
+        // Drop if blocked
         if (blockedByMeRef.current.has(row.sender_id)) return;
         const senderMuted = mutedByMeRef.current.has(row.sender_id);
-        // If I had hidden this conversation, unhide it so it reappears with the new message
         removeHiddenId(row.sender_id);
         (supabase as any).from("hidden_conversations")
           .delete().eq("user_id", user.id).eq("other_id", row.sender_id)
           .then(() => {});
         if (row.sender_id === selectedIdRef.current) {
-          scrollBehaviorRef.current = "smooth";
-          setMessages(prev => [...prev, {
-            id: row.id, sender_id: row.sender_id, text: row.text,
-            media_url: row.media_url, media_type: row.media_type,
-            created_at: row.created_at, read: false,
-            reply_to_id: row.reply_to_id || null,
-            reply_to_text: row.reply_to_text || null,
-          }]);
-          apiPost(`/api/messages/${row.id}/read`).catch(() => {});
+          setMessages(prev => {
+            // Already delivered by Socket.IO — skip
+            if (prev.find(m => m.id === row.id)) return prev;
+            scrollBehaviorRef.current = "smooth";
+            return [...prev, {
+              id: row.id, sender_id: row.sender_id, text: row.text,
+              media_url: row.media_url, media_type: row.media_type,
+              created_at: row.created_at, read: false,
+              reply_to_id: row.reply_to_id || null,
+              reply_to_text: row.reply_to_text || null,
+            }];
+          });
         } else {
           setConversations(prev => prev.map(c =>
             c.id === row.sender_id
-              ? {
-                  ...c,
-                  // Don't increment unread badge if sender is muted
-                  unread: senderMuted ? c.unread : c.unread + 1,
-                  lastMsg: previewText(row.text, row.media_type),
-                  lastTime: fmtTime(row.created_at),
-                }
+              ? { ...c, unread: senderMuted ? c.unread : c.unread + 1, lastMsg: previewText(row.text, row.media_type), lastTime: fmtTime(row.created_at) }
               : c
           ));
           if (!conversations.find(c => c.id === row.sender_id)) fetchConversations();
@@ -643,43 +743,6 @@ export default function Messages() {
       }, (payload) => {
         const row = payload.new as any;
         if (row.read) setMessages(prev => prev.map(m => m.id === row.id ? { ...m, read: true } : m));
-      })
-      // Messages sent BY current user (e.g. silent collab interest) — refresh conversation list
-      .on("postgres_changes", {
-        event: "INSERT", schema: "public", table: "messages",
-        filter: `sender_id=eq.${user.id}`,
-      }, async (payload) => {
-        const row = payload.new as any;
-        // Skip messages we already added optimistically via sendMessage
-        if (sentMsgIdsRef.current.has(row.id)) {
-          sentMsgIdsRef.current.delete(row.id);
-          return;
-        }
-        // If this convo is already open, append the message
-        if (row.receiver_id === selectedIdRef.current) {
-          scrollBehaviorRef.current = "smooth";
-          setMessages(prev => [...prev, {
-            id: row.id, sender_id: row.sender_id, text: row.text,
-            media_url: row.media_url, media_type: row.media_type,
-            created_at: row.created_at, read: false,
-            reply_to_id: row.reply_to_id || null,
-            reply_to_text: row.reply_to_text || null,
-          }]);
-        } else {
-          // Update or add conversation entry in sidebar
-          setConversations(prev => {
-            const existing = prev.find(c => c.id === row.receiver_id);
-            if (existing) {
-              return prev.map(c => c.id === row.receiver_id
-                ? { ...c, lastMsg: previewText(row.text, row.media_type), lastTime: fmtTime(row.created_at) }
-                : c
-              );
-            }
-            // New conversation — full refresh to get profile info
-            fetchConversations();
-            return prev;
-          });
-        }
       }),
   );
 
@@ -698,105 +761,51 @@ export default function Messages() {
     setSelectedId(otherId);
     setShowMobileChat(true);
     setReplyTo(null);
+    setPeerTyping(false);
     fetchMessages(otherId);
+    // Tell server to mark DB rows + notify the other user via socket
+    dmMarkRead(otherId);
     setTimeout(() => inputRef.current?.focus(), 150);
   };
 
-  // ── Send message ─────────────────────────────────────────────────────
-  const sendMessage = async (text?: string, mediaUrl?: string, mediaType?: string) => {
+  // ── Send message — primary path: Socket.IO ───────────────────────────
+  // Server persists, broadcasts to receiver, acks sender with real DB id.
+  const sendMessage = (text?: string, mediaUrl?: string, mediaType?: string) => {
     const trimmed = text?.trim();
-    if ((!trimmed && !mediaUrl) || !selectedId || sending) return;
-    const replySnapshot = replyTo ? { reply_to_id: replyTo.id, reply_to_text: replyTo.text } : {};
-    // Don't allow sending when any block is active (either direction)
+    if ((!trimmed && !mediaUrl) || !selectedId) return;
+    // Block check uses in-memory state — no DB round-trip
     if (blockedByMe.has(selectedId) || blockedByThem.has(selectedId)) return;
-    setSending(true);
 
-    // Block check: if receiver has blocked sender, silently drop (like WhatsApp)
-    try {
-      const { data: blockCheck } = await (supabase as any)
-        .from("blocks")
-        .select("id")
-        .eq("blocker_id", selectedId)
-        .eq("blocked_id", user.id)
-        .maybeSingle();
-      if (blockCheck) {
-        // Silently pretend it sent on sender's side, but don't save to DB
-        const fakeMsg: Message = {
-          id: `tmp-${Date.now()}`, sender_id: user.id, text: trimmed || null,
-          media_url: mediaUrl || null, media_type: mediaType || null,
-          created_at: new Date().toISOString(), read: false,
-        };
-        setMessages(prev => [...prev, fakeMsg]);
-        setMsg("");
-        bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-        setSending(false);
-        return;
-      }
-    } catch { /* if blocks table doesn't exist yet, allow send */ }
+    // Stop own typing indicator
+    if (myTypingTimerRef.current) { clearTimeout(myTypingTimerRef.current); myTypingTimerRef.current = null; }
+    dmStopTyping(selectedId);
 
-    // Optimistic
-    const tempId = `tmp-${Date.now()}`;
+    const replySnapshot = replyTo ? { replyToId: replyTo.id, replyToText: replyTo.text } : { replyToId: null, replyToText: null };
+    const clientId = uuidv4();
     const optimistic: Message = {
-      id: tempId, sender_id: user.id, text: trimmed || null,
+      id: clientId, sender_id: user.id, text: trimmed || null,
       media_url: mediaUrl || null, media_type: mediaType || null,
       created_at: new Date().toISOString(), read: false,
-      reply_to_id: replyTo?.id || null,
-      reply_to_text: replyTo?.text || null,
+      reply_to_id: replySnapshot.replyToId,
+      reply_to_text: replySnapshot.replyToText,
     };
+
     scrollBehaviorRef.current = "smooth";
     setMessages(prev => [...prev, optimistic]);
     setMsg("");
     setReplyTo(null);
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-
-    let data: any = null;
-    let error: any = null;
-    try {
-      const { data: inserted, error: insertErr } = await (supabase as any)
-        .from("messages")
-        .insert({
-          sender_id: user.id,
-          receiver_id: selectedId,
-          text: trimmed || null,
-          media_url: mediaUrl || null,
-          media_type: mediaType || "text",
-        })
-        .select()
-        .single();
-      data = inserted;
-      error = insertErr;
-    } catch (err) {
-      error = err;
-    }
-
-    if (error || !data) {
-      if (import.meta.env.DEV) console.error("Send failed:", error);
-      setMessages(prev => prev.filter(m => m.id !== tempId));
-      setMsg(trimmed || "");
-      toast({ title: "Failed to send", variant: "destructive" });
-    } else {
-      // Record real ID so the realtime sender INSERT handler skips it
-      sentMsgIdsRef.current.add(data.id);
-      setMessages(prev => prev.map(m => m.id === tempId ? { ...optimistic, id: data.id, created_at: data.created_at } : m));
-      fetchConversations();
-      // Notify recipient — skip if they have muted me
-      const { data: muteCheck } = await (supabase as any)
-        .from("mutes")
-        .select("id")
-        .eq("muter_id", selectedId)
-        .eq("muted_id", user.id)
-        .maybeSingle();
-      if (!muteCheck) createNotification({
-        userId: selectedId,
-        type: "message",
-        text: `${user.name} sent you a message`,
-        subtext: trimmed?.slice(0, 60),
-        action: `message:${user.id}`,
-        actorId: user.id,
-      });
-    }
-    setSending(false);
     setTimeout(() => inputRef.current?.focus(), 30);
+
+    // Fire via Socket.IO — server handles DB insert, notification, and ack
+    sendDm({
+      clientId,
+      receiverId: selectedId,
+      text: trimmed || null,
+      mediaUrl: mediaUrl || null,
+      mediaType: mediaType || null,
+      ...replySnapshot,
+    });
   };
 
   // ── File upload ──────────────────────────────────────────────────────
@@ -1099,7 +1108,16 @@ export default function Messages() {
                         </span>
                       )}
                     </p>
-                    {!theyBlockedMe && (() => {
+                    {peerTyping ? (
+                      <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <span className="flex gap-0.5 items-end">
+                          <span className="h-1 w-1 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: "0ms" }} />
+                          <span className="h-1 w-1 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: "150ms" }} />
+                          <span className="h-1 w-1 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: "300ms" }} />
+                        </span>
+                        typing…
+                      </p>
+                    ) : !theyBlockedMe && (() => {
                       const la = selectedConvo.lastActive;
                       if (!la) return null;
                       const diffMs = Date.now() - new Date(la).getTime();
@@ -1248,14 +1266,28 @@ export default function Messages() {
                       </button>
                     </div>
                     <input ref={inputRef} value={msg}
-                      onChange={e => setMsg(e.target.value)}
+                      onChange={e => {
+                        setMsg(e.target.value);
+                        // Typing indicator — emit start, debounce stop after 3s
+                        if (selectedId && e.target.value.length > 0) {
+                          dmStartTyping(selectedId);
+                          if (myTypingTimerRef.current) clearTimeout(myTypingTimerRef.current);
+                          myTypingTimerRef.current = setTimeout(() => {
+                            dmStopTyping(selectedId);
+                            myTypingTimerRef.current = null;
+                          }, 3000);
+                        } else if (selectedId && e.target.value.length === 0) {
+                          if (myTypingTimerRef.current) { clearTimeout(myTypingTimerRef.current); myTypingTimerRef.current = null; }
+                          dmStopTyping(selectedId);
+                        }
+                      }}
                       onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(msg); } }}
                       placeholder={uploading ? "Uploading…" : `Message ${selectedConvo.name}…`}
                       disabled={uploading}
                       className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none min-w-0 py-1 disabled:opacity-50" />
-                    <button type="button" onClick={() => sendMessage(msg)} disabled={!msg.trim() || sending || uploading}
+                    <button type="button" onClick={() => sendMessage(msg)} disabled={!msg.trim() || uploading}
                       className="h-7 w-7 rounded-full bg-primary text-primary-foreground flex items-center justify-center hover:opacity-90 transition-opacity disabled:opacity-30 shrink-0">
-                      {sending ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                      <Send className="h-3.5 w-3.5" />
                     </button>
                   </div>
                 </div>

@@ -7,6 +7,8 @@ import type {
   ServerToClientEvents,
   MessageSendPayload,
   WsMessage,
+  WsDmMessage,
+  DmSendPayload,
   PresenceUser,
 } from "./socketEvents";
 
@@ -263,6 +265,126 @@ export function initSocketServer(httpServer: HttpServer, allowedOrigins: Set<str
       socket.to(`group:${groupId}`).emit("typing:stop", { groupId, userId });
     });
 
+    // ── dm:join ────────────────────────────────────────────────────────────
+    socket.on("dm:join", (otherId) => {
+      socket.join(dmRoom(userId, otherId));
+    });
+
+    // ── dm:leave ───────────────────────────────────────────────────────────
+    socket.on("dm:leave", (otherId) => {
+      socket.leave(dmRoom(userId, otherId));
+    });
+
+    // ── dm:send ────────────────────────────────────────────────────────────
+    socket.on("dm:send", async (payload: DmSendPayload) => {
+      const { clientId, receiverId, text, mediaUrl, mediaType, replyToId, replyToText } = payload;
+
+      // Idempotency
+      const existingId = alreadySeen(clientId);
+      if (existingId) {
+        const { data: existing } = await supabaseAdmin
+          .from("messages").select("*").eq("id", existingId).single();
+        if (existing) socket.emit("dm:ack", { clientId, message: dbRowToDmMsg(existing) });
+        return;
+      }
+
+      const room = dmRoom(userId, receiverId);
+
+      // Broadcast optimistic to receiver instantly
+      const optimistic: WsDmMessage = {
+        id: clientId,
+        sender_id: userId,
+        receiver_id: receiverId,
+        text: text ?? null,
+        media_url: mediaUrl ?? null,
+        media_type: mediaType ?? null,
+        created_at: new Date().toISOString(),
+        read: false,
+        reply_to_id: replyToId ?? null,
+        reply_to_text: replyToText ?? null,
+      };
+      socket.to(room).emit("dm:new", optimistic);
+
+      // Persist to DB
+      const { data: row, error } = await supabaseAdmin
+        .from("messages")
+        .insert({
+          sender_id: userId,
+          receiver_id: receiverId,
+          text: text || null,
+          media_url: mediaUrl || null,
+          media_type: mediaType || "text",
+          reply_to_id: replyToId || null,
+        })
+        .select("*")
+        .single();
+
+      if (error || !row) {
+        socket.emit("error", "Failed to send message");
+        return;
+      }
+
+      markSeen(clientId, row.id);
+
+      const confirmed = dbRowToDmMsg(row);
+
+      // Ack sender with real DB id
+      socket.emit("dm:ack", { clientId, message: confirmed });
+
+      // Tell receiver to replace UUID temp id with real DB id
+      socket.to(room).emit("dm:updated", { id: clientId, new_id: row.id });
+
+      // Notification — fire-and-forget, skip if receiver muted the sender
+      supabaseAdmin
+        .from("mutes").select("id")
+        .eq("muter_id", receiverId).eq("muted_id", userId)
+        .maybeSingle()
+        .then(({ data: muteCheck }) => {
+          if (!muteCheck) {
+            supabaseAdmin.from("notifications").insert({
+              user_id: receiverId,
+              type: "message",
+              text: `${name} sent you a message`,
+              subtext: text?.slice(0, 60) || null,
+              action: `message:${userId}`,
+              actor_id: userId,
+              read: false,
+            }).then(() => {});
+          }
+        });
+    });
+
+    // ── dm:read ────────────────────────────────────────────────────────────
+    socket.on("dm:read", (otherId) => {
+      // Mark DB rows as read (fire-and-forget)
+      supabaseAdmin
+        .from("messages")
+        .update({ read: true })
+        .eq("sender_id", otherId)
+        .eq("receiver_id", userId)
+        .eq("read", false)
+        .then(() => {});
+      // Mark message notifications from this sender as read
+      supabaseAdmin
+        .from("notifications")
+        .update({ read: true })
+        .eq("user_id", userId)
+        .eq("type", "message")
+        .eq("actor_id", otherId)
+        .then(() => {});
+      // Tell sender their messages were read
+      socket.to(dmRoom(userId, otherId)).emit("dm:read", { fromId: userId });
+    });
+
+    // ── dm:typing:start / dm:typing:stop ────────────────────────────────────
+    socket.on("dm:typing:start", (otherId) => {
+      socket.to(dmRoom(userId, otherId)).emit("dm:typing:start", { fromId: userId });
+    });
+
+    socket.on("dm:typing:stop", (otherId) => {
+      socket.to(dmRoom(userId, otherId)).emit("dm:typing:stop", { fromId: userId });
+    });
+
     // ── disconnect ─────────────────────────────────────────────────────────
     socket.on("disconnect", () => {
       const affectedGroups = presence.userDisconnected(userId);
@@ -280,6 +402,26 @@ export function initSocketServer(httpServer: HttpServer, allowedOrigins: Set<str
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+/** Consistent DM room name — sort ensures both parties join the same room */
+function dmRoom(a: string, b: string): string {
+  return `dm:${[a, b].sort().join(":")}`;
+}
+
+function dbRowToDmMsg(row: any): WsDmMessage {
+  return {
+    id: row.id,
+    sender_id: row.sender_id,
+    receiver_id: row.receiver_id,
+    text: row.text ?? null,
+    media_url: row.media_url ?? null,
+    media_type: row.media_type ?? null,
+    created_at: row.created_at,
+    read: row.read ?? false,
+    reply_to_id: row.reply_to_id ?? null,
+    reply_to_text: row.reply_to_text ?? null,
+  };
+}
 
 function dbRowToWsMsg(row: any, author: Pick<SocketData, "name" | "color" | "avatarUrl" | "role">): WsMessage {
   return {
