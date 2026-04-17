@@ -46,6 +46,8 @@ export interface UseGroupSocketOptions {
   onTypingStart: (groupId: string, userId: string, userName: string) => void;
   /** Called when a user stops typing */
   onTypingStop: (groupId: string, userId: string) => void;
+  /** Called when a reaction is added/removed by another user */
+  onReaction?: (payload: { messageId: string; groupId: string; emoji: string; userId: string; action: "added" | "removed" }) => void;
 }
 
 export interface UseGroupSocketReturn {
@@ -104,6 +106,7 @@ export function useGroupSocket(options: UseGroupSocketOptions): UseGroupSocketRe
     socket.on("presence:update", ({ groupId, user, online }) => cbRef.current.onPresenceUpdate(groupId, user, online));
     socket.on("typing:start", ({ groupId, userId, userName }) => cbRef.current.onTypingStart(groupId, userId, userName));
     socket.on("typing:stop", ({ groupId, userId }) => cbRef.current.onTypingStop(groupId, userId));
+    socket.on("message:reaction", (payload) => cbRef.current.onReaction?.(payload));
 
     if (!socket.connected) socket.connect();
 
@@ -118,6 +121,7 @@ export function useGroupSocket(options: UseGroupSocketOptions): UseGroupSocketRe
       socket.off("presence:update");
       socket.off("typing:start");
       socket.off("typing:stop");
+      socket.off("message:reaction");
     };
   }, [token]);
 

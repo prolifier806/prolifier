@@ -3,6 +3,7 @@ import { z } from "zod";
 import { supabaseAdmin } from "../lib/supabase";
 import { AuthRequest } from "../lib/types";
 import { checkFields } from "../services/moderation";
+import { broadcastFromDb } from "../lib/socketServer";
 
 export const createGroupSchema = z.object({
   name: z.string().min(1).max(100),
@@ -643,7 +644,7 @@ export const toggleReactionSchema = z.object({
 
 /** POST /api/groups/:id/messages/:messageId/reactions — toggle a reaction */
 export async function toggleReaction(req: AuthRequest, res: Response): Promise<void> {
-  const { messageId } = req.params;
+  const { id: groupId, messageId } = req.params;
   const userId = req.user.id;
   const { emoji } = req.body as { emoji: string };
 
@@ -655,9 +656,10 @@ export async function toggleReaction(req: AuthRequest, res: Response): Promise<v
     .eq("emoji", emoji)
     .maybeSingle();
 
+  const action: "added" | "removed" = existing ? "removed" : "added";
+
   if (existing) {
     await supabaseAdmin.from("group_message_reactions").delete().eq("id", existing.id);
-    res.json({ success: true, data: { action: "removed" } });
   } else {
     const { error } = await supabaseAdmin.from("group_message_reactions").insert({
       message_id: messageId,
@@ -665,8 +667,12 @@ export async function toggleReaction(req: AuthRequest, res: Response): Promise<v
       emoji,
     });
     if (error) { res.status(500).json({ success: false, error: error.message }); return; }
-    res.status(201).json({ success: true, data: { action: "added" } });
   }
+
+  // Broadcast to all other group members in real-time
+  broadcastFromDb(groupId, "message:reaction", { messageId, groupId, emoji, userId, action });
+
+  res.json({ success: true, data: { action } });
 }
 
 /** GET /api/groups/:id/messages/reactions?messageIds=a,b,c — batch-fetch reactions */

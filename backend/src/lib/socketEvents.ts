@@ -95,6 +95,9 @@ export interface ServerToClientEvents {
   /** The other user stopped typing */
   "dm:typing:stop": (payload: { fromId: string }) => void;
 
+  /** A reaction was added or removed on a group message */
+  "message:reaction": (payload: { messageId: string; groupId: string; emoji: string; userId: string; action: "added" | "removed" }) => void;
+
   /** Server error */
   "error": (message: string) => void;
 }

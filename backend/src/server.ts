@@ -17,6 +17,7 @@ import reportsRouter from "./routes/reports";
 import feedbackRouter from "./routes/feedback";
 import adminRouter from "./routes/admin";
 import groupsRouter from "./routes/groups";
+import searchRouter from "./routes/search";
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -112,6 +113,7 @@ app.use("/api/reports", reportsRouter);
 app.use("/api/feedback", feedbackRouter);
 app.use("/api/admin", adminRouter);
 app.use("/api/groups", groupsRouter);
+app.use("/api/search", searchRouter);
 
 // ── 404 catch-all ────────────────────────────────────────────────────────────
 app.use((req, res) => {

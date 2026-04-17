@@ -39,6 +39,7 @@ import {
   deleteGroupMessage as apiDeleteGroupMessage,
   toggleReaction as apiToggleReaction,
   getMessageReactions as apiGetMessageReactions,
+  searchGroupMessages,
 } from "@/api/groups";
 import { uploadPostImage, uploadVideo, uploadFile } from "@/api/uploads";
 
@@ -327,6 +328,14 @@ export default function Groups() {
   const [reactions, setReactions] = useState<ReactionMap>({});
   // Which message's emoji picker is open
   const [reactionPickerMsgId, setReactionPickerMsgId] = useState<string | null>(null);
+
+  // Chat search
+  type SearchResult = { id: string; text: string; snippet: string; media_url: string | null; media_type: string | null; created_at: string; sender: { id: string; name: string; color: string; avatar_url: string | null } };
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Track in-progress join request accept/decline to prevent double-clicks
   const [processingRequestIds, setProcessingRequestIds] = useState<Set<string>>(new Set());
   // Typing indicators — map of userId → name (ephemeral, not stored in DB)
@@ -379,9 +388,14 @@ export default function Groups() {
   const [uploadingIcon, setUploadingIcon] = useState(false);
   const settingsImageRef = useRef<HTMLInputElement>(null);
 
-  // Image send modal
+  // Image / Video send modals
   type ImgQuality = "480p" | "720p" | "hd";
+  type VidQuality = "low" | "medium" | "original";
   const [imgModal, setImgModal] = useState<{ file: File; previewUrl: string } | null>(null);
+  const [vidModal, setVidModal] = useState<{ file: File; previewUrl: string } | null>(null);
+  const [vidCaption, setVidCaption] = useState("");
+  const [vidQuality, setVidQuality] = useState<VidQuality>("medium");
+  const [vidUploading, setVidUploading] = useState(false);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [imgCaption, setImgCaption] = useState("");
   const [imgQuality, setImgQuality] = useState<ImgQuality>("720p");
@@ -512,6 +526,25 @@ export default function Groups() {
 
     onTypingStop: useCallback((_groupId, userId) => {
       setTypingUsers(prev => { const s = { ...prev }; delete s[userId]; return s; });
+    }, []),
+
+    onReaction: useCallback(({ messageId, emoji, userId: reactorId, action }) => {
+      setReactions(prev => {
+        const msg = { ...(prev[messageId] ?? {}) };
+        if (action === "removed") {
+          const newUserIds = (msg[emoji]?.userIds ?? []).filter(id => id !== reactorId);
+          if (newUserIds.length === 0) {
+            const { [emoji]: _removed, ...rest } = msg;
+            return { ...prev, [messageId]: rest };
+          }
+          return { ...prev, [messageId]: { ...msg, [emoji]: { count: newUserIds.length, userIds: newUserIds } } };
+        } else {
+          const existing = msg[emoji]?.userIds ?? [];
+          if (existing.includes(reactorId)) return prev; // already there
+          const userIds = [...existing, reactorId];
+          return { ...prev, [messageId]: { ...msg, [emoji]: { count: userIds.length, userIds } } };
+        }
+      });
     }, []),
   });
 
@@ -1152,6 +1185,8 @@ export default function Groups() {
       reply_to_author: replyRef?.author_name ?? null,
     }]);
     setChatInput("");
+    // Reset textarea height after clearing input
+    if (inputRef.current) { inputRef.current.style.height = "auto"; }
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     inputRef.current?.focus();
 
@@ -1209,27 +1244,43 @@ export default function Groups() {
     }
   };
 
+  const sendVideoMsg = async () => {
+    if (!vidModal || !activeGroup) return;
+    setVidUploading(true);
+    try {
+      // For low/medium quality we pass a hint to the upload function; original = no processing
+      const quality = vidQuality === "low" ? "low" : vidQuality === "medium" ? "medium" : "original";
+      const uploaded = await uploadVideo(vidModal.file, "chat", quality as any);
+      sendMessage(vidCaption.trim() || undefined, uploaded.fallbackUrl, "video");
+      setVidModal(null);
+      setVidCaption("");
+    } catch {
+      toast({ title: "Upload failed", variant: "destructive" });
+    } finally {
+      setVidUploading(false);
+    }
+  };
+
   const handleFileInput = async (e: React.ChangeEvent<HTMLInputElement>, type: MediaType) => {
     const file = e.target.files?.[0];
     if (!file || !activeGroup) return;
     if (type === "image") {
-      // Show preview modal instead of uploading immediately
       setImgModal({ file, previewUrl: URL.createObjectURL(file) });
       setImgCaption("");
       setImgQuality("720p");
       e.target.value = "";
       return;
     }
+    if (type === "video") {
+      setVidModal({ file, previewUrl: URL.createObjectURL(file) });
+      setVidCaption("");
+      setVidQuality("medium");
+      e.target.value = "";
+      return;
+    }
     try {
-      let url: string;
-      if (type === "video") {
-        const uploaded = await uploadVideo(file, "chat");
-        url = uploaded.fallbackUrl;
-      } else {
-        const uploaded = await uploadFile(file);
-        url = uploaded.url;
-      }
-      sendMessage(undefined, url, type);
+      const uploaded = await uploadFile(file);
+      sendMessage(undefined, uploaded.url, type);
     } catch {
       toast({ title: "Upload failed", variant: "destructive" });
     }
@@ -1283,6 +1334,18 @@ export default function Groups() {
       toast({ title: "Could not unsend", variant: "destructive" });
     }
   };
+
+  // ── Chat search ───────────────────────────────────────────────────────────
+  const runSearch = useCallback(async (q: string) => {
+    if (!activeGroup || q.trim().length < 2) { setSearchResults([]); return; }
+    setSearchLoading(true);
+    try {
+      const res = await searchGroupMessages(activeGroup.id, q, 30);
+      if (res.success) setSearchResults(res.data.results ?? []);
+    } catch { /* ignore */ } finally {
+      setSearchLoading(false);
+    }
+  }, [activeGroup]);
 
   // ── Toggle reaction ───────────────────────────────────────────────────────
   const QUICK_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
@@ -1621,11 +1684,11 @@ export default function Groups() {
                     )}
                   </div>
                   {/* Primary bubble */}
-                  <div className="bg-primary text-primary-foreground rounded-2xl rounded-tr-sm px-3 py-2 max-w-full">
+                  <div className="bg-primary text-primary-foreground rounded-2xl rounded-tr-sm overflow-hidden max-w-full">
                     {m.reply_to_id && (
                       <div
                         onClick={() => { const el = document.getElementById(`msg-${m.reply_to_id}`); el?.scrollIntoView({ behavior: "smooth", block: "center" }); }}
-                        className="flex items-start gap-1.5 mb-1.5 pl-2 border-l-2 border-white/40 cursor-pointer hover:bg-white/10 rounded-r-lg transition-colors"
+                        className="flex items-start gap-1.5 mx-3 mt-2 mb-1.5 pl-2 border-l-2 border-white/40 cursor-pointer hover:bg-white/10 rounded-r-lg transition-colors"
                       >
                         <div className="min-w-0">
                           {m.reply_to_author && <p className="text-[10px] font-semibold text-white/80 truncate">{m.reply_to_author}</p>}
@@ -1634,27 +1697,27 @@ export default function Groups() {
                       </div>
                     )}
                     {m.media_type === "image" && m.media_url && (
-                      <div className="rounded-xl overflow-hidden -mx-1">
+                      <div>
                         <button onClick={() => setLightboxUrl(m.media_url!)} className="block w-full">
                           <img src={m.media_url} alt="shared" className="w-full object-cover block" style={{ maxHeight: "260px", minHeight: "100px" }} loading="lazy" />
                         </button>
                         {m.text?.trim() && (
-                          <p className="text-sm leading-snug whitespace-pre-wrap break-words mt-1.5 px-1">
+                          <p className="text-sm leading-snug whitespace-pre-wrap break-words px-3 py-2">
                             {renderTextWithLinks(m.text.trim(), members.map(mb => mb.name))}
                           </p>
                         )}
                       </div>
                     )}
                     {m.media_type !== "image" && m.text?.trim() && (
-                      <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
+                      <p className="text-sm leading-relaxed whitespace-pre-wrap break-words px-3 py-2">
                         {renderTextWithLinks(m.text.trim(), members.map(mb => mb.name))}
                       </p>
                     )}
                     {m.media_type === "video" && m.media_url && (
-                      <video src={m.media_url} controls className="rounded-xl mt-1 max-w-xs max-h-48 bg-black" />
+                      <video src={m.media_url} controls className="w-full max-h-48 bg-black" />
                     )}
                     {m.media_type === "file" && m.media_url && (
-                      <a href={m.media_url} download className="inline-flex items-center gap-2 mt-1 px-3 py-2 rounded-xl bg-white/10 text-sm text-white hover:bg-white/20 transition-colors max-w-xs">
+                      <a href={m.media_url} download className="inline-flex items-center gap-2 mx-3 my-2 px-3 py-2 rounded-xl bg-white/10 text-sm text-white hover:bg-white/20 transition-colors max-w-xs">
                         <Paperclip className="h-4 w-4 shrink-0" /><span className="truncate">File</span>
                       </a>
                     )}
@@ -1775,11 +1838,11 @@ export default function Groups() {
                     )}
                   </div>
                   {/* Muted bubble */}
-                  <div className="bg-muted rounded-2xl rounded-tl-sm px-3 py-2">
+                  <div className="bg-muted rounded-2xl rounded-tl-sm overflow-hidden">
                     {m.reply_to_id && (
                       <div
                         onClick={() => { const el = document.getElementById(`msg-${m.reply_to_id}`); el?.scrollIntoView({ behavior: "smooth", block: "center" }); }}
-                        className="flex items-start gap-1.5 mb-1.5 pl-2 border-l-2 border-primary/40 cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 rounded-r-lg transition-colors"
+                        className="flex items-start gap-1.5 mx-3 mt-2 mb-1.5 pl-2 border-l-2 border-primary/40 cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 rounded-r-lg transition-colors"
                       >
                         <div className="min-w-0">
                           {m.reply_to_author && <p className="text-[10px] font-semibold text-primary truncate">{m.reply_to_author}</p>}
@@ -1788,27 +1851,27 @@ export default function Groups() {
                       </div>
                     )}
                     {m.media_type === "image" && m.media_url && (
-                      <div className="rounded-xl overflow-hidden -mx-1">
+                      <div>
                         <button onClick={() => setLightboxUrl(m.media_url!)} className="block w-full">
                           <img src={m.media_url} alt="shared" className="w-full object-cover block" style={{ maxHeight: "260px", minHeight: "100px" }} loading="lazy" />
                         </button>
                         {m.text?.trim() && (
-                          <p className="text-sm text-foreground leading-snug whitespace-pre-wrap break-words mt-1.5 px-1">
+                          <p className="text-sm text-foreground leading-snug whitespace-pre-wrap break-words px-3 py-2">
                             {renderTextWithLinks(m.text.trim(), members.map(mb => mb.name))}
                           </p>
                         )}
                       </div>
                     )}
                     {m.media_type !== "image" && m.text?.trim() && (
-                      <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap break-words">
+                      <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap break-words px-3 py-2">
                         {renderTextWithLinks(m.text.trim(), members.map(mb => mb.name))}
                       </p>
                     )}
                     {m.media_type === "video" && m.media_url && (
-                      <video src={m.media_url} controls className="rounded-xl mt-1 max-w-xs max-h-48 bg-black" />
+                      <video src={m.media_url} controls className="w-full max-h-48 bg-black" />
                     )}
                     {m.media_type === "file" && m.media_url && (
-                      <a href={m.media_url} download className="inline-flex items-center gap-2 mt-1 px-3 py-2 rounded-xl bg-secondary text-sm text-foreground hover:bg-card transition-colors max-w-xs">
+                      <a href={m.media_url} download className="inline-flex items-center gap-2 mx-3 my-2 px-3 py-2 rounded-xl bg-secondary text-sm text-foreground hover:bg-card transition-colors max-w-xs">
                         <Paperclip className="h-4 w-4 shrink-0 text-muted-foreground" /><span className="truncate">File</span>
                       </a>
                     )}
@@ -2460,6 +2523,10 @@ export default function Groups() {
               </p>
             </div>
             <div className="flex items-center gap-1">
+              <button onClick={() => { setShowSearch(s => !s); setSearchQuery(""); setSearchResults([]); }}
+                className={`h-8 w-8 rounded-full flex items-center justify-center transition-colors ${showSearch ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted"}`}>
+                <Search className="h-4 w-4" />
+              </button>
               <button onClick={openSettings}
                 className="relative h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors">
                 <Settings className="h-4 w-4" />
@@ -2470,8 +2537,69 @@ export default function Groups() {
             </div>
           </div>
 
+          {/* Search bar — shown when search mode active */}
+          {showSearch && (
+            <div className="px-4 py-2 border-b border-border bg-card/80">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <input
+                  autoFocus
+                  value={searchQuery}
+                  onChange={e => {
+                    const q = e.target.value;
+                    setSearchQuery(q);
+                    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+                    searchDebounceRef.current = setTimeout(() => runSearch(q), 350);
+                  }}
+                  placeholder="Search messages…"
+                  className="w-full pl-9 pr-4 py-1.5 text-sm bg-muted rounded-xl outline-none text-foreground placeholder:text-muted-foreground"
+                />
+                {searchLoading && (
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Search results overlay */}
+          {showSearch && (
+            <div className="flex-1 overflow-y-auto p-4">
+              {searchQuery.trim().length < 2 && (
+                <p className="text-center text-sm text-muted-foreground py-8">Type at least 2 characters to search</p>
+              )}
+              {searchQuery.trim().length >= 2 && !searchLoading && searchResults.length === 0 && (
+                <p className="text-center text-sm text-muted-foreground py-8">No results for "{searchQuery}"</p>
+              )}
+              {searchResults.map(r => (
+                <button key={r.id} onClick={() => {
+                  setShowSearch(false);
+                  setSearchQuery("");
+                  setSearchResults([]);
+                  // Give DOM time to re-render before scrolling
+                  setTimeout(() => {
+                    document.getElementById(`msg-${r.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+                  }, 100);
+                }}
+                  className="w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-xl hover:bg-muted transition-colors mb-1">
+                  <div className={`h-8 w-8 rounded-full ${r.sender.color} flex items-center justify-center text-white text-xs font-semibold shrink-0 overflow-hidden`}>
+                    {r.sender.avatar_url
+                      ? <img src={r.sender.avatar_url} alt={r.sender.name} className="w-full h-full object-cover" />
+                      : r.sender.name.split(" ").map((w: string) => w[0]).slice(0, 2).join("").toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="text-xs font-semibold text-foreground">{r.sender.name}</span>
+                      <span className="text-[10px] text-muted-foreground">{fmtTime(r.created_at)}</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground truncate">{r.snippet || r.text}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+
           {/* Messages area */}
-          <div className="flex-1 overflow-y-auto p-4">
+          <div className={`flex-1 overflow-y-auto p-4 ${showSearch ? "hidden" : ""}`}>
             {!isJoined && (
               <div className="text-center py-10">
                 <p className="text-sm text-muted-foreground mb-3">
@@ -2723,6 +2851,53 @@ export default function Groups() {
                 <button onClick={sendImageMsg} disabled={imgUploading}
                   className="w-full h-10 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2">
                   {imgUploading
+                    ? <><div className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin" /> Uploading…</>
+                    : <><Send className="h-4 w-4" /> Send</>}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Video send modal */}
+        {vidModal && (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+            onClick={e => { if (e.target === e.currentTarget && !vidUploading) setVidModal(null); }}>
+            <div className="w-full max-w-sm bg-card border border-border rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+              <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-border">
+                <p className="font-semibold text-foreground">Send Video</p>
+                <button onClick={() => !vidUploading && setVidModal(null)}
+                  className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="relative bg-black">
+                <video src={vidModal.previewUrl} className="w-full max-h-48 object-contain" controls />
+                {vidUploading && (
+                  <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+                    <div className="h-8 w-8 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                  </div>
+                )}
+              </div>
+              <div className="px-4 py-3 space-y-3">
+                <textarea value={vidCaption} onChange={e => setVidCaption(e.target.value)}
+                  placeholder="Add a caption… (optional)" rows={2} disabled={vidUploading}
+                  className="w-full bg-muted rounded-xl px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none resize-none" />
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-2">Quality</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    {([["low", "Low", "Smaller"], ["medium", "Medium", "Balanced"], ["original", "Original", "Full size"]] as [VidQuality, string, string][]).map(([val, label, sub]) => (
+                      <button key={val} onClick={() => setVidQuality(val)} disabled={vidUploading}
+                        className={`flex flex-col items-center py-2 rounded-xl border text-xs transition-all ${vidQuality === val ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-foreground/30"}`}>
+                        <span className="font-semibold">{label}</span>
+                        <span className="text-[10px] opacity-70 mt-0.5">{sub}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <button onClick={sendVideoMsg} disabled={vidUploading}
+                  className="w-full h-10 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2">
+                  {vidUploading
                     ? <><div className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin" /> Uploading…</>
                     : <><Send className="h-4 w-4" /> Send</>}
                 </button>

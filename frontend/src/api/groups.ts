@@ -55,6 +55,11 @@ export const getMessageReactions = (groupId: string, messageIds: string[]) =>
     `/api/groups/${groupId}/messages/reactions?messageIds=${messageIds.join(",")}`
   );
 
+export const searchGroupMessages = (groupId: string, q: string, limit = 30, cursor?: string) =>
+  apiGet<{ results: any[]; hasMore: boolean; nextCursor: string | null }>(
+    `/api/search/groups/${groupId}?q=${encodeURIComponent(q)}&limit=${limit}${cursor ? `&cursor=${cursor}` : ""}`
+  );
+
 export const getBannedUsers = (groupId: string) =>
   apiGet<any[]>(`/api/groups/${groupId}/bans`);
 
