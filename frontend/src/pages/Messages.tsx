@@ -892,13 +892,43 @@ export default function Messages() {
     }
   };
 
+  // ── Metadata strip (time + views + tick) ─────────────────────────────────
+  const renderMeta = (m: Message, isMe: boolean, overlay = false) => (
+    <div className={`flex items-center gap-1 ${overlay
+      ? "absolute bottom-1.5 right-2 bg-black/40 rounded-full px-1.5 py-0.5 backdrop-blur-sm"
+      : `mt-1 ${isMe ? "justify-end" : "justify-start"}`
+    }`}>
+      <Eye className={`h-3 w-3 ${overlay ? "text-white/80" : "text-muted-foreground"}`} />
+      <span className={`text-[11px] ${overlay ? "text-white/90" : "text-muted-foreground"}`}>{m.views ?? 0}</span>
+      <span className={`text-[11px] ${overlay ? "text-white/90" : "text-muted-foreground"}`}>{fmtTime(m.created_at)}</span>
+      {isMe && (m.read
+        ? <CheckCheck className={`h-3 w-3 ${overlay ? "text-white/90" : "text-primary"}`} />
+        : <Check className={`h-3 w-3 ${overlay ? "text-white/60" : "text-muted-foreground"}`} />
+      )}
+    </div>
+  );
+
   const renderMessage = (m: Message) => {
     const isMe = m.sender_id === user.id;
 
-    // ── Shared post/collab card ───────────────────────────────────────────
+    // ── Bubble shell styles ───────────────────────────────────────────────
+    const sentBg   = "bg-primary text-primary-foreground";
+    const recvBg   = "bg-card text-foreground border border-border";
+    const bubbleBg = isMe ? sentBg : recvBg;
+
+    // Tail: pure border triangle — sent points right, recv points left
+    const tail = isMe ? (
+      <span className="absolute bottom-0 right-[-7px] w-0 h-0 block pointer-events-none"
+        style={{ borderLeft: "8px solid hsl(var(--primary))", borderTop: "8px solid transparent" }} />
+    ) : (
+      <span className="absolute bottom-0 left-[-7px] w-0 h-0 block pointer-events-none"
+        style={{ borderRight: "8px solid hsl(var(--card,var(--background)))", borderTop: "8px solid transparent" }} />
+    );
+
+    // ── Shared post card ──────────────────────────────────────────────────
     if (m.media_type === "shared_post" && m.text) {
       let share: any = null;
-      try { share = JSON.parse(m.text); } catch { /* fallback to plain text below */ }
+      try { share = JSON.parse(m.text); } catch { /* plain text fallback */ }
       if (share) {
         const link = share.type === "post" && share.id
           ? `/feed?post=${share.id}`
@@ -906,138 +936,157 @@ export default function Messages() {
             ? `/feed?tab=collabs&collab=${share.id}`
             : "/feed";
         return (
-          <div key={m.id} className={`flex mb-1 ${isMe ? "justify-end" : "justify-start"}`}>
-            <div className="flex flex-col gap-0.5 max-w-[75%]">
-              <button
-                onClick={() => navigate(link)}
-                className={`rounded-2xl overflow-hidden border text-left transition-opacity hover:opacity-90 ${isMe ? "border-primary/30 bg-primary/10" : "border-border bg-card"}`}
-              >
-                {share.image && (
-                  <img
-                    src={share.image}
-                    alt="preview"
-                    className="w-full object-contain bg-muted block"
-                    style={{ maxHeight: "320px" }}
-                    loading="lazy"
-                  />
-                )}
-                <div className="px-3 py-2.5">
-                  <p className="text-[10px] font-semibold text-primary uppercase tracking-wide mb-0.5">
-                    {share.type === "collab" ? "🤝 Shared Collab" : "📌 Shared Post"}
-                  </p>
-                  {share.title && <p className="text-sm font-semibold text-foreground leading-snug mb-1">{share.title}</p>}
-                  <p className="text-xs text-muted-foreground leading-relaxed line-clamp-3">{share.caption}</p>
-                  <div className="flex items-center justify-between mt-1.5">
-                    <p className="text-[11px] text-primary font-medium">Tap to view →</p>
-                    <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                      <Eye className="h-3 w-3" />
-                      {m.views ?? 0}
-                    </span>
-                  </div>
+          <div key={m.id} className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
+            <div className={`group relative max-w-[72%] rounded-2xl ${isMe ? "rounded-br-[4px]" : "rounded-bl-[4px]"} overflow-hidden border ${isMe ? "border-primary/30 bg-primary/10" : "border-border bg-card"} cursor-pointer hover:opacity-90 transition-opacity`}
+              onClick={() => navigate(link)}>
+              {tail}
+              {share.image && (
+                /* img-wrap clips corners without restricting height */
+                <div className="overflow-hidden">
+                  <img src={share.image} alt="preview"
+                    className="block w-full h-auto object-contain bg-black/5"
+                    style={{ maxHeight: "360px" }}
+                    loading="lazy" />
                 </div>
-              </button>
-              <div className={`flex items-center gap-1.5 mt-0.5 ${isMe ? "justify-end" : "justify-start"}`}>
-                {m.views !== undefined && (
-                  <span className="flex items-center gap-0.5 text-[11px] text-muted-foreground">
-                    <Eye className="h-3 w-3" />
-                    {m.views}
-                  </span>
-                )}
-                <span className="text-xs text-muted-foreground">{fmtTime(m.created_at)}</span>
-                {isMe && (m.read
-                  ? <CheckCheck className="h-3 w-3 text-primary" />
-                  : <Check className="h-3 w-3 text-muted-foreground" />
-                )}
+              )}
+              <div className="px-3 pt-2 pb-1.5">
+                <p className="text-[10px] font-semibold text-primary uppercase tracking-wide mb-0.5">
+                  {share.type === "collab" ? "🤝 Shared Collab" : "📌 Shared Post"}
+                </p>
+                {share.title && <p className="text-sm font-semibold leading-snug mb-1">{share.title}</p>}
+                <p className="text-xs text-muted-foreground leading-relaxed line-clamp-3">{share.caption}</p>
+                <p className="text-[11px] text-primary font-medium mt-1">Tap to view →</p>
               </div>
+              {renderMeta(m, isMe)}
             </div>
           </div>
         );
       }
     }
 
+    // ── Image message ─────────────────────────────────────────────────────
+    if (m.media_type === "image" && m.media_url) {
+      return (
+        <div key={m.id} className={`group flex items-end gap-1.5 ${isMe ? "justify-end" : "justify-start"}`}>
+          {!isMe && (
+            <button onClick={() => { setReplyTo({ id: m.id, text: quoteLabel(m) }); setTimeout(() => inputRef.current?.focus(), 50); }}
+              className="h-6 w-6 rounded-full flex items-center justify-center text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-muted transition-all shrink-0 mb-1">
+              <Reply className="h-3.5 w-3.5" />
+            </button>
+          )}
+
+          {/* Bubble — overflow:visible so tail shows, inner wrapper clips image */}
+          <div className={`relative max-w-[72%] rounded-2xl ${isMe ? "rounded-br-[4px]" : "rounded-bl-[4px]"} overflow-visible`}>
+            {tail}
+            {/* image wrapper — clips to bubble corners */}
+            <div className={`overflow-hidden rounded-2xl ${isMe ? "rounded-br-[4px]" : "rounded-bl-[4px]"}`}
+              onClick={() => setMediaPreview({ type: "image", url: m.media_url! })}>
+              {/* Reply quote */}
+              {m.reply_to_text && (
+                <div className={`px-3 pt-2.5 pb-1 border-l-[3px] ${isMe ? "bg-primary/80 border-white/60" : "bg-muted border-primary"}`}>
+                  <p className={`text-[10px] font-bold uppercase mb-0.5 ${isMe ? "text-white/70" : "text-primary"}`}>{isMe ? "You replied" : "Reply"}</p>
+                  <p className={`text-xs truncate ${isMe ? "text-white/80" : "text-foreground"}`}>{m.reply_to_text}</p>
+                </div>
+              )}
+              {/* The image — width:100%, height:auto = NO cropping ever */}
+              <img
+                src={m.media_url}
+                alt="shared"
+                className="block w-full h-auto cursor-pointer"
+                style={{ maxHeight: "480px", objectFit: "contain", background: "rgba(0,0,0,0.06)" }}
+                loading="lazy"
+              />
+              {/* Caption (if any text alongside image) */}
+              {m.text && (
+                <div className={`px-3 pt-1.5 pb-1 text-sm leading-relaxed whitespace-pre-wrap break-words ${isMe ? "bg-primary text-primary-foreground" : "bg-card text-foreground"}`}>
+                  {renderTextWithLinks(m.text, isMe)}
+                </div>
+              )}
+              {/* Metadata overlaid on image bottom-right */}
+              <div className={`flex items-center justify-end gap-1 px-2 py-1 ${isMe ? "bg-primary" : "bg-card border-t border-border"}`}>
+                <Eye className={`h-3 w-3 ${isMe ? "text-primary-foreground/70" : "text-muted-foreground"}`} />
+                <span className={`text-[11px] ${isMe ? "text-primary-foreground/70" : "text-muted-foreground"}`}>{m.views ?? 0}</span>
+                <span className={`text-[11px] ${isMe ? "text-primary-foreground/70" : "text-muted-foreground"}`}>{fmtTime(m.created_at)}</span>
+                {isMe && (m.read
+                  ? <CheckCheck className="h-3 w-3 text-primary-foreground/80" />
+                  : <Check className="h-3 w-3 text-primary-foreground/50" />
+                )}
+              </div>
+            </div>
+          </div>
+
+          {isMe && (
+            <button onClick={() => { setReplyTo({ id: m.id, text: quoteLabel(m) }); setTimeout(() => inputRef.current?.focus(), 50); }}
+              className="h-6 w-6 rounded-full flex items-center justify-center text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-muted transition-all shrink-0 mb-1">
+              <Reply className="h-3.5 w-3.5 scale-x-[-1]" />
+            </button>
+          )}
+        </div>
+      );
+    }
+
+    // ── All other messages (text / video / file / audio) ──────────────────
     return (
-      <div key={m.id} className={`group flex items-end gap-1.5 mb-1 ${isMe ? "justify-end" : "justify-start"}`}>
-        {/* Reply button — other person's messages, left side */}
+      <div key={m.id} className={`group flex items-end gap-1.5 ${isMe ? "justify-end" : "justify-start"}`}>
         {!isMe && (
-          <button
-            onClick={() => { setReplyTo({ id: m.id, text: quoteLabel(m) }); setTimeout(() => inputRef.current?.focus(), 50); }}
-            className="h-6 w-6 rounded-full flex items-center justify-center text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-muted transition-all shrink-0 mb-5"
-          >
+          <button onClick={() => { setReplyTo({ id: m.id, text: quoteLabel(m) }); setTimeout(() => inputRef.current?.focus(), 50); }}
+            className="h-6 w-6 rounded-full flex items-center justify-center text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-muted transition-all shrink-0 mb-5">
             <Reply className="h-3.5 w-3.5" />
           </button>
         )}
 
-        <div className="flex flex-col gap-0.5 max-w-[75%]">
-          {/* Quoted reply bubble */}
+        <div className="flex flex-col gap-0.5 max-w-[72%]">
+          {/* Quoted reply */}
           {m.reply_to_text && (
-            <div className={`px-3 py-2 rounded-lg border-l-[3px] mb-1 ${
-              isMe
-                ? "bg-black/30 border-white/90"
-                : "bg-black/8 border-primary bg-muted"
-            }`}>
-              <p className={`text-[10px] font-bold uppercase tracking-wide mb-0.5 ${isMe ? "text-white/70" : "text-primary"}`}>
-                {isMe ? "You replied" : "Reply"}
-              </p>
-              <p className={`text-xs font-semibold truncate leading-snug ${isMe ? "text-white" : "text-foreground"}`}>
-                {m.reply_to_text}
-              </p>
+            <div className={`px-3 py-2 rounded-lg border-l-[3px] mb-1 ${isMe ? "bg-primary/20 border-primary" : "bg-muted border-primary"}`}>
+              <p className="text-[10px] font-bold uppercase tracking-wide mb-0.5 text-primary">{isMe ? "You replied" : "Reply"}</p>
+              <p className="text-xs font-semibold truncate leading-snug text-foreground">{m.reply_to_text}</p>
             </div>
           )}
 
+          {/* Text bubble */}
           {m.text && (!m.media_type || m.media_type === "text") && (
-            <div className={`relative px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap break-words ${
-              isMe
-                ? "bg-primary text-primary-foreground rounded-t-2xl rounded-bl-2xl rounded-br-sm"
-                : "bg-secondary text-secondary-foreground rounded-t-2xl rounded-br-2xl rounded-bl-sm"
+            <div className={`relative px-3.5 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words rounded-2xl ${
+              isMe ? "rounded-br-[4px] bg-primary text-primary-foreground" : "rounded-bl-[4px] bg-card text-foreground border border-border"
             }`}>
+              {tail}
               {renderTextWithLinks(m.text, isMe)}
-              {/* WhatsApp-style chat tail */}
-              {isMe ? (
-                <span className="absolute bottom-0 right-[-6px] w-0 h-0 block"
-                  style={{ borderLeft: "7px solid hsl(var(--primary))", borderTop: "7px solid transparent" }} />
-              ) : (
-                <span className="absolute bottom-0 left-[-6px] w-0 h-0 block"
-                  style={{ borderRight: "7px solid hsl(var(--secondary))", borderTop: "7px solid transparent" }} />
-              )}
+              {renderMeta(m, isMe)}
             </div>
           )}
-          {m.media_type === "image" && m.media_url && (
-            <div className="rounded-2xl overflow-hidden cursor-pointer" onClick={() => setMediaPreview({ type: "image", url: m.media_url! })}>
-              <img src={m.media_url} alt="shared" className="max-w-full max-h-56 object-contain bg-muted" loading="lazy" />
-            </div>
-          )}
+
+          {/* Video */}
           {m.media_type === "video" && m.media_url && (
-            <VideoPlayerInMessage src={m.media_url} />
+            <>
+              <VideoPlayerInMessage src={m.media_url} />
+              {renderMeta(m, isMe)}
+            </>
           )}
+
+          {/* File */}
           {m.media_type === "file" && m.media_url && (
-            <button
-              onClick={() => downloadFile(m.media_url!, m.text || "file")}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-sm cursor-pointer hover:opacity-80 transition-opacity ${isMe ? "bg-primary text-primary-foreground" : "bg-secondary text-secondary-foreground"}`}
-            >
-              <Paperclip className="h-4 w-4 shrink-0" />
-              <span className="truncate max-w-[200px]">{m.text || "File"}</span>
-            </button>
+            <>
+              <button onClick={() => downloadFile(m.media_url!, m.text || "file")}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-sm hover:opacity-80 transition-opacity ${isMe ? "bg-primary text-primary-foreground" : "bg-card text-foreground border border-border"}`}>
+                <Paperclip className="h-4 w-4 shrink-0" />
+                <span className="truncate max-w-[200px]">{m.text || "File"}</span>
+              </button>
+              {renderMeta(m, isMe)}
+            </>
           )}
-          {m.media_type === "audio" && m.media_url && <AudioPlayer src={m.media_url} isMe={isMe} />}
-          <div className={`flex items-center gap-1.5 mt-0.5 ${isMe ? "justify-end" : "justify-start"}`}>
-            <span className="flex items-center gap-0.5 text-[11px] text-muted-foreground">
-              <Eye className="h-3 w-3" />
-              {m.views ?? 0}
-            </span>
-            <span className="text-xs text-muted-foreground">{fmtTime(m.created_at)}</span>
-            {isMe && (m.read
-              ? <CheckCheck className="h-3 w-3 text-primary" />
-              : <Check className="h-3 w-3 text-muted-foreground" />
-            )}
-          </div>
+
+          {/* Audio */}
+          {m.media_type === "audio" && m.media_url && (
+            <>
+              <AudioPlayer src={m.media_url} isMe={isMe} />
+              {renderMeta(m, isMe)}
+            </>
+          )}
         </div>
 
-        {/* Reply button — my messages, right side */}
         {isMe && (
-          <button
-            onClick={() => { setReplyTo({ id: m.id, text: quoteLabel(m) }); setTimeout(() => inputRef.current?.focus(), 50); }}
-            className="h-6 w-6 rounded-full flex items-center justify-center text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-muted transition-all shrink-0 mb-5"
-          >
+          <button onClick={() => { setReplyTo({ id: m.id, text: quoteLabel(m) }); setTimeout(() => inputRef.current?.focus(), 50); }}
+            className="h-6 w-6 rounded-full flex items-center justify-center text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-muted transition-all shrink-0 mb-5">
             <Reply className="h-3.5 w-3.5 scale-x-[-1]" />
           </button>
         )}
