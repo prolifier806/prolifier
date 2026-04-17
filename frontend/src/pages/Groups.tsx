@@ -1728,7 +1728,7 @@ export default function Groups() {
                     {m.media_type === "image" && m.media_url && (
                       <div>
                         <button onClick={() => setLightboxUrl(m.media_url!)} className="block w-full">
-                          <img src={m.media_url} alt="shared" className="w-full object-contain block bg-black/5" style={{ maxHeight: "360px" }} loading="lazy" />
+                          <img src={m.media_url} alt="shared" className="block" style={{ maxWidth: "100%", width: "auto", height: "auto", maxHeight: "400px" }} loading="lazy" />
                         </button>
                         {m.text?.trim() && (
                           <p className="text-sm leading-snug whitespace-pre-wrap break-words px-3 py-2">
@@ -1882,7 +1882,7 @@ export default function Groups() {
                     {m.media_type === "image" && m.media_url && (
                       <div>
                         <button onClick={() => setLightboxUrl(m.media_url!)} className="block w-full">
-                          <img src={m.media_url} alt="shared" className="w-full object-contain block bg-black/5" style={{ maxHeight: "360px" }} loading="lazy" />
+                          <img src={m.media_url} alt="shared" className="block" style={{ maxWidth: "100%", width: "auto", height: "auto", maxHeight: "400px" }} loading="lazy" />
                         </button>
                         {m.text?.trim() && (
                           <p className="text-sm text-foreground leading-snug whitespace-pre-wrap break-words px-3 py-2">

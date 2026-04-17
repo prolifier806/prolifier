@@ -944,8 +944,8 @@ export default function Messages() {
                 /* img-wrap clips corners without restricting height */
                 <div className="overflow-hidden">
                   <img src={share.image} alt="preview"
-                    className="block w-full h-auto object-contain bg-black/5"
-                    style={{ maxHeight: "360px" }}
+                    className="block"
+                    style={{ maxWidth: "100%", width: "auto", height: "auto", maxHeight: "360px" }}
                     loading="lazy" />
                 </div>
               )}
@@ -988,12 +988,12 @@ export default function Messages() {
                   <p className={`text-xs truncate ${isMe ? "text-white/80" : "text-foreground"}`}>{m.reply_to_text}</p>
                 </div>
               )}
-              {/* The image — width:100%, height:auto = NO cropping ever */}
+              {/* max-width:100% + width/height:auto — image sizes itself naturally, zero cropping */}
               <img
                 src={m.media_url}
                 alt="shared"
-                className="block w-full h-auto cursor-pointer"
-                style={{ maxHeight: "480px", objectFit: "contain", background: "rgba(0,0,0,0.06)" }}
+                className="block cursor-pointer"
+                style={{ maxWidth: "100%", width: "auto", height: "auto", maxHeight: "480px", display: "block" }}
                 loading="lazy"
               />
               {/* Caption (if any text alongside image) */}
