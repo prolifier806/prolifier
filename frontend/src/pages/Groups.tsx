@@ -1824,14 +1824,7 @@ export default function Groups() {
                         </div>
                       )}
                       {m.media_type === "video" && m.media_url && (
-                        <div className="relative">
-                          <video src={m.media_url} controls controlsList="nodownload nofullscreen" className="w-full bg-black" style={{ display: "block", maxHeight: "320px" }} />
-                          <a href={m.media_url} download target="_blank" rel="noopener noreferrer"
-                            className="absolute bottom-2 right-2 h-7 px-2.5 rounded-lg bg-black/50 hover:bg-black/70 flex items-center gap-1.5 text-white text-xs transition-colors"
-                            onClick={e => e.stopPropagation()}>
-                            <Download className="h-3.5 w-3.5" /> Save
-                          </a>
-                        </div>
+                        <video src={m.media_url} controls className="w-full bg-black" style={{ display: "block" }} />
                       )}
                       {m.media_type === "file" && m.media_url && (() => {
                         const nl = m.text?.indexOf("\n") ?? -1;
@@ -1992,14 +1985,7 @@ export default function Groups() {
                         </p>
                       )}
                       {m.media_type === "video" && m.media_url && (
-                        <div className="relative">
-                          <video src={m.media_url} controls controlsList="nodownload nofullscreen" className="w-full bg-black" style={{ display: "block", maxHeight: "320px" }} />
-                          <a href={m.media_url} download target="_blank" rel="noopener noreferrer"
-                            className="absolute bottom-2 right-2 h-7 px-2.5 rounded-lg bg-black/50 hover:bg-black/70 flex items-center gap-1.5 text-white text-xs transition-colors"
-                            onClick={e => e.stopPropagation()}>
-                            <Download className="h-3.5 w-3.5" /> Save
-                          </a>
-                        </div>
+                        <video src={m.media_url} controls className="w-full bg-black" style={{ display: "block" }} />
                       )}
                       {m.media_type === "file" && m.media_url && (() => {
                         const nl = m.text?.indexOf("\n") ?? -1;
@@ -2245,7 +2231,7 @@ export default function Groups() {
                   <div className="flex items-center justify-between p-3 rounded-xl border border-border">
                     <div className="flex items-center gap-2">
                       {editVisibility === "private" ? <Lock className="h-3.5 w-3.5 text-muted-foreground" /> : <Globe className="h-3.5 w-3.5 text-muted-foreground" />}
-                      <span className="text-sm font-medium">{editVisibility === "private" ? "Private" : "Public"}</span>
+                      <span className="text-sm font-medium">{editVisibility === "private" ? "Public" : "Private"}</span>
                     </div>
                     <Toggle checked={editVisibility === "private"} onChange={v => setEditVisibility(v ? "private" : "public")} />
                   </div>
@@ -2383,7 +2369,7 @@ export default function Groups() {
                             const targetIsAdmin = m.role === "admin" || m.role === "owner";
                             const canRemove = isOwner || (isAdmin && !targetIsAdmin && (myPermissions?.removeUsers ?? true));
                             const canBan    = isOwner || (isAdmin && !targetIsAdmin && (myPermissions?.banUsers ?? true));
-                            const canPromote = isOwner || (isAdmin && !isSelf && m.role === "member" && (myPermissions?.promoteAdmins ?? false));
+                            const canPromote = !isSelf && m.role === "member" && (isOwner || (isAdmin && (myPermissions?.promoteAdmins ?? false)));
                             const canRevoke  = isOwner && !isSelf && m.role === "admin";
                             const canAct = !isSelf && (canRemove || canBan);
                             return (
@@ -3014,7 +3000,7 @@ export default function Groups() {
                 </button>
               </div>
               <div className="relative bg-black">
-                <video src={vidModal.previewUrl} className="w-full object-contain" style={{ maxHeight: "280px" }} controls />
+                <video src={vidModal.previewUrl} className="w-full max-h-48 object-contain" controls />
                 {vidUploading && (
                   <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-2">
                     <p className="text-white text-sm font-medium">Uploading… {vidUploadPct}%</p>
