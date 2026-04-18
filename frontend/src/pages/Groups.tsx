@@ -1824,7 +1824,14 @@ export default function Groups() {
                         </div>
                       )}
                       {m.media_type === "video" && m.media_url && (
-                        <video src={m.media_url} controls className="w-full bg-black" style={{ display: "block" }} />
+                        <div className="relative">
+                          <video src={m.media_url} controls controlsList="nodownload nofullscreen" className="w-full bg-black" style={{ display: "block", maxHeight: "320px" }} />
+                          <a href={m.media_url} download target="_blank" rel="noopener noreferrer"
+                            className="absolute bottom-2 right-2 h-7 px-2.5 rounded-lg bg-black/50 hover:bg-black/70 flex items-center gap-1.5 text-white text-xs transition-colors"
+                            onClick={e => e.stopPropagation()}>
+                            <Download className="h-3.5 w-3.5" /> Save
+                          </a>
+                        </div>
                       )}
                       {m.media_type === "file" && m.media_url && (() => {
                         const nl = m.text?.indexOf("\n") ?? -1;
@@ -1985,7 +1992,14 @@ export default function Groups() {
                         </p>
                       )}
                       {m.media_type === "video" && m.media_url && (
-                        <video src={m.media_url} controls className="w-full bg-black" style={{ display: "block" }} />
+                        <div className="relative">
+                          <video src={m.media_url} controls controlsList="nodownload nofullscreen" className="w-full bg-black" style={{ display: "block", maxHeight: "320px" }} />
+                          <a href={m.media_url} download target="_blank" rel="noopener noreferrer"
+                            className="absolute bottom-2 right-2 h-7 px-2.5 rounded-lg bg-black/50 hover:bg-black/70 flex items-center gap-1.5 text-white text-xs transition-colors"
+                            onClick={e => e.stopPropagation()}>
+                            <Download className="h-3.5 w-3.5" /> Save
+                          </a>
+                        </div>
                       )}
                       {m.media_type === "file" && m.media_url && (() => {
                         const nl = m.text?.indexOf("\n") ?? -1;
@@ -2127,8 +2141,8 @@ export default function Groups() {
                 <div className="flex items-center gap-2.5">
                   {newPrivate ? <Lock className="h-4 w-4 text-muted-foreground" /> : <Globe className="h-4 w-4 text-muted-foreground" />}
                   <div>
-                    <p className="text-sm font-medium">{newPrivate ? "Private community" : "Public community"}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">{newPrivate ? "Only invited members can join" : "Anyone can discover and join"}</p>
+                    <p className="text-sm font-medium">{newPrivate ? "Public community" : "Private community"}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{newPrivate ? "Anyone can discover and join" : "Only invited members can join"}</p>
                   </div>
                 </div>
                 <Toggle checked={newPrivate} onChange={setNewPrivate} />
@@ -2900,7 +2914,7 @@ export default function Groups() {
                       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(chatInput); }
                       // Shift+Enter inserts newline naturally (default textarea behaviour)
                     }}
-                    placeholder={`Message ${activeGroup.name}…`}
+                    placeholder="Message here…"
                     className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none py-1 resize-none overflow-hidden leading-relaxed" />
                   <button onClick={() => sendMessage(chatInput)} disabled={!chatInput.trim()}
                     className="h-7 w-7 rounded-lg bg-primary text-primary-foreground flex items-center justify-center hover:opacity-90 transition-opacity disabled:opacity-30 shrink-0 mb-0.5">
@@ -3000,7 +3014,7 @@ export default function Groups() {
                 </button>
               </div>
               <div className="relative bg-black">
-                <video src={vidModal.previewUrl} className="w-full max-h-48 object-contain" controls />
+                <video src={vidModal.previewUrl} className="w-full object-contain" style={{ maxHeight: "280px" }} controls />
                 {vidUploading && (
                   <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-2">
                     <p className="text-white text-sm font-medium">Uploading… {vidUploadPct}%</p>
@@ -3235,7 +3249,7 @@ export default function Groups() {
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-muted-foreground line-clamp-2 flex-1">{g.description}</p>
+                    <p className="text-xs text-muted-foreground line-clamp-2 flex-1">{g.bio || g.description}</p>
                     <div className="mt-4 pt-3 border-t border-border flex items-center justify-between">
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
                         <span className="flex items-center gap-1"><Users className="h-3 w-3" />{g.member_count.toLocaleString()}</span>
