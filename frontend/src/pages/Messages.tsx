@@ -931,9 +931,11 @@ export default function Messages() {
     };
 
     // Exact match to HTML demo .bubble-wrap — position:relative for tail only
+    // width:fit-content is essential: flex children ignore display:inline-block,
+    // so without this the wrapper stretches full row width and bubbles expand too wide
     const wrapStyle: React.CSSProperties = {
       position: "relative",
-      display: "inline-block",   // ✅ ADD THIS
+      width: "fit-content",
     };
 
     const replyBtn = (flip = false) => (
@@ -1004,7 +1006,7 @@ export default function Messages() {
               <img
                 src={m.media_url}
                 alt="image"
-                style={{ display:"block", maxWidth:"320px", width:"100%", height:"auto", cursor:"pointer" }}
+                style={{ display:"block", width:"100%", height:"auto", cursor:"pointer" }}
                 loading="lazy"
                 onClick={() => setMediaPreview({ type: "image", url: m.media_url! })}
               />
