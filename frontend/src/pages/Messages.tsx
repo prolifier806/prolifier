@@ -308,7 +308,8 @@ export default function Messages() {
         });
         removeHiddenId(msg.sender_id);
       }
-    }, [dmMarkRead]),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []),
 
     onAck: useCallback((clientId, msg) => {
       // Replace temp UUID with real DB id
@@ -892,22 +893,23 @@ export default function Messages() {
     }
   };
 
-  // ── Telegram SVG tail ────────────────────────────────────────────────────
+  // ── SVG tail (Telegram-style) ─────────────────────────────────────────────
   const TgTail = ({ isMe, color }: { isMe: boolean; color: string }) => (
     <svg viewBox="0 0 11 20" width="11" height="20"
-      className="absolute bottom-0 pointer-events-none"
-      style={{ [isMe ? "right" : "left"]: -11, transform: isMe ? "none" : "scaleX(-1)" }}>
+      style={{ position:"absolute", bottom:0, pointerEvents:"none",
+        ...(isMe ? { right:-10 } : { left:-10, transform:"scaleX(-1)" }) }}>
       <path fill={color} d="M6 17C4.5 17 1 16 1 11.5V1L11 20H8.5C7.5 20 6.5 19 6 17Z" />
     </svg>
   );
 
-  // ── Meta: views + time + tick ─────────────────────────────────────────────
+  // ── Timestamp + tick row ──────────────────────────────────────────────────
   const Meta = ({ m, isMe }: { m: Message; isMe: boolean }) => (
-    <div style={{ display:"flex", alignItems:"center", justifyContent:"flex-end", gap:4, padding:"2px 8px 6px", fontSize:11, opacity:.65, whiteSpace:"nowrap" }}>
-      <Eye style={{ width:12, height:12 }} />
-      <span>{m.views ?? 0}</span>
+    <div style={{ display:"flex", alignItems:"center", justifyContent:"flex-end", gap:3,
+      padding:"2px 10px 6px", fontSize:11, color: isMe ? "rgba(255,255,255,.65)" : "rgba(0,0,0,.4)", whiteSpace:"nowrap" }}>
       <span>{fmtTime(m.created_at)}</span>
-      {isMe && (m.read ? <CheckCheck style={{ width:13, height:13 }} /> : <Check style={{ width:13, height:13, opacity:.5 }} />)}
+      {isMe && (m.read
+        ? <CheckCheck style={{ width:14, height:14 }} />
+        : <Check style={{ width:14, height:14, opacity:.6 }} />)}
     </div>
   );
 
@@ -915,35 +917,49 @@ export default function Messages() {
     const isMe = m.sender_id === user.id;
     const onReply = () => { setReplyTo({ id: m.id, text: quoteLabel(m) }); setTimeout(() => inputRef.current?.focus(), 50); };
 
-    const sentBg = "hsl(var(--primary))";
-    const recvBg = "hsl(var(--card,var(--background)))";
-    const bgColor = isMe ? sentBg : recvBg;
+    const SENT_BG  = "hsl(var(--primary))";
+    const RECV_BG  = "hsl(var(--card,var(--background)))";
+    const bgColor  = isMe ? SENT_BG : RECV_BG;
+    const textColor = isMe ? "hsl(var(--primary-foreground))" : "hsl(var(--foreground))";
 
-    const bubbleStyle: React.CSSProperties = {
-      maxWidth: "min(320px, 100%)",
-      width: "fit-content",
-      borderRadius: isMe ? "14px 14px 2px 14px" : "14px 14px 14px 2px",
-      overflow: "hidden",
-      display: "inline-block",
+    // Bubble corner radii — Telegram style
+    const radius = isMe ? "18px 18px 4px 18px" : "18px 18px 18px 4px";
+
+    // Shared text-bubble style (for text / audio / video / file)
+    const textBubble: React.CSSProperties = {
+      position: "relative",
+      maxWidth: 320,
       background: bgColor,
-      color: isMe ? "hsl(var(--primary-foreground))" : "hsl(var(--foreground))",
+      color: textColor,
+      borderRadius: radius,
+      overflow: "hidden",
       ...(isMe ? {} : { border: "1px solid hsl(var(--border))" }),
     };
 
-    // Exact match to HTML demo .bubble-wrap — position:relative for tail only
-    // width:fit-content is essential: flex children ignore display:inline-block,
-    // so without this the wrapper stretches full row width and bubbles expand too wide
-    const wrapStyle: React.CSSProperties = {
-      position: "relative",
-      width: "fit-content",
-    };
+    // Reply-quote strip inside a bubble
+    const ReplyStrip = ({ isMe }: { isMe: boolean }) => m.reply_to_text ? (
+      <div style={{ margin:"8px 10px 0", padding:"6px 8px", borderRadius:8,
+        borderLeft:`3px solid ${isMe ? "rgba(255,255,255,.5)" : "hsl(var(--primary))"}`,
+        background: isMe ? "rgba(255,255,255,.12)" : "hsl(var(--muted))" }}>
+        <p style={{ fontSize:10, fontWeight:700, textTransform:"uppercase",
+          color: isMe ? "rgba(255,255,255,.7)" : "hsl(var(--primary))", marginBottom:2 }}>
+          {isMe ? "You replied" : "Reply"}
+        </p>
+        <p style={{ fontSize:12, opacity:.8, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+          {m.reply_to_text}
+        </p>
+      </div>
+    ) : null;
 
     const replyBtn = (flip = false) => (
       <button onClick={onReply}
-        className="h-6 w-6 rounded-full flex items-center justify-center text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-muted transition-all shrink-0 self-end mb-1">
+        className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground
+          opacity-0 group-hover:opacity-100 hover:bg-muted/80 transition-all shrink-0 self-end mb-1">
         <Reply className={`h-3.5 w-3.5 ${flip ? "scale-x-[-1]" : ""}`} />
       </button>
     );
+
+    const rowCls = `group flex items-end gap-2 ${isMe ? "justify-end" : "justify-start"}`;
 
     // ── Shared post card ──────────────────────────────────────────────────
     if (m.media_type === "shared_post" && m.text) {
@@ -953,82 +969,59 @@ export default function Messages() {
         const link = share.type === "post" && share.id ? `/feed?post=${share.id}`
           : share.type === "collab" && share.id ? `/feed?tab=collabs&collab=${share.id}` : "/feed";
         return (
-          <div key={m.id} className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
-            <div style={wrapStyle}>
+          <div key={m.id} className={rowCls}>
+            {!isMe && replyBtn()}
+            <div style={{ position:"relative", maxWidth:300 }}>
               <TgTail isMe={isMe} color={bgColor} />
-              <div style={{ ...bubbleStyle, cursor: "pointer" }} onClick={() => navigate(link)}>
-                {share.image && (
-                  // Image: width:100% height:auto — fills bubble, never crops
-                  <img src={share.image} alt="preview"
-                    style={{ display:"block", width:"100%", height:"auto" }}
-                    loading="lazy" />
-                )}
-                <div style={{ padding:"8px 10px 2px" }}>
-                  <p style={{ fontSize:10, fontWeight:700, opacity:.65, textTransform:"uppercase", letterSpacing:".04em", marginBottom:2 }}>
+              <div style={{ ...textBubble, cursor:"pointer" }} onClick={() => navigate(link)}>
+                {share.image && <img src={share.image} alt="preview" style={{ display:"block", width:"100%", height:"auto" }} loading="lazy" />}
+                <div style={{ padding:"10px 12px 4px" }}>
+                  <p style={{ fontSize:10, fontWeight:700, opacity:.6, textTransform:"uppercase", letterSpacing:".05em", marginBottom:3 }}>
                     {share.type === "collab" ? "🤝 Shared Collab" : "📌 Shared Post"}
                   </p>
-                  {share.title && <p style={{ fontSize:14, fontWeight:600, lineHeight:1.3, marginBottom:4 }}>{share.title}</p>}
-                  {share.caption && <p style={{ fontSize:12, opacity:.7, lineHeight:1.4, WebkitLineClamp:3, overflow:"hidden", display:"-webkit-box", WebkitBoxOrient:"vertical" as any, marginBottom:4 }}>{share.caption}</p>}
-                  <p style={{ fontSize:11, opacity:.75, fontWeight:500 }}>Tap to view →</p>
+                  {share.title && <p style={{ fontSize:14, fontWeight:600, lineHeight:1.35, marginBottom:4 }}>{share.title}</p>}
+                  {share.caption && <p style={{ fontSize:12, opacity:.7, lineHeight:1.4, display:"-webkit-box", WebkitLineClamp:3, overflow:"hidden", WebkitBoxOrient:"vertical" as any, marginBottom:4 }}>{share.caption}</p>}
+                  <p style={{ fontSize:11, opacity:.7, fontWeight:600 }}>Tap to view →</p>
                 </div>
                 <Meta m={m} isMe={isMe} />
               </div>
             </div>
+            {isMe && replyBtn(true)}
           </div>
         );
       }
     }
 
-    // ── Image message — EXACT HTML demo structure ─────────────────────────
+    // ── Image message ─────────────────────────────────────────────────────
+    // Strategy: wrapper is a normal block flex-child with maxWidth.
+    // img width:100% fills the wrapper. No inline-block, no fit-content tricks.
+    // The wrapper shrinks to the image's natural width because flex items don't
+    // stretch in the main axis — only in the cross axis (which is height here).
     if (m.media_type === "image" && m.media_url) {
       return (
-        <div
-          key={m.id}
-          className={`group flex items-end gap-1.5 ${isMe ? "justify-end" : "justify-start"}`}
-          style={{ width: "100%" }}   // ✅ ADD THIS
-        >
+        <div key={m.id} className={rowCls}>
           {!isMe && replyBtn()}
-
-          {/* bubble-wrap: position:relative for tail anchor, flex sizes to content */}
-          <div style={wrapStyle}>
+          <div style={{ position:"relative", maxWidth:300, borderRadius:radius, overflow:"hidden",
+            background: bgColor,
+            ...(isMe ? {} : { border:"1px solid hsl(var(--border))" }) }}>
             <TgTail isMe={isMe} color={bgColor} />
-
-            {/* image bubble: NO explicit width — let image intrinsic size drive bubble width */}
-            <div style={{
-              maxWidth: "min(320px, 100%)",
-              borderRadius: isMe ? "14px 14px 2px 14px" : "14px 14px 14px 2px",
-              overflow: "hidden",
-              display: "inline-block",
-              background: bgColor,
-              color: isMe ? "hsl(var(--primary-foreground))" : "hsl(var(--foreground))",
-              ...(isMe ? {} : { border: "1px solid hsl(var(--border))" }),
-            }}>
-              {m.reply_to_text && (
-                <div style={{ padding:"10px 10px 6px", borderLeft:`3px solid ${isMe ? "rgba(255,255,255,.4)" : "hsl(var(--primary))"}`, background: isMe ? "rgba(255,255,255,.1)" : "rgba(0,0,0,.04)", marginBottom:0 }}>
-                  <p style={{ fontSize:10, fontWeight:700, textTransform:"uppercase", opacity:.7, marginBottom:2 }}>{isMe ? "You replied" : "Reply"}</p>
-                  <p style={{ fontSize:12, opacity:.75, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{m.reply_to_text}</p>
-                </div>
-              )}
-
-              {/* THE rule: width:100% + height:auto. No wrapper. No objectFit. No maxHeight. */}
-              <img
-                src={m.media_url}
-                alt="image"
-                style={{ display:"block", width:"100%", height:"auto", cursor:"pointer" }}
-                loading="lazy"
-                onClick={() => setMediaPreview({ type: "image", url: m.media_url! })}
-              />
-
-              {m.text && (
-                <div style={{ padding:"6px 10px", fontSize:14, lineHeight:1.4, whiteSpace:"pre-wrap", wordBreak:"break-word" }}>
-                  {renderTextWithLinks(m.text, isMe)}
-                </div>
-              )}
-
-              <Meta m={m} isMe={isMe} />
-            </div>
+            <ReplyStrip isMe={isMe} />
+            <img
+              src={m.media_url}
+              alt="image"
+              style={{ display:"block", width:"100%", height:"auto", cursor:"pointer",
+                marginTop: m.reply_to_text ? 6 : 0 }}
+              loading="lazy"
+              onClick={() => setMediaPreview({ type:"image", url:m.media_url! })}
+            />
+            {m.text && (
+              <div style={{ padding:"6px 12px 2px", fontSize:14, lineHeight:1.4,
+                whiteSpace:"pre-wrap", wordBreak:"break-word", color:textColor }}>
+                {renderTextWithLinks(m.text, isMe)}
+              </div>
+            )}
+            <Meta m={m} isMe={isMe} />
           </div>
-
           {isMe && replyBtn(true)}
         </div>
       );
@@ -1036,21 +1029,16 @@ export default function Messages() {
 
     // ── Text / video / file / audio ───────────────────────────────────────
     return (
-      <div key={m.id} className={`group flex items-end gap-1.5 ${isMe ? "justify-end" : "justify-start"}`}>
+      <div key={m.id} className={rowCls}>
         {!isMe && replyBtn()}
-
-        <div style={wrapStyle}>
-          {m.reply_to_text && (
-            <div style={{ padding:"8px 10px", borderRadius:8, borderLeft:"3px solid hsl(var(--primary))", background: isMe ? "hsl(var(--primary)/.15)" : "hsl(var(--muted))", marginBottom:4 }}>
-              <p style={{ fontSize:10, fontWeight:700, textTransform:"uppercase", color:"hsl(var(--primary))", marginBottom:2 }}>{isMe ? "You replied" : "Reply"}</p>
-              <p style={{ fontSize:12, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{m.reply_to_text}</p>
-            </div>
-          )}
+        <div style={{ position:"relative", maxWidth:300 }}>
+          <TgTail isMe={isMe} color={bgColor} />
 
           {m.text && (!m.media_type || m.media_type === "text") && (
-            <div style={bubbleStyle}>
-              <TgTail isMe={isMe} color={bgColor} />
-              <div style={{ padding:"8px 10px 2px", fontSize:14.5, lineHeight:1.45, whiteSpace:"pre-wrap", wordBreak:"break-word" }}>
+            <div style={textBubble}>
+              <ReplyStrip isMe={isMe} />
+              <div style={{ padding: m.reply_to_text ? "8px 12px 2px" : "10px 12px 2px",
+                fontSize:15, lineHeight:1.45, whiteSpace:"pre-wrap", wordBreak:"break-word" }}>
                 {renderTextWithLinks(m.text, isMe)}
               </div>
               <Meta m={m} isMe={isMe} />
@@ -1058,34 +1046,39 @@ export default function Messages() {
           )}
 
           {m.media_type === "video" && m.media_url && (
-            <div style={bubbleStyle}>
-              <TgTail isMe={isMe} color={bgColor} />
-              <VideoPlayerInMessage src={m.media_url} />
+            <div style={textBubble}>
+              <ReplyStrip isMe={isMe} />
+              <div style={{ marginTop: m.reply_to_text ? 8 : 0 }}>
+                <VideoPlayerInMessage src={m.media_url} />
+              </div>
               <Meta m={m} isMe={isMe} />
             </div>
           )}
 
           {m.media_type === "file" && m.media_url && (
-            <div style={bubbleStyle}>
-              <TgTail isMe={isMe} color={bgColor} />
+            <div style={textBubble}>
+              <ReplyStrip isMe={isMe} />
               <button onClick={() => downloadFile(m.media_url!, m.text || "file")}
-                style={{ display:"flex", alignItems:"center", gap:8, padding:"10px 14px 4px", fontSize:14, width:"100%", cursor:"pointer", background:"none", border:"none", color:"inherit" }}>
-                <Paperclip style={{ width:16, height:16, flexShrink:0 }} />
-                <span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{m.text || "File"}</span>
+                style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 14px 4px",
+                  fontSize:14, width:"100%", cursor:"pointer", background:"none", border:"none", color:"inherit" }}>
+                <div style={{ width:36, height:36, borderRadius:10, background:"rgba(255,255,255,.15)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                  <Paperclip style={{ width:16, height:16 }} />
+                </div>
+                <span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", fontSize:13, fontWeight:500 }}>{m.text || "File"}</span>
               </button>
               <Meta m={m} isMe={isMe} />
             </div>
           )}
 
           {m.media_type === "audio" && m.media_url && (
-            <div style={bubbleStyle}>
-              <TgTail isMe={isMe} color={bgColor} />
-              <AudioPlayer src={m.media_url} isMe={isMe} />
+            <div style={textBubble}>
+              <div style={{ padding:"8px 10px 4px" }}>
+                <AudioPlayer src={m.media_url} isMe={isMe} />
+              </div>
               <Meta m={m} isMe={isMe} />
             </div>
           )}
         </div>
-
         {isMe && replyBtn(true)}
       </div>
     );
