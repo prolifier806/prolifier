@@ -203,8 +203,8 @@ function ImageMsg({
   renderCaption: (t: string) => React.ReactNode;
 }) {
   const [portrait, setPortrait] = useState(false);
-  const radius = isMe ? "18px 18px 4px 18px" : "18px 18px 18px 4px";
-  const captionBg = isMe ? "hsl(var(--primary))" : "hsl(var(--muted))";
+  const radius = "18px";
+  const captionBg = isMe ? "hsl(var(--primary))" : "hsl(var(--secondary) / 0.8)";
   const captionColor = isMe ? "hsl(var(--primary-foreground))" : "hsl(var(--foreground))";
   const replyBorder = isMe ? "rgba(255,255,255,0.45)" : "hsl(var(--primary))";
   const replyLabelColor = isMe ? "rgba(255,255,255,0.75)" : "hsl(var(--primary))";
@@ -1817,7 +1817,7 @@ export default function Groups() {
                   )}
                   {/* Primary bubble — text / video / file */}
                   {m.media_type !== "image" && (
-                  <div className="bg-primary text-primary-foreground rounded-2xl rounded-tr-sm overflow-hidden max-w-full">
+                  <div className="bg-primary text-primary-foreground rounded-2xl overflow-hidden max-w-full">
                     {m.reply_to_id && (
                       <div
                         onClick={() => { const el = document.getElementById(`msg-${m.reply_to_id}`); el?.scrollIntoView({ behavior: "smooth", block: "center" }); }}
@@ -1902,12 +1902,12 @@ export default function Groups() {
         // ── Other user's message — left-aligned bubble ────────────────────────
         els.push(
           <div key={m.id} id={`msg-${m.id}`}
-            className={"flex items-end gap-2 group relative " + (grouped ? "mt-1" : "mt-5") + (isMentioned ? " -mx-1 px-1 rounded-xl bg-emerald-500/5" : "")}>
+            className={"flex items-start gap-2 group relative " + (grouped ? "mt-1" : "mt-5") + (isMentioned ? " -mx-1 px-1 rounded-xl bg-emerald-500/5" : "")}>
             {/* Avatar */}
             {!grouped
               ? (
                 <button onClick={() => navigate(`/profile/${m.user_id}`)}
-                  className={"h-8 w-8 rounded-full " + m.author_color + " flex items-center justify-center text-white text-xs font-semibold shrink-0 overflow-hidden hover:opacity-80 transition-opacity"}>
+                  className={"h-8 w-8 rounded-full mt-0.5 " + m.author_color + " flex items-center justify-center text-white text-xs font-semibold shrink-0 overflow-hidden hover:opacity-80 transition-opacity"}>
                   {m.author_avatar_url
                     ? <img src={m.author_avatar_url} alt={m.author_name} className="w-full h-full object-cover" />
                     : initials(m.author_name)}
@@ -1979,7 +1979,7 @@ export default function Groups() {
                   )}
                   {/* Muted bubble — text / video / file */}
                   {m.media_type !== "image" && (
-                  <div className="bg-muted rounded-2xl rounded-tl-sm overflow-hidden">
+                  <div className="bg-secondary/80 dark:bg-muted/80 rounded-2xl overflow-hidden">
                     {m.reply_to_id && (
                       <div
                         onClick={() => { const el = document.getElementById(`msg-${m.reply_to_id}`); el?.scrollIntoView({ behavior: "smooth", block: "center" }); }}
