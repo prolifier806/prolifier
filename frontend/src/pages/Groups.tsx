@@ -442,6 +442,11 @@ export default function Groups() {
   const [reportReason, setReportReason] = useState("");
   const [reportSubmitting, setReportSubmitting] = useState(false);
 
+  // Report message modal
+  const [reportMsgId, setReportMsgId] = useState<string | null>(null);
+  const [reportMsgReason, setReportMsgReason] = useState("");
+  const [reportMsgSubmitting, setReportMsgSubmitting] = useState(false);
+
   // Community image upload (settings)
   const [editImageUrl, setEditImageUrl] = useState<string | null>(null);
   const [editImagePreview, setEditImagePreview] = useState<string | null>(null);
@@ -486,6 +491,9 @@ export default function Groups() {
   const createImageRef = useRef<HTMLInputElement>(null);
 
   const bottomRef = useRef<HTMLDivElement>(null);
+  const messagesAreaRef = useRef<HTMLDivElement>(null);
+  const savedScrollRef = useRef<number>(-1); // -1 = scroll to bottom (default)
+  const lightboxRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -1073,12 +1081,30 @@ export default function Groups() {
     ),
   );
 
-  // Scroll to bottom on new messages
+  // Scroll to bottom on new messages (skip if returning from settings with a saved position)
   useEffect(() => {
     if (messages.length > 0) {
-      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+      if (savedScrollRef.current >= 0) {
+        // Restore position saved before opening settings
+        const pos = savedScrollRef.current;
+        savedScrollRef.current = -1;
+        requestAnimationFrame(() => {
+          if (messagesAreaRef.current) messagesAreaRef.current.scrollTop = pos;
+        });
+      } else {
+        bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+      }
     }
   }, [messages.length]);
+
+  // Lightbox fullscreen
+  useEffect(() => {
+    if (lightboxUrl && lightboxRef.current) {
+      lightboxRef.current.requestFullscreen?.().catch(() => {});
+    } else if (!lightboxUrl && document.fullscreenElement) {
+      document.exitFullscreen?.().catch(() => {});
+    }
+  }, [lightboxUrl]);
 
   useEffect(() => {
     if (editingMsgId) setTimeout(() => editRef.current?.focus(), 30);
@@ -1130,6 +1156,8 @@ export default function Groups() {
 
   const openSettings = () => {
     if (!activeGroup) return;
+    // Save current scroll position so we can restore it when the user returns
+    savedScrollRef.current = messagesAreaRef.current?.scrollTop ?? -1;
     setShowSettings(true);
     setShowBanned(false);
     setBannedUsers([]);
@@ -2033,6 +2061,12 @@ export default function Groups() {
                         <MoreHorizontal className="h-3.5 w-3.5" />
                       </button>
                     )}
+                    {isJoined && (
+                      <button onClick={e => { e.stopPropagation(); setReportMsgId(m.id); setReportMsgReason(""); }}
+                        className="h-7 w-7 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:text-destructive">
+                        <Flag className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                   </div>
                   {m.media_type === "image" && m.media_url ? (
                     <ImageMsg
@@ -2490,6 +2524,7 @@ export default function Groups() {
                                         m.permissions.banUsers && "Ban",
                                         m.permissions.addSubscribers && "Add members",
                                         m.permissions.manageMessages && "Messages",
+                                        m.permissions.promoteAdmins && "Promote admins",
                                       ].filter(Boolean).join(" · ")}
                                     </p>
                                   )}
@@ -2882,7 +2917,7 @@ export default function Groups() {
           )}
 
           {/* Messages area */}
-          <div className={`flex-1 overflow-y-auto p-4 ${showSearch ? "hidden" : ""}`}>
+          <div ref={messagesAreaRef} className={`flex-1 overflow-y-auto p-4 ${showSearch ? "hidden" : ""}`}>
             {!isJoined && (
               <div className="text-center py-10">
                 <p className="text-sm text-muted-foreground mb-3">
@@ -3078,7 +3113,7 @@ export default function Groups() {
 
         {/* Lightbox */}
         {lightboxUrl && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm"
+          <div ref={lightboxRef} className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm"
             onClick={() => setLightboxUrl(null)}>
             <button onClick={() => setLightboxUrl(null)}
               className="absolute top-4 right-4 h-9 w-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors z-10">
@@ -3089,6 +3124,58 @@ export default function Groups() {
               className="absolute bottom-4 right-4 h-9 px-3 rounded-full bg-white/10 hover:bg-white/20 flex items-center gap-2 text-white text-xs transition-colors">
               <Download className="h-4 w-4" /> Save
             </a>
+          </div>
+        )}
+
+        {/* Report message modal */}
+        {reportMsgId && (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 px-4 pb-4 sm:pb-0"
+            onClick={e => { if (e.target === e.currentTarget) setReportMsgId(null); }}>
+            <div className="w-full max-w-md bg-card rounded-2xl border border-border shadow-xl overflow-hidden">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+                <p className="font-semibold text-base">Report Message</p>
+                <button onClick={() => setReportMsgId(null)} className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="p-5 space-y-2">
+                <p className="text-xs text-muted-foreground mb-3">Why are you reporting this message?</p>
+                {[
+                  "Spam",
+                  "Inappropriate content",
+                  "Harassment or bullying",
+                  "Hate speech",
+                  "Misinformation",
+                  "Other",
+                ].map(option => (
+                  <button key={option} onClick={() => setReportMsgReason(option)}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border text-left text-sm transition-all ${reportMsgReason === option ? "border-primary bg-primary/5 text-primary" : "border-border hover:border-foreground/20 text-foreground"}`}>
+                    <div className={`h-4 w-4 rounded-full border-2 flex items-center justify-center shrink-0 ${reportMsgReason === option ? "border-primary" : "border-muted-foreground/40"}`}>
+                      {reportMsgReason === option && <div className="h-2 w-2 rounded-full bg-primary" />}
+                    </div>
+                    {option}
+                  </button>
+                ))}
+              </div>
+              <div className="px-5 pb-5">
+                <Button className="w-full" disabled={!reportMsgReason || reportMsgSubmitting}
+                  onClick={async () => {
+                    if (!reportMsgReason || !reportMsgId) return;
+                    setReportMsgSubmitting(true);
+                    try {
+                      await createReport({ targetId: reportMsgId, targetType: "message", reason: reportMsgReason });
+                      setReportMsgId(null);
+                      toast({ title: "Report submitted", description: "Thank you for helping keep the community safe." });
+                    } catch (err: any) {
+                      toast({ title: err?.message || "Failed to submit report", variant: "destructive" });
+                    } finally {
+                      setReportMsgSubmitting(false);
+                    }
+                  }}>
+                  {reportMsgSubmitting ? "Submitting…" : "Submit Report"}
+                </Button>
+              </div>
+            </div>
           </div>
         )}
 

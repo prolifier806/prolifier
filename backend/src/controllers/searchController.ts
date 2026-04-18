@@ -61,7 +61,7 @@ export async function searchGroupMessages(req: AuthRequest, res: Response): Prom
     .eq("is_system", false)
     .eq("unsent", false)
     .not("text", "is", null)
-    .textSearch("search_vector", tsQuery)
+    .ilike("text", `%${q}%`)
     .order("created_at", { ascending: false })
     .limit(limit + 1);
 
