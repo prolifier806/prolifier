@@ -437,6 +437,10 @@ export default function Groups() {
   // Settings panel modal: which section is open
   const [settingsPanel, setSettingsPanel] = useState<null | "members" | "add" | "banned" | "requests">(null);
 
+  // Delete community confirm modal
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
   // Report community modal
   const [showReportModal, setShowReportModal] = useState(false);
   const [reportReason, setReportReason] = useState("");
@@ -1676,7 +1680,7 @@ export default function Groups() {
   // ── Admin: delete group ──────────────────────────────────────────────────
   const deleteGroup = async () => {
     if (!activeGroup) return;
-    if (!window.confirm(`Delete "${activeGroup.name}"? This cannot be undone.`)) return;
+    setDeleting(true);
     try {
       await apiDeleteGroup(activeGroup.id);
       setGroups(prev => prev.filter(g => g.id !== activeGroup.id));
@@ -1684,9 +1688,12 @@ export default function Groups() {
       viewRef.current = "list"; activeGroupIdRef.current = undefined;
       setView("list");
       setActiveGroup(null);
+      setShowDeleteConfirm(false);
       toast({ title: "Community deleted" });
     } catch {
       toast({ title: "Delete failed", variant: "destructive" });
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -2725,7 +2732,7 @@ export default function Groups() {
             )}
 
             {isOwner ? (
-              <Button variant="outline" className="w-full gap-2 text-destructive border-destructive/30 hover:bg-destructive/5" onClick={deleteGroup}>
+              <Button variant="outline" className="w-full gap-2 text-destructive border-destructive/30 hover:bg-destructive/5" onClick={() => setShowDeleteConfirm(true)}>
                 <Trash2 className="h-4 w-4" /> Delete community
               </Button>
             ) : (
@@ -2745,6 +2752,34 @@ export default function Groups() {
             onConfirm={confirmPromoteAdmin}
             onClose={() => setPromoteModal(null)}
           />
+        )}
+
+        {/* Delete community confirm modal */}
+        {showDeleteConfirm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
+            onClick={e => { if (e.target === e.currentTarget && !deleting) setShowDeleteConfirm(false); }}>
+            <div className="w-full max-w-sm bg-card rounded-2xl border border-border shadow-xl overflow-hidden">
+              <div className="p-6 text-center">
+                <div className="h-12 w-12 rounded-full bg-destructive/10 flex items-center justify-center mx-auto mb-4">
+                  <Trash2 className="h-5 w-5 text-destructive" />
+                </div>
+                <p className="font-bold text-foreground text-lg mb-1">Delete community?</p>
+                <p className="text-sm text-muted-foreground mb-6">
+                  <span className="font-medium text-foreground">"{activeGroup.name}"</span> will be permanently deleted along with all messages and media. This cannot be undone.
+                </p>
+                <div className="flex gap-3">
+                  <button onClick={() => setShowDeleteConfirm(false)} disabled={deleting}
+                    className="flex-1 h-10 rounded-xl border border-border text-sm font-medium text-foreground hover:bg-muted transition-colors disabled:opacity-50">
+                    Cancel
+                  </button>
+                  <button onClick={deleteGroup} disabled={deleting}
+                    className="flex-1 h-10 rounded-xl bg-destructive text-white text-sm font-medium hover:bg-destructive/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
+                    {deleting ? <><div className="h-3.5 w-3.5 rounded-full border-2 border-white border-t-transparent animate-spin" /> Deleting…</> : "Delete"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Report community modal */}
