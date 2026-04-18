@@ -40,6 +40,8 @@ router.delete("/:id/bans/:userId", unbanMember as any);
 
 router.post("/:id/messages", validate(sendGroupMessageSchema), sendGroupMessage as any);
 router.delete("/:id/messages/:messageId", deleteGroupMessage as any);
+
+// Static sub-paths before parameterised ones to avoid /:messageId swallowing them
 router.post("/:id/messages/views", viewGroupMessages as any);
 
 // Reactions

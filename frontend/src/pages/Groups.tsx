@@ -553,9 +553,15 @@ export default function Groups() {
           ...m,
           id: msg.id,
           created_at: msg.created_at,
-          // patch any denormalised fields the server returns
         } : m
       ));
+      // Transfer view count from temp id to real id
+      setViewCounts(prev => {
+        const cur = prev[clientId] ?? 0;
+        const next = { ...prev, [msg.id]: cur };
+        delete next[clientId];
+        return next;
+      });
     }, []),
 
     onMessageUpdated: useCallback((partial) => {
@@ -1270,7 +1276,10 @@ export default function Groups() {
       reply_to_id: replyRef?.id ?? null,
       reply_to_text: replyRef?.text ?? null,
       reply_to_author: replyRef?.author_name ?? null,
+      view_count: 0,
     }]);
+    // Seed view count for the optimistic message
+    setViewCounts(prev => ({ ...prev, [clientId]: 0 }));
     setChatInput("");
     // Reset textarea height after clearing input
     if (inputRef.current) { inputRef.current.style.height = "auto"; }
@@ -1877,11 +1886,11 @@ export default function Groups() {
                       ))}
                     </div>
                   )}
-                  {/* View count — own messages only */}
-                  {!m.unsent && !m.is_system && (viewCounts[m.id] ?? 0) > 0 && (
+                  {/* View count — always shown on own sent messages */}
+                  {!m.unsent && !m.is_system && (
                     <div className="flex items-center gap-1 mt-0.5 justify-end">
-                      <Eye className="h-3 w-3 text-muted-foreground/60" />
-                      <span className="text-[10px] text-muted-foreground/60 tabular-nums">{viewCounts[m.id]}</span>
+                      <Eye className="h-3 w-3 text-muted-foreground/50" />
+                      <span className="text-[10px] text-muted-foreground/50 tabular-nums">{viewCounts[m.id] ?? 0}</span>
                     </div>
                   )}
                 </div>
