@@ -204,7 +204,7 @@ function ImageMsg({
 }) {
   const [portrait, setPortrait] = useState(false);
   const radius = "18px";
-  const captionBg = isMe ? "hsl(var(--primary))" : "hsl(var(--secondary) / 0.8)";
+  const captionBg = isMe ? "hsl(var(--primary))" : "hsl(var(--muted))";
   const captionColor = isMe ? "hsl(var(--primary-foreground))" : "hsl(var(--foreground))";
   const replyBorder = isMe ? "rgba(255,255,255,0.45)" : "hsl(var(--primary))";
   const replyLabelColor = isMe ? "rgba(255,255,255,0.75)" : "hsl(var(--primary))";
@@ -1817,7 +1817,7 @@ export default function Groups() {
                   )}
                   {/* Primary bubble — text / video / file */}
                   {m.media_type !== "image" && (
-                  <div className="bg-primary text-primary-foreground rounded-2xl overflow-hidden max-w-full">
+                  <div className="relative bg-primary text-primary-foreground rounded-2xl overflow-hidden max-w-full">
                     {m.reply_to_id && (
                       <div
                         onClick={() => { const el = document.getElementById(`msg-${m.reply_to_id}`); el?.scrollIntoView({ behavior: "smooth", block: "center" }); }}
@@ -1830,7 +1830,7 @@ export default function Groups() {
                       </div>
                     )}
                     {m.text?.trim() && (
-                      <p className="text-sm leading-relaxed whitespace-pre-wrap break-words px-3 py-2">
+                      <p className="text-sm leading-relaxed whitespace-pre-wrap break-words px-3 pt-2 pb-6">
                         {renderTextWithLinks(m.text.trim(), members.map(mb => mb.name), true)}
                       </p>
                     )}
@@ -1841,6 +1841,13 @@ export default function Groups() {
                       <a href={m.media_url} download className="inline-flex items-center gap-2 mx-3 my-2 px-3 py-2 rounded-xl bg-white/10 text-sm text-white hover:bg-white/20 transition-colors max-w-xs">
                         <Paperclip className="h-4 w-4 shrink-0" /><span className="truncate">File</span>
                       </a>
+                    )}
+                    {/* View count chip — bottom-right inside bubble */}
+                    {!m.unsent && (
+                      <div className="absolute bottom-1.5 right-2 flex items-center gap-0.5 bg-black/25 rounded-full px-1.5 py-0.5">
+                        <Eye className="h-2.5 w-2.5 text-white/90" />
+                        <span className="text-[9px] font-medium text-white/90 tabular-nums leading-none">{viewCounts[m.id] ?? 0}</span>
+                      </div>
                     )}
                   </div>
                   )}
@@ -1884,13 +1891,6 @@ export default function Groups() {
                           <span className="font-medium">{count}</span>
                         </button>
                       ))}
-                    </div>
-                  )}
-                  {/* View count — always shown on own sent messages */}
-                  {!m.unsent && !m.is_system && (
-                    <div className="flex items-center gap-1 mt-0.5 justify-end">
-                      <Eye className="h-3 w-3 text-muted-foreground/50" />
-                      <span className="text-[10px] text-muted-foreground/50 tabular-nums">{viewCounts[m.id] ?? 0}</span>
                     </div>
                   )}
                 </div>
@@ -1979,7 +1979,7 @@ export default function Groups() {
                   )}
                   {/* Muted bubble — text / video / file */}
                   {m.media_type !== "image" && (
-                  <div className="bg-secondary/80 dark:bg-muted/80 rounded-2xl overflow-hidden">
+                  <div className="relative bg-muted/90 dark:bg-muted rounded-2xl overflow-hidden">
                     {m.reply_to_id && (
                       <div
                         onClick={() => { const el = document.getElementById(`msg-${m.reply_to_id}`); el?.scrollIntoView({ behavior: "smooth", block: "center" }); }}
@@ -1992,7 +1992,7 @@ export default function Groups() {
                       </div>
                     )}
                     {m.text?.trim() && (
-                      <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap break-words px-3 py-2">
+                      <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap break-words px-3 pt-2 pb-6">
                         {renderTextWithLinks(m.text.trim(), members.map(mb => mb.name))}
                       </p>
                     )}
