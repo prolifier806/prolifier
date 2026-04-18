@@ -1306,8 +1306,7 @@ export default function Groups() {
     setVidUploading(true);
     try {
       // For low/medium quality we pass a hint to the upload function; original = no processing
-      const quality = vidQuality === "low" ? "low" : vidQuality === "medium" ? "medium" : "original";
-      const uploaded = await uploadVideo(vidModal.file, "chat", quality as any);
+      const uploaded = await uploadVideo(vidModal.file, "chat");
       sendMessage(vidCaption.trim() || undefined, uploaded.fallbackUrl, "video");
       setVidModal(null);
       setVidCaption("");
