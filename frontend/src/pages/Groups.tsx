@@ -447,14 +447,19 @@ export default function Groups() {
   type VidQuality = "low" | "medium" | "original";
   const [imgModal, setImgModal] = useState<{ file: File; previewUrl: string } | null>(null);
   const [vidModal, setVidModal] = useState<{ file: File; previewUrl: string } | null>(null);
+  const [fileModal, setFileModal] = useState<{ file: File } | null>(null);
   const [vidCaption, setVidCaption] = useState("");
   const [vidQuality, setVidQuality] = useState<VidQuality>("medium");
   const [vidUploading, setVidUploading] = useState(false);
+  const [vidUploadPct, setVidUploadPct] = useState(0);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [imgCaption, setImgCaption] = useState("");
   const [imgQuality, setImgQuality] = useState<ImgQuality>("720p");
   const [imgUploading, setImgUploading] = useState(false);
   const [imgUploadPct, setImgUploadPct] = useState(0);
+  const [fileCaption, setFileCaption] = useState("");
+  const [fileUploading, setFileUploading] = useState(false);
+  const [fileUploadPct, setFileUploadPct] = useState(0);
 
   // @mention
   const [mentionQuery, setMentionQuery] = useState("");
@@ -601,6 +606,16 @@ export default function Groups() {
     }, []),
   });
 
+  // ── Keep active group unread count at zero while viewing ────────────────
+  useEffect(() => {
+    if (view === "group" && activeGroup) {
+      setUnreadCounts(prev => {
+        if ((prev[activeGroup.id] ?? 0) === 0) return prev;
+        return { ...prev, [activeGroup.id]: 0 };
+      });
+    }
+  }, [view, activeGroup]);
+
   // ── Broadcast total unread count to Layout sidebar ───────────────────────
   useEffect(() => {
     const total = Object.values(unreadCounts).reduce((a, b) => a + b, 0);
@@ -698,6 +713,8 @@ export default function Groups() {
             }
           } catch { /* non-fatal */ }
         }
+        // Always zero out the currently-open group regardless of DB count
+        if (activeGroupIdRef.current) initialUnread[activeGroupIdRef.current] = 0;
         setUnreadCounts(initialUnread);
 
         // Detect groups with unread @mentions
@@ -1304,9 +1321,9 @@ export default function Groups() {
   const sendVideoMsg = async () => {
     if (!vidModal || !activeGroup) return;
     setVidUploading(true);
+    setVidUploadPct(0);
     try {
-      // For low/medium quality we pass a hint to the upload function; original = no processing
-      const uploaded = await uploadVideo(vidModal.file, "chat");
+      const uploaded = await uploadVideo(vidModal.file, "chat", pct => setVidUploadPct(pct));
       sendMessage(vidCaption.trim() || undefined, uploaded.fallbackUrl, "video");
       setVidModal(null);
       setVidCaption("");
@@ -1314,6 +1331,25 @@ export default function Groups() {
       toast({ title: "Upload failed", variant: "destructive" });
     } finally {
       setVidUploading(false);
+      setVidUploadPct(0);
+    }
+  };
+
+  const sendFileMsg = async () => {
+    if (!fileModal || !activeGroup) return;
+    setFileUploading(true);
+    setFileUploadPct(0);
+    try {
+      const uploaded = await uploadFile(fileModal.file, pct => setFileUploadPct(pct));
+      const displayName = fileCaption.trim() || fileModal.file.name;
+      sendMessage(displayName, uploaded.url, "file");
+      setFileModal(null);
+      setFileCaption("");
+    } catch {
+      toast({ title: "Upload failed", variant: "destructive" });
+    } finally {
+      setFileUploading(false);
+      setFileUploadPct(0);
     }
   };
 
@@ -1331,14 +1367,16 @@ export default function Groups() {
       setVidModal({ file, previewUrl: URL.createObjectURL(file) });
       setVidCaption("");
       setVidQuality("medium");
+      setVidUploadPct(0);
       e.target.value = "";
       return;
     }
-    try {
-      const uploaded = await uploadFile(file);
-      sendMessage(undefined, uploaded.url, type);
-    } catch {
-      toast({ title: "Upload failed", variant: "destructive" });
+    if (type === "file") {
+      setFileModal({ file });
+      setFileCaption("");
+      setFileUploadPct(0);
+      e.target.value = "";
+      return;
     }
     e.target.value = "";
   };
@@ -1784,11 +1822,11 @@ export default function Groups() {
                       )}
                       {m.media_type === "video" && m.media_url && <video src={m.media_url} controls className="w-full max-h-48 bg-black" />}
                       {m.media_type === "file" && m.media_url && (
-                        <a href={m.media_url} download className="inline-flex items-center gap-2 mx-3 my-2 px-3 py-2 rounded-xl bg-white/10 text-sm text-white hover:bg-white/20 transition-colors max-w-xs">
-                          <Paperclip className="h-4 w-4 shrink-0" /><span className="truncate">File</span>
+                        <a href={m.media_url} download={m.text || "file"} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 mx-3 my-2 px-3 py-2 rounded-xl bg-white/10 text-sm text-white hover:bg-white/20 transition-colors max-w-xs">
+                          <Paperclip className="h-4 w-4 shrink-0" /><span className="truncate">{m.text || "File"}</span>
                         </a>
                       )}
-                      {m.text?.trim() && (
+                      {m.text?.trim() && m.media_type !== "file" && (
                         <p className="text-sm leading-relaxed whitespace-pre-wrap break-words px-3 pt-2 pb-2">
                           {renderTextWithLinks(m.text.trim(), members.map(mb => mb.name), true)}
                         </p>
@@ -1928,15 +1966,15 @@ export default function Groups() {
                           </div>
                         </div>
                       )}
-                      {m.text?.trim() && (
+                      {m.text?.trim() && m.media_type !== "file" && (
                         <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap break-words px-3 pt-2 pb-2">
                           {renderTextWithLinks(m.text.trim(), members.map(mb => mb.name))}
                         </p>
                       )}
                       {m.media_type === "video" && m.media_url && <video src={m.media_url} controls className="w-full max-h-48 bg-black" />}
                       {m.media_type === "file" && m.media_url && (
-                        <a href={m.media_url} download className="inline-flex items-center gap-2 mx-3 my-2 px-3 py-2 rounded-xl bg-secondary text-sm text-foreground hover:bg-card transition-colors max-w-xs">
-                          <Paperclip className="h-4 w-4 shrink-0 text-muted-foreground" /><span className="truncate">File</span>
+                        <a href={m.media_url} download={m.text || "file"} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 mx-3 my-2 px-3 py-2 rounded-xl bg-secondary text-sm text-foreground hover:bg-card transition-colors max-w-xs">
+                          <Paperclip className="h-4 w-4 shrink-0 text-muted-foreground" /><span className="truncate">{m.text || "File"}</span>
                         </a>
                       )}
                     </div>
@@ -2941,8 +2979,11 @@ export default function Groups() {
               <div className="relative bg-black">
                 <video src={vidModal.previewUrl} className="w-full max-h-48 object-contain" controls />
                 {vidUploading && (
-                  <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
-                    <div className="h-8 w-8 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                  <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-2">
+                    <p className="text-white text-sm font-medium">Uploading… {vidUploadPct}%</p>
+                    <div className="w-48 h-1.5 bg-white/20 rounded-full overflow-hidden">
+                      <div className="h-full bg-white rounded-full transition-all duration-200" style={{ width: `${vidUploadPct}%` }} />
+                    </div>
                   </div>
                 )}
               </div>
@@ -2968,6 +3009,61 @@ export default function Groups() {
                     ? <><div className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin" /> Uploading…</>
                     : <><Send className="h-4 w-4" /> Send</>}
                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* File send modal */}
+        {fileModal && (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+            onClick={e => { if (e.target === e.currentTarget && !fileUploading) setFileModal(null); }}>
+            <div className="w-full max-w-sm bg-card border border-border rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+              <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-border">
+                <p className="font-semibold text-foreground">Send File</p>
+                <button onClick={() => !fileUploading && setFileModal(null)}
+                  className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="px-4 py-4 space-y-3">
+                {/* File info row */}
+                <div className="flex items-center gap-3 p-3 bg-muted rounded-xl">
+                  <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                    <Paperclip className="h-5 w-5 text-primary" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-foreground truncate">{fileModal.file.name}</p>
+                    <p className="text-xs text-muted-foreground">{(fileModal.file.size / 1024 / 1024).toFixed(2)} MB</p>
+                  </div>
+                </div>
+                {/* Upload progress */}
+                {fileUploading && (
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>Uploading…</span>
+                      <span>{fileUploadPct}%</span>
+                    </div>
+                    <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
+                      <div className="h-full bg-primary rounded-full transition-all duration-200" style={{ width: `${fileUploadPct}%` }} />
+                    </div>
+                  </div>
+                )}
+                <textarea value={fileCaption} onChange={e => setFileCaption(e.target.value)}
+                  placeholder={`Add a description… (optional)`} rows={2} disabled={fileUploading}
+                  className="w-full bg-muted rounded-xl px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none resize-none" />
+                <div className="flex gap-2">
+                  <button onClick={() => setFileModal(null)} disabled={fileUploading}
+                    className="flex-1 h-10 rounded-xl border border-border text-sm font-medium text-foreground hover:bg-muted transition-colors disabled:opacity-50">
+                    Cancel
+                  </button>
+                  <button onClick={sendFileMsg} disabled={fileUploading}
+                    className="flex-1 h-10 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2">
+                    {fileUploading
+                      ? <><div className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin" /> Uploading…</>
+                      : <><Send className="h-4 w-4" /> Send</>}
+                  </button>
+                </div>
               </div>
             </div>
           </div>

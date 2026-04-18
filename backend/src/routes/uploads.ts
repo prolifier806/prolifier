@@ -49,7 +49,7 @@ router.post("/file", fileUpload.single("file"), (async (req: any, res: any) => {
     .upload(safeName, file.buffer, { contentType: file.mimetype });
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
   const { data } = supabaseAdmin.storage.from("messages").getPublicUrl(safeName);
-  res.json({ success: true, data: { url: data.publicUrl } });
+  res.json({ success: true, data: { url: data.publicUrl, filename: file.originalname } });
 }) as any);
 
 // Lookup video HLS info by fallback URL (used by SmartVideo component)

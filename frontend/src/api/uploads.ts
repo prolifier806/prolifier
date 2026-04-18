@@ -105,10 +105,28 @@ export async function uploadVideo(
 
 // ── Generic file ─────────────────────────────────────────────────────────────
 
-export async function uploadFile(file: File): Promise<{ url: string }> {
-  const form = new FormData();
-  form.append("file", file);
-  return apiUpload<{ url: string }>("/api/uploads/file", form);
+export async function uploadFile(file: File, onProgress?: (pct: number) => void): Promise<{ url: string; filename: string }> {
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  return new Promise((resolve, reject) => {
+    const form = new FormData();
+    form.append("file", file);
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${API_URL}/api/uploads/file`);
+    if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress?.(Math.round((e.loaded / e.total) * 100));
+    };
+    xhr.onload = () => {
+      try {
+        const json = JSON.parse(xhr.responseText);
+        if (json.success) resolve(json.data);
+        else reject(new Error(json.error ?? "Upload failed"));
+      } catch { reject(new Error("Invalid response from server")); }
+    };
+    xhr.onerror = () => reject(new Error("Network error during file upload"));
+    xhr.send(form);
+  });
 }
 
 // ── Video processing status ───────────────────────────────────────────────────
