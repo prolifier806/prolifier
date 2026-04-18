@@ -242,42 +242,6 @@ function ImageMsg({
   );
 }
 
-// Video player — detects portrait (9:16) and applies correct dimensions.
-// preload="none" prevents ERR_CACHE_OPERATION_NOT_SUPPORTED on Supabase storage.
-// controlsList removes playback speed & PiP buttons; disablePictureInPicture enforces it.
-function VideoPlayer({ src, caption }: { src: string; caption?: string | null }) {
-  const [portrait, setPortrait] = useState(false);
-  return (
-    <div style={{ borderRadius: "18px", overflow: "hidden", background: "#000" }}>
-      <video
-        src={src}
-        controls
-        preload="none"
-        playsInline
-        controlsList="noplaybackrate nopictureinpicture"
-        disablePictureInPicture
-        onLoadedMetadata={e => {
-          const v = e.currentTarget;
-          setPortrait(v.videoHeight > v.videoWidth);
-        }}
-        style={{
-          display: "block",
-          width: portrait ? "526px" : "100%",
-          maxWidth: "100%",
-          height: portrait ? "auto" : undefined,
-          aspectRatio: portrait ? "9 / 16" : undefined,
-          objectFit: portrait ? "cover" : undefined,
-        }}
-      />
-      {caption?.trim() && (
-        <p style={{ padding: "6px 12px 10px", fontSize: 13, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word", color: "inherit" }}>
-          {caption.trim()}
-        </p>
-      )}
-    </div>
-  );
-}
-
 const ShareLinkModal = memo(({ group, onClose }: { group: Group; onClose: () => void }) => {
   const link = `${window.location.origin}/groups/${group.id}`;
   const copy = () => { navigator.clipboard.writeText(link).then(() => toast({ title: "Link copied! 🔗" })); };
@@ -1860,7 +1824,7 @@ export default function Groups() {
                         </div>
                       )}
                       {m.media_type === "video" && m.media_url && (
-                        <VideoPlayer src={m.media_url} caption={m.text} />
+                        <video src={m.media_url} controls className="w-full bg-black" style={{ display: "block" }} />
                       )}
                       {m.media_type === "file" && m.media_url && (() => {
                         const nl = m.text?.indexOf("\n") ?? -1;
@@ -1875,7 +1839,7 @@ export default function Groups() {
                           </>
                         );
                       })()}
-                      {m.text?.trim() && m.media_type !== "file" && m.media_type !== "video" && (
+                      {m.text?.trim() && m.media_type !== "file" && (
                         <p className="text-sm leading-relaxed whitespace-pre-wrap break-words px-3 pt-2 pb-2">
                           {renderTextWithLinks(m.text.trim(), members.map(mb => mb.name), true)}
                         </p>
@@ -2016,9 +1980,9 @@ export default function Groups() {
                         </div>
                       )}
                       {m.media_type === "video" && m.media_url && (
-                        <VideoPlayer src={m.media_url} caption={m.text} />
+                        <video src={m.media_url} controls className="w-full bg-black" style={{ display: "block" }} />
                       )}
-                      {m.text?.trim() && m.media_type !== "file" && m.media_type !== "video" && (
+                      {m.text?.trim() && m.media_type !== "file" && (
                         <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap break-words px-3 pt-2 pb-2">
                           {renderTextWithLinks(m.text.trim(), members.map(mb => mb.name))}
                         </p>
