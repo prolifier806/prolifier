@@ -201,7 +201,7 @@ function ImageMsg({
   renderCaption: (t: string) => React.ReactNode;
 }) {
   const [portrait, setPortrait] = useState(false);
-  const captionBg = isMe ? "hsl(var(--primary))" : "hsl(0deg 0% 87.55%)";
+  const captionBg = isMe ? "hsl(var(--primary))" : "hsl(var(--muted))";
   const captionColor = isMe ? "hsl(var(--primary-foreground))" : "hsl(var(--foreground))";
   const replyBorder = isMe ? "rgba(255,255,255,0.45)" : "hsl(var(--primary))";
   const replyLabelColor = isMe ? "rgba(255,255,255,0.75)" : "hsl(var(--primary))";
@@ -1919,7 +1919,7 @@ export default function Groups() {
                       renderCaption={t => renderTextWithLinks(t, members.map(mb => mb.name))}
                     />
                   ) : (
-                    <div className="rounded-2xl overflow-hidden" style={{ background: "hsl(0deg 0% 87.55%)" }}>
+                    <div className="rounded-2xl overflow-hidden bg-muted">
                       {m.reply_to_id && (
                         <div onClick={() => { const el = document.getElementById(`msg-${m.reply_to_id}`); el?.scrollIntoView({ behavior: "smooth", block: "center" }); }}
                           className="flex items-start gap-1.5 mx-3 mt-2 mb-1.5 pl-2 border-l-2 border-primary/40 cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 rounded-r-lg transition-colors">
