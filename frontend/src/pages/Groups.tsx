@@ -1341,8 +1341,11 @@ export default function Groups() {
     setFileUploadPct(0);
     try {
       const uploaded = await uploadFile(fileModal.file, pct => setFileUploadPct(pct));
-      const displayName = fileCaption.trim() || fileModal.file.name;
-      sendMessage(displayName, uploaded.url, "file");
+      // Store as "filename\ndescription" — inbox splits on first \n
+      const payload = fileCaption.trim()
+        ? `${fileModal.file.name}\n${fileCaption.trim()}`
+        : fileModal.file.name;
+      sendMessage(payload, uploaded.url, "file");
       setFileModal(null);
       setFileCaption("");
     } catch {
@@ -1660,7 +1663,7 @@ export default function Groups() {
     try {
       const data = await apiCreateGroup({
         name: newName.trim(),
-        description: newDesc.trim() || "A new community.",
+        description: newDesc.trim() || "",
         bio: newBio.trim() || "Welcome to our community!",
         is_private: newPrivate,
         emoji: newEmoji,
@@ -1820,12 +1823,22 @@ export default function Groups() {
                           </div>
                         </div>
                       )}
-                      {m.media_type === "video" && m.media_url && <video src={m.media_url} controls className="w-full max-h-48 bg-black" />}
-                      {m.media_type === "file" && m.media_url && (
-                        <a href={m.media_url} download={m.text || "file"} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 mx-3 my-2 px-3 py-2 rounded-xl bg-white/10 text-sm text-white hover:bg-white/20 transition-colors max-w-xs">
-                          <Paperclip className="h-4 w-4 shrink-0" /><span className="truncate">{m.text || "File"}</span>
-                        </a>
+                      {m.media_type === "video" && m.media_url && (
+                        <video src={m.media_url} controls className="w-full bg-black" style={{ display: "block" }} />
                       )}
+                      {m.media_type === "file" && m.media_url && (() => {
+                        const nl = m.text?.indexOf("\n") ?? -1;
+                        const fname = nl >= 0 ? m.text!.slice(0, nl) : (m.text || "File");
+                        const desc = nl >= 0 ? m.text!.slice(nl + 1).trim() : null;
+                        return (
+                          <>
+                            <a href={m.media_url} download={fname} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 mx-3 my-2 px-3 py-2 rounded-xl bg-white/10 text-sm text-white hover:bg-white/20 transition-colors max-w-xs">
+                              <Paperclip className="h-4 w-4 shrink-0" /><span className="truncate">{fname}</span>
+                            </a>
+                            {desc && <p className="text-sm leading-relaxed whitespace-pre-wrap break-words px-3 pb-2 text-white/80">{desc}</p>}
+                          </>
+                        );
+                      })()}
                       {m.text?.trim() && m.media_type !== "file" && (
                         <p className="text-sm leading-relaxed whitespace-pre-wrap break-words px-3 pt-2 pb-2">
                           {renderTextWithLinks(m.text.trim(), members.map(mb => mb.name), true)}
@@ -1971,12 +1984,22 @@ export default function Groups() {
                           {renderTextWithLinks(m.text.trim(), members.map(mb => mb.name))}
                         </p>
                       )}
-                      {m.media_type === "video" && m.media_url && <video src={m.media_url} controls className="w-full max-h-48 bg-black" />}
-                      {m.media_type === "file" && m.media_url && (
-                        <a href={m.media_url} download={m.text || "file"} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 mx-3 my-2 px-3 py-2 rounded-xl bg-secondary text-sm text-foreground hover:bg-card transition-colors max-w-xs">
-                          <Paperclip className="h-4 w-4 shrink-0 text-muted-foreground" /><span className="truncate">{m.text || "File"}</span>
-                        </a>
+                      {m.media_type === "video" && m.media_url && (
+                        <video src={m.media_url} controls className="w-full bg-black" style={{ display: "block" }} />
                       )}
+                      {m.media_type === "file" && m.media_url && (() => {
+                        const nl = m.text?.indexOf("\n") ?? -1;
+                        const fname = nl >= 0 ? m.text!.slice(0, nl) : (m.text || "File");
+                        const desc = nl >= 0 ? m.text!.slice(nl + 1).trim() : null;
+                        return (
+                          <>
+                            <a href={m.media_url} download={fname} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 mx-3 my-2 px-3 py-2 rounded-xl bg-secondary text-sm text-foreground hover:bg-card transition-colors max-w-xs">
+                              <Paperclip className="h-4 w-4 shrink-0 text-muted-foreground" /><span className="truncate">{fname}</span>
+                            </a>
+                            {desc && <p className="text-sm leading-relaxed whitespace-pre-wrap break-words px-3 pb-2 text-muted-foreground">{desc}</p>}
+                          </>
+                        );
+                      })()}
                     </div>
                   )}
                   {menuOpen && (
