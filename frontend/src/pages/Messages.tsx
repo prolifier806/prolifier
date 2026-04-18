@@ -989,12 +989,20 @@ export default function Messages() {
         >
           {!isMe && replyBtn()}
 
-          {/* bubble-wrap: position:relative for tail anchor, inline-block shrinks to content */}
+          {/* bubble-wrap: position:relative for tail anchor, flex sizes to content */}
           <div style={wrapStyle}>
             <TgTail isMe={isMe} color={bgColor} />
 
-            {/* bubble: overflow:hidden clips image corners — NO padding, NO inner wrapper */}
-            <div style={bubbleStyle}>
+            {/* image bubble: NO explicit width — let image intrinsic size drive bubble width */}
+            <div style={{
+              maxWidth: "min(320px, 100%)",
+              borderRadius: isMe ? "14px 14px 2px 14px" : "14px 14px 14px 2px",
+              overflow: "hidden",
+              display: "inline-block",
+              background: bgColor,
+              color: isMe ? "hsl(var(--primary-foreground))" : "hsl(var(--foreground))",
+              ...(isMe ? {} : { border: "1px solid hsl(var(--border))" }),
+            }}>
               {m.reply_to_text && (
                 <div style={{ padding:"10px 10px 6px", borderLeft:`3px solid ${isMe ? "rgba(255,255,255,.4)" : "hsl(var(--primary))"}`, background: isMe ? "rgba(255,255,255,.1)" : "rgba(0,0,0,.04)", marginBottom:0 }}>
                   <p style={{ fontSize:10, fontWeight:700, textTransform:"uppercase", opacity:.7, marginBottom:2 }}>{isMe ? "You replied" : "Reply"}</p>
