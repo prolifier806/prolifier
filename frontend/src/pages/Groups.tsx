@@ -446,9 +446,10 @@ export default function Groups() {
   const [reportReason, setReportReason] = useState("");
   const [reportSubmitting, setReportSubmitting] = useState(false);
 
-  // Multi-step Report flow (header button)
-  const [reportStep, setReportStep] = useState<0 | 1 | 2 | 3>(0); // 0=closed,1=type,2=messages,3=confirm
+  // Report flow: type-picker sheet → in-chat selection mode
+  const [showReportTypeSheet, setShowReportTypeSheet] = useState(false);
   const [reportType, setReportType] = useState("");
+  const [reportSelectionMode, setReportSelectionMode] = useState(false);
   const [reportSelectedMsgIds, setReportSelectedMsgIds] = useState<Set<string>>(new Set());
   const [reportFlowSubmitting, setReportFlowSubmitting] = useState(false);
 
@@ -1857,11 +1858,21 @@ export default function Groups() {
 
       const isMentioned = !m.is_system && m.text?.includes(`@${user.name}`);
 
+      const isSelected = reportSelectedMsgIds.has(m.id);
+      const selectable = reportSelectionMode && !m.is_system && !m.unsent;
+
       if (isMe) {
         // ── Own message — right-aligned bubble ───────────────────────────────
         els.push(
           <div key={m.id} id={`msg-${m.id}`}
-            className={"flex items-end justify-end gap-2 group relative " + (grouped ? "mt-1" : "mt-5") + (isMentioned ? " -mx-1 px-1 rounded-xl bg-emerald-500/5" : "")}>
+            onClick={selectable ? () => setReportSelectedMsgIds(prev => { const s = new Set(prev); isSelected ? s.delete(m.id) : s.add(m.id); return s; }) : undefined}
+            className={"flex items-end justify-end gap-2 group relative " + (grouped ? "mt-1" : "mt-5") + (isMentioned && !reportSelectionMode ? " -mx-1 px-1 rounded-xl bg-emerald-500/5" : "") + (selectable ? " cursor-pointer select-none -mx-2 px-2 rounded-xl transition-colors " + (isSelected ? "bg-primary/10" : "hover:bg-muted/60") : "")}>
+            {/* Selection checkbox — left side for own messages */}
+            {selectable && (
+              <div className={`h-5 w-5 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors ${isSelected ? "bg-primary border-primary" : "border-muted-foreground/40"}`}>
+                {isSelected && <Check className="h-3 w-3 text-primary-foreground" />}
+              </div>
+            )}
             <div className="max-w-[72%] min-w-0 flex flex-col items-end">
               {!grouped && (
                 <div className="flex items-center gap-1.5 mb-1 mr-1">
@@ -2006,7 +2017,14 @@ export default function Groups() {
         // ── Other user's message — left-aligned bubble ────────────────────────
         els.push(
           <div key={m.id} id={`msg-${m.id}`}
-            className={"flex items-start gap-2 group relative " + (grouped ? "mt-1" : "mt-5") + (isMentioned ? " -mx-1 px-1 rounded-xl bg-emerald-500/5" : "")}>
+            onClick={selectable ? () => setReportSelectedMsgIds(prev => { const s = new Set(prev); isSelected ? s.delete(m.id) : s.add(m.id); return s; }) : undefined}
+            className={"flex items-start gap-2 group relative " + (grouped ? "mt-1" : "mt-5") + (isMentioned && !reportSelectionMode ? " -mx-1 px-1 rounded-xl bg-emerald-500/5" : "") + (selectable ? " cursor-pointer select-none -mx-2 px-2 rounded-xl transition-colors " + (isSelected ? "bg-primary/10" : "hover:bg-muted/60") : "")}>
+            {/* Selection checkbox — before avatar for others' messages */}
+            {selectable && (
+              <div className={`h-5 w-5 rounded-full border-2 shrink-0 flex items-center justify-center mt-1.5 transition-colors ${isSelected ? "bg-primary border-primary" : "border-muted-foreground/40"}`}>
+                {isSelected && <Check className="h-3 w-3 text-primary-foreground" />}
+              </div>
+            )}
             {/* Avatar */}
             {!grouped
               ? (
@@ -2881,11 +2899,18 @@ export default function Groups() {
                 className={`h-8 w-8 rounded-full flex items-center justify-center transition-colors ${showSearch ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted"}`}>
                 <Search className="h-4 w-4" />
               </button>
-              {isJoined && (
-                <button onClick={() => { setReportStep(1); setReportType(""); setReportSelectedMsgIds(new Set()); }}
+              {isJoined && !reportSelectionMode && (
+                <button onClick={() => { setShowReportTypeSheet(true); setReportType(""); setReportSelectedMsgIds(new Set()); }}
                   className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors"
                   title="Report">
                   <Flag className="h-4 w-4" />
+                </button>
+              )}
+              {reportSelectionMode && (
+                <button onClick={() => { setReportSelectionMode(false); setReportSelectedMsgIds(new Set()); setReportType(""); }}
+                  className="h-8 w-8 rounded-full flex items-center justify-center text-destructive hover:bg-destructive/10 transition-colors"
+                  title="Cancel">
+                  <X className="h-4 w-4" />
                 </button>
               )}
               <button onClick={openSettings}
@@ -2897,6 +2922,16 @@ export default function Groups() {
               </button>
             </div>
           </div>
+
+          {/* Report selection mode banner */}
+          {reportSelectionMode && (
+            <div className="px-4 py-2 border-b border-border bg-primary/5 flex items-center gap-2 shrink-0">
+              <Flag className="h-3.5 w-3.5 text-primary shrink-0" />
+              <p className="text-xs text-primary font-medium flex-1">
+                Reporting: <span className="font-semibold">{reportType}</span> — tap messages to select
+              </p>
+            </div>
+          )}
 
           {/* Search bar — shown when search mode active */}
           {showSearch && (
@@ -3027,8 +3062,8 @@ export default function Groups() {
             </div>
           )}
 
-          {/* Typing indicator */}
-          {Object.keys(typingUsers).length > 0 && (
+          {/* Typing indicator — hide during report selection */}
+          {!reportSelectionMode && Object.keys(typingUsers).length > 0 && (
             <div className="px-5 py-1 flex items-center gap-1.5">
               <span className="flex gap-0.5 items-end shrink-0">
                 <span className="h-1 w-1 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: "0ms" }} />
@@ -3043,8 +3078,46 @@ export default function Groups() {
             </div>
           )}
 
+          {/* Sticky report action bar — shown in selection mode */}
+          {reportSelectionMode && (
+            <div className="border-t border-border bg-card shrink-0 px-4 py-3 flex items-center gap-3">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-foreground">
+                  Reported messages: <span className={reportSelectedMsgIds.size > 0 ? "text-primary font-semibold" : "text-muted-foreground"}>{reportSelectedMsgIds.size}</span>
+                </p>
+                <p className="text-xs text-muted-foreground truncate">
+                  {reportSelectedMsgIds.size === 0 ? "Tap any message to select it" : `Type: ${reportType}`}
+                </p>
+              </div>
+              <button
+                disabled={reportSelectedMsgIds.size === 0 || reportFlowSubmitting}
+                onClick={async () => {
+                  setReportFlowSubmitting(true);
+                  try {
+                    await Promise.all([...reportSelectedMsgIds].map(id =>
+                      createReport({ targetId: id, targetType: "message", reason: reportType })
+                    ));
+                    setReportSelectionMode(false);
+                    setReportSelectedMsgIds(new Set());
+                    setReportType("");
+                    toast({ title: "Report submitted", description: "Thank you for helping keep the community safe." });
+                  } catch (err: any) {
+                    toast({ title: err?.message || "Failed to submit", variant: "destructive" });
+                  } finally {
+                    setReportFlowSubmitting(false);
+                  }
+                }}
+                className="h-10 px-5 rounded-xl bg-destructive text-white text-sm font-semibold disabled:opacity-40 hover:bg-destructive/90 transition-colors flex items-center gap-2 shrink-0"
+              >
+                {reportFlowSubmitting
+                  ? <><div className="h-3.5 w-3.5 rounded-full border-2 border-white border-t-transparent animate-spin" />Reporting…</>
+                  : <><Flag className="h-3.5 w-3.5" />Report</>}
+              </button>
+            </div>
+          )}
+
           {/* Input bar — voice removed */}
-          {isJoined && (
+          {isJoined && !reportSelectionMode && (
             <div className="border-t border-border shrink-0">
               <input ref={imageRef} type="file" accept="image/*" className="hidden" onChange={e => handleFileInput(e, "image")} />
               <input ref={videoRef} type="file" accept="video/*" className="hidden" onChange={e => handleFileInput(e, "video")} />
@@ -3164,175 +3237,36 @@ export default function Groups() {
           </div>
         )}
 
-        {/* ── 3-step Report flow ─────────────────────────────────────────────── */}
-        {reportStep > 0 && (
+        {/* Report type picker sheet — shown before entering selection mode */}
+        {showReportTypeSheet && (
           <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 px-4 pb-4 sm:pb-0"
-            onClick={e => { if (e.target === e.currentTarget && !reportFlowSubmitting) { setReportStep(0); } }}>
-            <div className="w-full max-w-md bg-card rounded-2xl border border-border shadow-xl overflow-hidden flex flex-col max-h-[85vh]">
-
-              {/* Header */}
-              <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
-                <div className="flex items-center gap-3">
-                  {reportStep > 1 && (
-                    <button onClick={() => setReportStep(s => (s - 1) as any)}
-                      className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors">
-                      <ArrowLeft className="h-4 w-4" />
-                    </button>
-                  )}
-                  <div>
-                    <p className="font-semibold text-base leading-tight">
-                      {reportStep === 1 && "Report — Select Type"}
-                      {reportStep === 2 && "Select Messages"}
-                      {reportStep === 3 && "Review & Submit"}
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-0.5">Step {reportStep} of 3</p>
-                  </div>
+            onClick={e => { if (e.target === e.currentTarget) setShowReportTypeSheet(false); }}>
+            <div className="w-full max-w-sm bg-card rounded-2xl border border-border shadow-xl overflow-hidden">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+                <div>
+                  <p className="font-semibold text-base">Report</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Select a reason to continue</p>
                 </div>
-                <button onClick={() => setReportStep(0)} disabled={reportFlowSubmitting}
-                  className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors disabled:opacity-40">
+                <button onClick={() => setShowReportTypeSheet(false)}
+                  className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors">
                   <X className="h-4 w-4" />
                 </button>
               </div>
-
-              {/* Step progress bar */}
-              <div className="h-1 bg-muted shrink-0">
-                <div className="h-full bg-primary transition-all duration-300 rounded-full"
-                  style={{ width: `${(reportStep / 3) * 100}%` }} />
+              <div className="p-4 space-y-2">
+                {["Spam", "Abuse", "Harassment", "Other"].map(option => (
+                  <button key={option}
+                    onClick={() => {
+                      setReportType(option);
+                      setReportSelectedMsgIds(new Set());
+                      setShowReportTypeSheet(false);
+                      setReportSelectionMode(true);
+                    }}
+                    className="w-full flex items-center gap-3 px-4 py-3.5 rounded-xl border border-border hover:border-primary hover:bg-primary/5 text-left text-sm font-medium text-foreground transition-all">
+                    <div className="h-4 w-4 rounded-full border-2 border-muted-foreground/40 shrink-0" />
+                    {option}
+                  </button>
+                ))}
               </div>
-
-              {/* Step 1 — Report type */}
-              {reportStep === 1 && (
-                <div className="p-5 space-y-2 overflow-y-auto">
-                  <p className="text-xs text-muted-foreground mb-3">What best describes this report?</p>
-                  {["Spam", "Abuse", "Harassment", "Other"].map(option => (
-                    <button key={option} onClick={() => setReportType(option)}
-                      className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl border text-left text-sm font-medium transition-all ${reportType === option ? "border-primary bg-primary/5 text-primary" : "border-border hover:border-foreground/20 text-foreground"}`}>
-                      <div className={`h-4 w-4 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${reportType === option ? "border-primary" : "border-muted-foreground/40"}`}>
-                        {reportType === option && <div className="h-2 w-2 rounded-full bg-primary" />}
-                      </div>
-                      {option}
-                    </button>
-                  ))}
-                  <div className="pt-2">
-                    <Button className="w-full" disabled={!reportType}
-                      onClick={() => setReportStep(2)}>
-                      Next — Select Messages
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              {/* Step 2 — Select messages */}
-              {reportStep === 2 && (
-                <>
-                  <div className="px-5 py-3 border-b border-border shrink-0 flex items-center justify-between">
-                    <p className="text-xs text-muted-foreground">
-                      {reportSelectedMsgIds.size === 0 ? "Tap messages to select" : `${reportSelectedMsgIds.size} selected`}
-                    </p>
-                    {reportSelectedMsgIds.size > 0 && (
-                      <button onClick={() => setReportSelectedMsgIds(new Set())}
-                        className="text-xs text-muted-foreground hover:text-foreground transition-colors">
-                        Clear all
-                      </button>
-                    )}
-                  </div>
-                  <div className="flex-1 overflow-y-auto divide-y divide-border">
-                    {messages.filter(m => !m.is_system && !m.unsent && m.text?.trim()).map(m => {
-                      const selected = reportSelectedMsgIds.has(m.id);
-                      return (
-                        <button key={m.id} onClick={() => setReportSelectedMsgIds(prev => {
-                          const next = new Set(prev);
-                          selected ? next.delete(m.id) : next.add(m.id);
-                          return next;
-                        })}
-                          className={`w-full flex items-start gap-3 px-4 py-3 text-left transition-colors ${selected ? "bg-primary/5" : "hover:bg-muted/50"}`}>
-                          {/* Checkbox */}
-                          <div className={`mt-0.5 h-5 w-5 rounded-md border-2 shrink-0 flex items-center justify-center transition-colors ${selected ? "bg-primary border-primary" : "border-border"}`}>
-                            {selected && <Check className="h-3 w-3 text-primary-foreground" />}
-                          </div>
-                          {/* Avatar */}
-                          <div className={`h-7 w-7 rounded-full ${m.author_color} flex items-center justify-center text-white text-[10px] font-semibold shrink-0 overflow-hidden`}>
-                            {m.author_avatar_url
-                              ? <img src={m.author_avatar_url} alt={m.author_name} className="w-full h-full object-cover" />
-                              : initials(m.author_name)}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-0.5">
-                              <span className="text-xs font-semibold text-foreground">{m.author_name}</span>
-                              <span className="text-[10px] text-muted-foreground">{fmtTime(m.created_at)}</span>
-                            </div>
-                            <p className="text-xs text-muted-foreground line-clamp-2">{m.text}</p>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <div className="px-5 py-4 border-t border-border shrink-0">
-                    <Button className="w-full" disabled={reportSelectedMsgIds.size === 0}
-                      onClick={() => setReportStep(3)}>
-                      Next — Review ({reportSelectedMsgIds.size} selected)
-                    </Button>
-                  </div>
-                </>
-              )}
-
-              {/* Step 3 — Review & Submit */}
-              {reportStep === 3 && (
-                <>
-                  <div className="flex-1 overflow-y-auto p-5 space-y-3">
-                    <div className="rounded-xl border border-border bg-muted/40 px-4 py-3 flex items-center gap-3">
-                      <Flag className="h-4 w-4 text-muted-foreground shrink-0" />
-                      <div>
-                        <p className="text-xs text-muted-foreground">Report type</p>
-                        <p className="text-sm font-semibold text-foreground">{reportType}</p>
-                      </div>
-                    </div>
-                    <div className="rounded-xl border border-border bg-muted/40 px-4 py-3">
-                      <p className="text-xs text-muted-foreground mb-2">Selected messages ({reportSelectedMsgIds.size})</p>
-                      <div className="space-y-2 max-h-52 overflow-y-auto">
-                        {messages.filter(m => reportSelectedMsgIds.has(m.id)).map(m => (
-                          <div key={m.id} className="flex items-start gap-2">
-                            <div className={`h-6 w-6 rounded-full ${m.author_color} flex items-center justify-center text-white text-[9px] font-semibold shrink-0 overflow-hidden`}>
-                              {m.author_avatar_url
-                                ? <img src={m.author_avatar_url} alt={m.author_name} className="w-full h-full object-cover" />
-                                : initials(m.author_name)}
-                            </div>
-                            <div>
-                              <span className="text-xs font-semibold text-foreground">{m.author_name} · </span>
-                              <span className="text-xs text-muted-foreground line-clamp-1">{m.text}</span>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="px-5 py-4 border-t border-border shrink-0">
-                    <Button className="w-full" disabled={reportFlowSubmitting}
-                      onClick={async () => {
-                        if (!activeGroup) return;
-                        setReportFlowSubmitting(true);
-                        try {
-                          // Submit one report per selected message
-                          await Promise.all(
-                            [...reportSelectedMsgIds].map(msgId =>
-                              createReport({ targetId: msgId, targetType: "message", reason: reportType })
-                            )
-                          );
-                          setReportStep(0);
-                          toast({ title: "Report submitted", description: "Thank you for helping keep the community safe." });
-                        } catch (err: any) {
-                          toast({ title: err?.message || "Failed to submit report", variant: "destructive" });
-                        } finally {
-                          setReportFlowSubmitting(false);
-                        }
-                      }}>
-                      {reportFlowSubmitting
-                        ? <><div className="h-3.5 w-3.5 rounded-full border-2 border-primary-foreground border-t-transparent animate-spin mr-2" />Submitting…</>
-                        : "Submit Report"}
-                    </Button>
-                  </div>
-                </>
-              )}
             </div>
           </div>
         )}
