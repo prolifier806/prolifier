@@ -915,27 +915,24 @@ export default function Messages() {
     const isMe = m.sender_id === user.id;
     const onReply = () => { setReplyTo({ id: m.id, text: quoteLabel(m) }); setTimeout(() => inputRef.current?.focus(), 50); };
 
-    // Must be real CSS colour values — SVG fill cannot read Tailwind/CSS-var classes
     const sentBg = "hsl(var(--primary))";
     const recvBg = "hsl(var(--card,var(--background)))";
     const bgColor = isMe ? sentBg : recvBg;
 
-    // Inline styles mirror the HTML demo exactly — no Tailwind abstraction for bubble shape
+    // Exact match to HTML demo .bubble — display:inline-block shrinks to content
     const bubbleStyle: React.CSSProperties = {
-      position: "relative",
-      maxWidth: "min(100%, 320px)",
+      maxWidth: 320,
       borderRadius: isMe ? "14px 14px 2px 14px" : "14px 14px 14px 2px",
       overflow: "hidden",
+      display: "inline-block",
       background: bgColor,
       color: isMe ? "hsl(var(--primary-foreground))" : "hsl(var(--foreground))",
       ...(isMe ? {} : { border: "1px solid hsl(var(--border))" }),
     };
 
-    // Wrapper: position:relative so absolute tail can anchor to it
+    // Exact match to HTML demo .bubble-wrap — position:relative for tail only
     const wrapStyle: React.CSSProperties = {
       position: "relative",
-      display: "inline-block",
-      maxWidth: "min(100%, 320px)",
     };
 
     const replyBtn = (flip = false) => (
