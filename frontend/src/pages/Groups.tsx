@@ -191,9 +191,9 @@ const DateDivider = memo(({ label }: { label: string }) => (
 ));
 
 // Image message bubble — no colored background around the image.
-// Portrait images (height > 1.2× width) are cropped to 1:1 square.
+// Portrait images (height > 1.2× width) are cropped to 3:4.
 function ImageMsg({
-  url, text, isMe, reply, onLightbox, renderCaption,
+  url, text, isMe, reply, onLightbox, renderCaption, viewChip,
 }: {
   url: string;
   text: string | null;
@@ -201,9 +201,9 @@ function ImageMsg({
   reply?: { author?: string | null; text?: string | null } | null;
   onLightbox: () => void;
   renderCaption: (t: string) => React.ReactNode;
+  viewChip?: React.ReactNode;
 }) {
   const [portrait, setPortrait] = useState(false);
-  const radius = "18px";
   const captionBg = isMe ? "hsl(var(--primary))" : "hsl(0deg 0% 87.55%)";
   const captionColor = isMe ? "hsl(var(--primary-foreground))" : "hsl(var(--foreground))";
   const replyBorder = isMe ? "rgba(255,255,255,0.45)" : "hsl(var(--primary))";
@@ -211,7 +211,7 @@ function ImageMsg({
   const replyTextColor = isMe ? "rgba(255,255,255,0.65)" : "hsl(var(--muted-foreground))";
 
   return (
-    <div style={{ borderRadius: radius, overflow: "hidden", maxWidth: "100%" }}>
+    <div style={{ borderRadius: "18px", overflow: "hidden", maxWidth: "100%", position: "relative" }}>
       {reply && (
         <div style={{ background: captionBg, color: captionColor, padding: "6px 10px 4px 8px", borderLeft: `3px solid ${replyBorder}` }}>
           {reply.author && <p style={{ fontSize: 10, fontWeight: 700, color: replyLabelColor, marginBottom: 1 }}>{reply.author}</p>}
@@ -236,11 +236,14 @@ function ImageMsg({
           loading="lazy"
         />
       </button>
-      {text?.trim() && (
-        <div style={{ background: captionBg, color: captionColor, padding: "6px 12px 10px", fontSize: 13, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-          {renderCaption(text.trim())}
+      {text?.trim() ? (
+        <div style={{ background: captionBg, color: captionColor, padding: "6px 12px 10px", fontSize: 13, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word", position: "relative" }}>
+          <span style={{ paddingRight: viewChip ? "3rem" : 0 }}>{renderCaption(text.trim())}</span>
+          {viewChip && <span style={{ position: "absolute", bottom: 6, right: 0 }}>{viewChip}</span>}
         </div>
-      )}
+      ) : viewChip ? (
+        <div style={{ position: "absolute", bottom: 0, right: 0 }}>{viewChip}</div>
+      ) : null}
     </div>
   );
 }
@@ -1804,53 +1807,48 @@ export default function Groups() {
                       </button>
                     )}
                   </div>
-                  {/* Image message — no colored bubble background */}
-                  {m.media_type === "image" && m.media_url && (
-                    <ImageMsg
-                      url={m.media_url}
-                      text={m.text}
-                      isMe={true}
-                      reply={m.reply_to_id ? { author: m.reply_to_author, text: m.reply_to_text } : null}
-                      onLightbox={() => setLightboxUrl(m.media_url!)}
-                      renderCaption={t => renderTextWithLinks(t, members.map(mb => mb.name), true)}
-                    />
-                  )}
-                  {/* Primary bubble — text / video / file */}
-                  {m.media_type !== "image" && (
-                  <div className="relative bg-primary text-primary-foreground rounded-2xl overflow-hidden max-w-full">
-                    {m.reply_to_id && (
-                      <div
-                        onClick={() => { const el = document.getElementById(`msg-${m.reply_to_id}`); el?.scrollIntoView({ behavior: "smooth", block: "center" }); }}
-                        className="flex items-start gap-1.5 mx-3 mt-2 mb-1.5 pl-2 border-l-2 border-white/40 cursor-pointer hover:bg-white/10 rounded-r-lg transition-colors"
-                      >
-                        <div className="min-w-0">
-                          {m.reply_to_author && <p className="text-[10px] font-semibold text-white/80 truncate">{m.reply_to_author}</p>}
-                          <p className="text-[11px] text-white/60 truncate">{m.reply_to_text ? m.reply_to_text.slice(0, 80) : "📎 Media"}</p>
-                        </div>
+                  {(() => {
+                    const chip = !m.unsent && !m.is_system ? (
+                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5">
+                        <Eye className="h-2.5 w-2.5 text-white/80" />
+                        <span className="text-[10px] font-semibold text-white/80 tabular-nums leading-none">{viewCounts[m.id] ?? 0}</span>
+                      </span>
+                    ) : null;
+                    if (m.media_type === "image" && m.media_url) return (
+                      <ImageMsg
+                        url={m.media_url} text={m.text} isMe={true}
+                        reply={m.reply_to_id ? { author: m.reply_to_author, text: m.reply_to_text } : null}
+                        onLightbox={() => setLightboxUrl(m.media_url!)}
+                        renderCaption={t => renderTextWithLinks(t, members.map(mb => mb.name), true)}
+                        viewChip={chip}
+                      />
+                    );
+                    return (
+                      <div className="relative bg-primary text-primary-foreground rounded-2xl overflow-hidden max-w-full">
+                        {m.reply_to_id && (
+                          <div onClick={() => { const el = document.getElementById(`msg-${m.reply_to_id}`); el?.scrollIntoView({ behavior: "smooth", block: "center" }); }}
+                            className="flex items-start gap-1.5 mx-3 mt-2 mb-1.5 pl-2 border-l-2 border-white/40 cursor-pointer hover:bg-white/10 rounded-r-lg transition-colors">
+                            <div className="min-w-0">
+                              {m.reply_to_author && <p className="text-[10px] font-semibold text-white/80 truncate">{m.reply_to_author}</p>}
+                              <p className="text-[11px] text-white/60 truncate">{m.reply_to_text ? m.reply_to_text.slice(0, 80) : "📎 Media"}</p>
+                            </div>
+                          </div>
+                        )}
+                        {m.text?.trim() && (
+                          <p className="text-sm leading-relaxed whitespace-pre-wrap break-words px-3 pt-2 pb-1">
+                            {renderTextWithLinks(m.text.trim(), members.map(mb => mb.name), true)}
+                          </p>
+                        )}
+                        {m.media_type === "video" && m.media_url && <video src={m.media_url} controls className="w-full max-h-48 bg-black" />}
+                        {m.media_type === "file" && m.media_url && (
+                          <a href={m.media_url} download className="inline-flex items-center gap-2 mx-3 my-2 px-3 py-2 rounded-xl bg-white/10 text-sm text-white hover:bg-white/20 transition-colors max-w-xs">
+                            <Paperclip className="h-4 w-4 shrink-0" /><span className="truncate">File</span>
+                          </a>
+                        )}
+                        {chip && <div className="flex justify-end pb-1 pr-1">{chip}</div>}
                       </div>
-                    )}
-                    {m.text?.trim() && (
-                      <p className="text-sm leading-relaxed whitespace-pre-wrap break-words px-3 pt-2 pb-5 pr-16">
-                        {renderTextWithLinks(m.text.trim(), members.map(mb => mb.name), true)}
-                      </p>
-                    )}
-                    {m.media_type === "video" && m.media_url && (
-                      <video src={m.media_url} controls className="w-full max-h-48 bg-black" />
-                    )}
-                    {m.media_type === "file" && m.media_url && (
-                      <a href={m.media_url} download className="inline-flex items-center gap-2 mx-3 my-2 px-3 py-2 rounded-xl bg-white/10 text-sm text-white hover:bg-white/20 transition-colors max-w-xs">
-                        <Paperclip className="h-4 w-4 shrink-0" /><span className="truncate">File</span>
-                      </a>
-                    )}
-                    {/* View count — inside bubble, bottom-right, no border-radius */}
-                    {!m.unsent && !m.is_system && (
-                      <div className="absolute bottom-0 right-0 flex items-center gap-1 bg-black/20 px-2 py-1">
-                        <Eye className="h-2.5 w-2.5 text-white/90" />
-                        <span className="text-[10px] font-semibold text-white/90 tabular-nums leading-none">{viewCounts[m.id] ?? 0}</span>
-                      </div>
-                    )}
-                  </div>
-                  )}
+                    );
+                  })()}
                   {menuOpen && (
                     <div className="absolute right-0 bottom-full mb-1 z-40 bg-card border border-border rounded-xl shadow-xl overflow-hidden min-w-[170px]"
                       onClick={e => e.stopPropagation()}>
@@ -1966,46 +1964,48 @@ export default function Groups() {
                       </button>
                     )}
                   </div>
-                  {/* Image message — no colored bubble background */}
-                  {m.media_type === "image" && m.media_url && (
-                    <ImageMsg
-                      url={m.media_url}
-                      text={m.text}
-                      isMe={false}
-                      reply={m.reply_to_id ? { author: m.reply_to_author, text: m.reply_to_text } : null}
-                      onLightbox={() => setLightboxUrl(m.media_url!)}
-                      renderCaption={t => renderTextWithLinks(t, members.map(mb => mb.name))}
-                    />
-                  )}
-                  {/* Muted bubble — text / video / file */}
-                  {m.media_type !== "image" && (
-                  <div className="rounded-2xl overflow-hidden" style={{ background: "hsl(0deg 0% 87.55%)" }}>
-                    {m.reply_to_id && (
-                      <div
-                        onClick={() => { const el = document.getElementById(`msg-${m.reply_to_id}`); el?.scrollIntoView({ behavior: "smooth", block: "center" }); }}
-                        className="flex items-start gap-1.5 mx-3 mt-2 mb-1.5 pl-2 border-l-2 border-primary/40 cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 rounded-r-lg transition-colors"
-                      >
-                        <div className="min-w-0">
-                          {m.reply_to_author && <p className="text-[10px] font-semibold text-primary truncate">{m.reply_to_author}</p>}
-                          <p className="text-[11px] text-muted-foreground truncate">{m.reply_to_text ? m.reply_to_text.slice(0, 80) : "📎 Media"}</p>
-                        </div>
+                  {(() => {
+                    const chip = !m.unsent && !m.is_system ? (
+                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5">
+                        <Eye className="h-2.5 w-2.5 text-foreground/50" />
+                        <span className="text-[10px] font-semibold text-foreground/50 tabular-nums leading-none">{viewCounts[m.id] ?? 0}</span>
+                      </span>
+                    ) : null;
+                    if (m.media_type === "image" && m.media_url) return (
+                      <ImageMsg
+                        url={m.media_url} text={m.text} isMe={false}
+                        reply={m.reply_to_id ? { author: m.reply_to_author, text: m.reply_to_text } : null}
+                        onLightbox={() => setLightboxUrl(m.media_url!)}
+                        renderCaption={t => renderTextWithLinks(t, members.map(mb => mb.name))}
+                        viewChip={chip}
+                      />
+                    );
+                    return (
+                      <div className="rounded-2xl overflow-hidden" style={{ background: "hsl(0deg 0% 87.55%)" }}>
+                        {m.reply_to_id && (
+                          <div onClick={() => { const el = document.getElementById(`msg-${m.reply_to_id}`); el?.scrollIntoView({ behavior: "smooth", block: "center" }); }}
+                            className="flex items-start gap-1.5 mx-3 mt-2 mb-1.5 pl-2 border-l-2 border-primary/40 cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 rounded-r-lg transition-colors">
+                            <div className="min-w-0">
+                              {m.reply_to_author && <p className="text-[10px] font-semibold text-primary truncate">{m.reply_to_author}</p>}
+                              <p className="text-[11px] text-muted-foreground truncate">{m.reply_to_text ? m.reply_to_text.slice(0, 80) : "📎 Media"}</p>
+                            </div>
+                          </div>
+                        )}
+                        {m.text?.trim() && (
+                          <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap break-words px-3 pt-2 pb-1">
+                            {renderTextWithLinks(m.text.trim(), members.map(mb => mb.name))}
+                          </p>
+                        )}
+                        {m.media_type === "video" && m.media_url && <video src={m.media_url} controls className="w-full max-h-48 bg-black" />}
+                        {m.media_type === "file" && m.media_url && (
+                          <a href={m.media_url} download className="inline-flex items-center gap-2 mx-3 my-2 px-3 py-2 rounded-xl bg-secondary text-sm text-foreground hover:bg-card transition-colors max-w-xs">
+                            <Paperclip className="h-4 w-4 shrink-0 text-muted-foreground" /><span className="truncate">File</span>
+                          </a>
+                        )}
+                        {chip && <div className="flex justify-end pb-1 pr-1">{chip}</div>}
                       </div>
-                    )}
-                    {m.text?.trim() && (
-                      <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap break-words px-3 pt-2 pb-6">
-                        {renderTextWithLinks(m.text.trim(), members.map(mb => mb.name))}
-                      </p>
-                    )}
-                    {m.media_type === "video" && m.media_url && (
-                      <video src={m.media_url} controls className="w-full max-h-48 bg-black" />
-                    )}
-                    {m.media_type === "file" && m.media_url && (
-                      <a href={m.media_url} download className="inline-flex items-center gap-2 mx-3 my-2 px-3 py-2 rounded-xl bg-secondary text-sm text-foreground hover:bg-card transition-colors max-w-xs">
-                        <Paperclip className="h-4 w-4 shrink-0 text-muted-foreground" /><span className="truncate">File</span>
-                      </a>
-                    )}
-                  </div>
-                  )}
+                    );
+                  })()}
                   {menuOpen && (
                     <div className="absolute left-0 bottom-full mb-1 z-40 bg-card border border-border rounded-xl shadow-xl overflow-hidden min-w-[170px]"
                       onClick={e => e.stopPropagation()}>
