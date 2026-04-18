@@ -2122,17 +2122,24 @@ export default function Groups() {
                 ))}
               </div>
             </div>
-            <div className="rounded-xl border border-border p-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  {newPrivate ? <Lock className="h-4 w-4 text-muted-foreground" /> : <Globe className="h-4 w-4 text-muted-foreground" />}
-                  <div>
-                    <p className="text-sm font-medium">{newPrivate ? "Public community" : "Private community"}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">{newPrivate ? "Anyone can discover and join" : "Only invited members can join"}</p>
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Visibility</p>
+              {([
+                { value: false, icon: Globe, label: "Public", desc: "Anyone can find the channel in search and join" },
+                { value: true,  icon: Lock,  label: "Private", desc: "Only people with an invite can join" },
+              ] as const).map(({ value, icon: Icon, label, desc }) => (
+                <button key={label} type="button" onClick={() => setNewPrivate(value)}
+                  className={`w-full flex items-start gap-3 p-3.5 rounded-xl border text-left transition-all ${newPrivate === value ? "border-primary bg-primary/5" : "border-border hover:border-foreground/20"}`}>
+                  <div className={`mt-0.5 h-4 w-4 rounded-full border-2 flex items-center justify-center shrink-0 ${newPrivate === value ? "border-primary" : "border-muted-foreground/40"}`}>
+                    {newPrivate === value && <div className="h-2 w-2 rounded-full bg-primary" />}
                   </div>
-                </div>
-                <Toggle checked={newPrivate} onChange={setNewPrivate} />
-              </div>
+                  <Icon className={`h-4 w-4 mt-0.5 shrink-0 ${newPrivate === value ? "text-primary" : "text-muted-foreground"}`} />
+                  <div>
+                    <p className={`text-sm font-medium ${newPrivate === value ? "text-primary" : "text-foreground"}`}>{label}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{desc}</p>
+                  </div>
+                </button>
+              ))}
             </div>
             <Button onClick={createGroup} disabled={!newName.trim() || creating} className="w-full h-11 font-semibold gap-2">
               {creating ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Create Community
@@ -2228,12 +2235,24 @@ export default function Groups() {
                     <label className="text-xs font-medium text-muted-foreground block mb-1">Bio</label>
                     <Textarea value={editBio} onChange={e => setEditBio(e.target.value)} rows={3} className="text-sm" />
                   </div>
-                  <div className="flex items-center justify-between p-3 rounded-xl border border-border">
-                    <div className="flex items-center gap-2">
-                      {editVisibility === "private" ? <Lock className="h-3.5 w-3.5 text-muted-foreground" /> : <Globe className="h-3.5 w-3.5 text-muted-foreground" />}
-                      <span className="text-sm font-medium">{editVisibility === "private" ? "Public" : "Private"}</span>
-                    </div>
-                    <Toggle checked={editVisibility === "private"} onChange={v => setEditVisibility(v ? "private" : "public")} />
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium text-muted-foreground">Visibility</p>
+                    {([
+                      { value: "public" as const,  icon: Globe, label: "Public",  desc: "Anyone can find the channel in search and join" },
+                      { value: "private" as const, icon: Lock,  label: "Private", desc: "Only people with an invite can join" },
+                    ]).map(({ value, icon: Icon, label, desc }) => (
+                      <button key={value} type="button" onClick={() => setEditVisibility(value)}
+                        className={`w-full flex items-start gap-3 p-3 rounded-xl border text-left transition-all ${editVisibility === value ? "border-primary bg-primary/5" : "border-border hover:border-foreground/20"}`}>
+                        <div className={`mt-0.5 h-4 w-4 rounded-full border-2 flex items-center justify-center shrink-0 ${editVisibility === value ? "border-primary" : "border-muted-foreground/40"}`}>
+                          {editVisibility === value && <div className="h-2 w-2 rounded-full bg-primary" />}
+                        </div>
+                        <Icon className={`h-4 w-4 mt-0.5 shrink-0 ${editVisibility === value ? "text-primary" : "text-muted-foreground"}`} />
+                        <div>
+                          <p className={`text-sm font-medium ${editVisibility === value ? "text-primary" : "text-foreground"}`}>{label}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">{desc}</p>
+                        </div>
+                      </button>
+                    ))}
                   </div>
                   <div className="flex gap-2">
                     <Button size="sm" className="flex-1 h-8 text-xs" onClick={saveGroupEdit}>Save changes</Button>
