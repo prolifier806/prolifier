@@ -12,7 +12,7 @@ import {
   Lock, Globe, Plus, Settings, X, Check,
   Crown, Image, Video, Paperclip,
   Link2, Copy, LogOut, Edit3, Trash2, UserX, MoreHorizontal,
-  ShieldOff, RefreshCw, AtSign, ChevronsUp, UserPlus, Bell, SlidersHorizontal, Download, CornerUpLeft, Smile,
+  ShieldOff, RefreshCw, AtSign, ChevronsUp, UserPlus, Bell, SlidersHorizontal, Download, CornerUpLeft, Smile, Eye,
 } from "lucide-react";
 import Layout from "@/components/Layout";
 import { toast } from "@/hooks/use-toast";
@@ -39,6 +39,7 @@ import {
   deleteGroupMessage as apiDeleteGroupMessage,
   toggleReaction as apiToggleReaction,
   getMessageReactions as apiGetMessageReactions,
+  markMessagesViewed as apiMarkViewed,
   searchGroupMessages,
 } from "@/api/groups";
 import { uploadPostImage, uploadVideo, uploadFile } from "@/api/uploads";
@@ -67,6 +68,7 @@ type GroupMessage = {
   reply_to_id?: string | null;
   reply_to_text?: string | null;
   reply_to_author?: string | null;
+  view_count?: number;
 };
 
 type JoinRequest = {
@@ -223,8 +225,9 @@ function ImageMsg({
           className="block w-full"
           style={{
             height: "auto",
-            aspectRatio: portrait ? "1 / 1" : undefined,
+            aspectRatio: portrait ? "3 / 4" : undefined,
             objectFit: portrait ? "cover" : undefined,
+            objectPosition: "center top",
           }}
           onLoad={e => {
             const img = e.currentTarget;
@@ -380,6 +383,10 @@ export default function Groups() {
   // Reactions: messageId → emoji → { count, userIds }
   type ReactionMap = Record<string, Record<string, { count: number; userIds: string[] }>>;
   const [reactions, setReactions] = useState<ReactionMap>({});
+  // View counts: messageId → count (updated by realtime)
+  const [viewCounts, setViewCounts] = useState<Record<string, number>>({});
+  // Track which message IDs we've already sent a view event for in this session
+  const viewedIdsRef = useRef<Set<string>>(new Set());
   // Which message's emoji picker is open
   const [reactionPickerMsgId, setReactionPickerMsgId] = useState<string | null>(null);
 
@@ -766,7 +773,7 @@ export default function Groups() {
       // then reverse to display oldest-first (bottom of chat).
       const { data: msgsDesc, error } = await (supabase as any)
         .from("group_messages")
-        .select("id, group_id, user_id, text, media_url, media_type, created_at, edited, unsent, removed_by_admin, is_system")
+        .select("id, group_id, user_id, text, media_url, media_type, created_at, edited, unsent, removed_by_admin, is_system, view_count")
         .eq("group_id", groupId)
         .order("created_at", { ascending: false })
         .limit(100);
@@ -800,12 +807,25 @@ export default function Groups() {
         author_color: profileMap[row.user_id]?.color || "bg-primary",
         author_avatar_url: profileMap[row.user_id]?.avatar_url,
         author_role: profileMap[row.user_id]?.role,
+        view_count: row.view_count ?? 0,
       }));
       setMessages(mapped);
 
-      // Fetch reactions for loaded messages
+      // Seed view counts from fetched rows
+      const vcInit: Record<string, number> = {};
+      mapped.forEach((m: GroupMessage) => { if (!m.is_system && !m.unsent) vcInit[m.id] = m.view_count ?? 0; });
+      setViewCounts(vcInit);
+
+      // Mark all loaded messages as viewed (skip own messages — handled server-side)
       const visibleIds = mapped.filter((m: GroupMessage) => !m.is_system && !m.unsent).map((m: GroupMessage) => m.id);
       if (visibleIds.length > 0) {
+        const unseen = visibleIds.filter((id: string) => !viewedIdsRef.current.has(id));
+        if (unseen.length > 0) {
+          unseen.forEach((id: string) => viewedIdsRef.current.add(id));
+          apiMarkViewed(groupId, unseen).catch(() => {});
+        }
+
+        // Fetch reactions for loaded messages
         apiGetMessageReactions(groupId, visibleIds)
           .then(res => { if (res.success && res.data) setReactions(res.data); })
           .catch(() => {});
@@ -938,7 +958,13 @@ export default function Groups() {
               author_color: profileCache.current[row.user_id]?.color || "bg-primary",
               author_avatar_url: profileCache.current[row.user_id]?.avatar_url,
               author_role: profileCache.current[row.user_id]?.role,
+              view_count: 0,
             };
+            // Mark as viewed if user is actively looking at the group
+            if (isActiveAndViewing && !row.is_system && !viewedIdsRef.current.has(row.id)) {
+              viewedIdsRef.current.add(row.id);
+              apiMarkViewed(row.group_id, [row.id]).catch(() => {});
+            }
             // Detect new mention for the current user
             if (!row.is_system && row.text?.includes(`@${user.name}`)) {
               setMentionMsgIds(prev => prev.includes(row.id) ? prev : [...prev, row.id]);
@@ -956,8 +982,11 @@ export default function Groups() {
         } else if (payload.eventType === "UPDATE") {
           const row = payload.new as any;
           setMessages(prev => prev.map(m =>
-            m.id === row.id ? { ...m, text: row.text, edited: row.edited ?? true, unsent: row.unsent ?? false, removed_by_admin: row.removed_by_admin ?? false } : m
+            m.id === row.id ? { ...m, text: row.text, edited: row.edited ?? true, unsent: row.unsent ?? false, removed_by_admin: row.removed_by_admin ?? false, view_count: row.view_count ?? m.view_count } : m
           ));
+          if (row.view_count !== undefined) {
+            setViewCounts(prev => ({ ...prev, [row.id]: row.view_count }));
+          }
         } else if (payload.eventType === "DELETE") {
           setMessages(prev => prev.filter(m => m.id !== payload.old.id));
         }
@@ -1846,6 +1875,13 @@ export default function Groups() {
                           <span className="font-medium">{count}</span>
                         </button>
                       ))}
+                    </div>
+                  )}
+                  {/* View count — own messages only */}
+                  {!m.unsent && !m.is_system && (viewCounts[m.id] ?? 0) > 0 && (
+                    <div className="flex items-center gap-1 mt-0.5 justify-end">
+                      <Eye className="h-3 w-3 text-muted-foreground/60" />
+                      <span className="text-[10px] text-muted-foreground/60 tabular-nums">{viewCounts[m.id]}</span>
                     </div>
                   )}
                 </div>

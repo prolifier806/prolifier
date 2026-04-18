@@ -47,6 +47,9 @@ export const sendGroupMessage = (groupId: string, body: {
 export const deleteGroupMessage = (groupId: string, messageId: string) =>
   apiDelete(`/api/groups/${groupId}/messages/${messageId}`);
 
+export const markMessagesViewed = (groupId: string, messageIds: string[]) =>
+  apiPost(`/api/groups/${groupId}/messages/views`, { messageIds });
+
 export const toggleReaction = (groupId: string, messageId: string, emoji: string) =>
   apiPost<{ action: "added" | "removed" }>(`/api/groups/${groupId}/messages/${messageId}/reactions`, { emoji });
 
