@@ -1817,7 +1817,7 @@ export default function Groups() {
                   )}
                   {/* Primary bubble — text / video / file */}
                   {m.media_type !== "image" && (
-                  <div className="relative bg-primary text-primary-foreground rounded-2xl overflow-hidden max-w-full">
+                  <div className="bg-primary text-primary-foreground rounded-2xl overflow-hidden max-w-full">
                     {m.reply_to_id && (
                       <div
                         onClick={() => { const el = document.getElementById(`msg-${m.reply_to_id}`); el?.scrollIntoView({ behavior: "smooth", block: "center" }); }}
@@ -1830,7 +1830,7 @@ export default function Groups() {
                       </div>
                     )}
                     {m.text?.trim() && (
-                      <p className="text-sm leading-relaxed whitespace-pre-wrap break-words px-3 pt-2 pb-6">
+                      <p className="text-sm leading-relaxed whitespace-pre-wrap break-words px-3 py-2">
                         {renderTextWithLinks(m.text.trim(), members.map(mb => mb.name), true)}
                       </p>
                     )}
@@ -1842,14 +1842,16 @@ export default function Groups() {
                         <Paperclip className="h-4 w-4 shrink-0" /><span className="truncate">File</span>
                       </a>
                     )}
-                    {/* View count chip — bottom-right inside bubble */}
-                    {!m.unsent && (
-                      <div className="absolute bottom-1.5 right-2 flex items-center gap-0.5 bg-black/25 rounded-full px-1.5 py-0.5">
-                        <Eye className="h-2.5 w-2.5 text-white/90" />
-                        <span className="text-[9px] font-medium text-white/90 tabular-nums leading-none">{viewCounts[m.id] ?? 0}</span>
-                      </div>
-                    )}
                   </div>
+                  )}
+                  {/* View count chip — always on own non-unsent messages */}
+                  {!m.unsent && !m.is_system && (
+                    <div className="flex items-center justify-end gap-1 mt-1 mr-1">
+                      <div className="inline-flex items-center gap-1 bg-black/30 dark:bg-black/50 rounded-full px-2 py-0.5">
+                        <Eye className="h-2.5 w-2.5 text-white" />
+                        <span className="text-[10px] font-semibold text-white tabular-nums leading-none">{viewCounts[m.id] ?? 0}</span>
+                      </div>
+                    </div>
                   )}
                   {menuOpen && (
                     <div className="absolute right-0 bottom-full mb-1 z-40 bg-card border border-border rounded-xl shadow-xl overflow-hidden min-w-[170px]"
