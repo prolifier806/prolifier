@@ -919,9 +919,9 @@ export default function Messages() {
     const recvBg = "hsl(var(--card,var(--background)))";
     const bgColor = isMe ? sentBg : recvBg;
 
-    // Exact match to HTML demo .bubble — display:inline-block shrinks to content
     const bubbleStyle: React.CSSProperties = {
       maxWidth: 320,
+      width: "fit-content",
       borderRadius: isMe ? "14px 14px 2px 14px" : "14px 14px 14px 2px",
       overflow: "hidden",
       display: "inline-block",
@@ -999,14 +999,13 @@ export default function Messages() {
               <img
                 src={m.media_url}
                 alt="image"
-                style={{ display:"block", width:"100%", height:"auto", cursor:"pointer" }}
+                style={{ display:"block", maxWidth:"320px", width:"100%", height:"auto", cursor:"pointer" }}
                 loading="lazy"
                 onClick={() => setMediaPreview({ type: "image", url: m.media_url! })}
               />
 
-              {/* Caption — only rendered when text exists, directly under image */}
               {m.text && (
-                <div style={{ padding:"6px 10px 2px", fontSize:14, lineHeight:1.4, whiteSpace:"pre-wrap", wordBreak:"break-word" }}>
+                <div style={{ padding:"6px 10px", fontSize:14, lineHeight:1.4, whiteSpace:"pre-wrap", wordBreak:"break-word" }}>
                   {renderTextWithLinks(m.text, isMe)}
                 </div>
               )}
