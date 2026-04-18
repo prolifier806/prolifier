@@ -13,6 +13,7 @@ import {
   Crown, Image, Video, Paperclip,
   Link2, Copy, LogOut, Edit3, Trash2, UserX, MoreHorizontal,
   ShieldOff, RefreshCw, AtSign, ChevronsUp, UserPlus, Bell, SlidersHorizontal, Download, CornerUpLeft, Smile, Flag,
+  ChevronUp, ChevronDown,
 } from "lucide-react";
 import Layout from "@/components/Layout";
 import { toast } from "@/hooks/use-toast";
@@ -156,6 +157,28 @@ function renderTextWithLinks(text: string, validMentionNames?: string[], isOwn?:
   });
 }
 const EMOJIS = ["🤖", "🎨", "📈", "💡", "🚀", "🎵", "📚", "🌱", "⚡", "🔥", "🌍", "🎮"];
+
+/** Wrap query matches in a <mark> for in-chat search highlighting. */
+function highlightText(text: string, query: string, isOwn?: boolean): React.ReactNode {
+  const q = query.trim();
+  if (!q) return <span>{text}</span>;
+  const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(`(${escaped})`, "gi");
+  const parts = text.split(regex);
+  return (
+    <>
+      {parts.map((part, i) =>
+        regex.test(part) ? (
+          <mark key={i} className={`rounded px-0.5 font-medium ${isOwn ? "bg-white/40 text-white" : "bg-yellow-300 dark:bg-yellow-600/70 text-foreground"}`}>
+            {part}
+          </mark>
+        ) : (
+          <span key={i}>{part}</span>
+        )
+      )}
+    </>
+  );
+}
 
 function fmtTime(iso: string) {
   return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -391,6 +414,9 @@ export default function Groups() {
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Local search: ordered list of message IDs that match the query + current position
+  const [searchMatchIds, setSearchMatchIds] = useState<string[]>([]);
+  const [searchMatchIndex, setSearchMatchIndex] = useState(0);
   // Track in-progress join request accept/decline to prevent double-clicks
   const [processingRequestIds, setProcessingRequestIds] = useState<Set<string>>(new Set());
   // Typing indicators — map of userId → name (ephemeral, not stored in DB)
@@ -1123,6 +1149,42 @@ export default function Groups() {
   useEffect(() => {
     if (editingMsgId) setTimeout(() => editRef.current?.focus(), 30);
   }, [editingMsgId]);
+
+  // ── Local chat search: filter loaded messages client-side ─────────────────
+  useEffect(() => {
+    if (!showSearch || searchQuery.trim().length < 2) {
+      setSearchMatchIds([]);
+      setSearchMatchIndex(0);
+      return;
+    }
+    const q = searchQuery.toLowerCase();
+    const matches = messages
+      .filter(m => !m.is_system && !m.unsent && m.text?.toLowerCase().includes(q))
+      .map(m => m.id);
+    setSearchMatchIds(matches);
+    setSearchMatchIndex(0);
+  }, [searchQuery, messages, showSearch]);
+
+  // Scroll to current search match whenever it changes
+  useEffect(() => {
+    if (searchMatchIds.length === 0) return;
+    const id = searchMatchIds[searchMatchIndex];
+    requestAnimationFrame(() => {
+      document.getElementById(`msg-${id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }, [searchMatchIndex, searchMatchIds]);
+
+  // ── Exit report selection mode on browser/hardware back ───────────────────
+  useEffect(() => {
+    if (!reportSelectionMode) return;
+    const handlePopstate = () => {
+      setReportSelectionMode(false);
+      setReportSelectedMsgIds(new Set());
+      setReportType("");
+    };
+    window.addEventListener("popstate", handlePopstate);
+    return () => window.removeEventListener("popstate", handlePopstate);
+  }, [reportSelectionMode]);
 
   // ── Open group — don't await; switch view instantly ──────────────────────
   const openGroup = (group: Group) => {
@@ -1869,13 +1931,16 @@ export default function Groups() {
       const isSelected = reportSelectedMsgIds.has(m.id);
       // Can only report others' messages — not own, not system, not unsent
       const selectable = reportSelectionMode && !m.is_system && !m.unsent && m.user_id !== user.id;
+      // Search match highlighting
+      const isCurrentSearchMatch = searchMatchIds.length > 0 && searchMatchIds[searchMatchIndex] === m.id;
+      const isAnySearchMatch = searchMatchIds.includes(m.id);
 
       if (isMe) {
         // ── Own message — right-aligned bubble ───────────────────────────────
         els.push(
           <div key={m.id} id={`msg-${m.id}`}
             onClick={selectable ? () => setReportSelectedMsgIds(prev => { const s = new Set(prev); isSelected ? s.delete(m.id) : s.add(m.id); return s; }) : undefined}
-            className={"flex items-end justify-end gap-2 group relative " + (grouped ? "mt-1" : "mt-5") + (isMentioned && !reportSelectionMode ? " -mx-1 px-1 rounded-xl bg-emerald-500/5" : "") + (selectable ? " cursor-pointer select-none -mx-2 px-2 rounded-xl transition-colors " + (isSelected ? "bg-primary/10" : "hover:bg-muted/60") : "")}>
+            className={"flex items-end justify-end gap-2 group relative " + (grouped ? "mt-1" : "mt-5") + (isMentioned && !reportSelectionMode ? " -mx-1 px-1 rounded-xl bg-emerald-500/5" : "") + (selectable ? " cursor-pointer select-none -mx-2 px-2 rounded-xl transition-colors " + (isSelected ? "bg-primary/10" : "hover:bg-muted/60") : "") + (isCurrentSearchMatch ? " -mx-1 px-1 rounded-xl bg-amber-400/10" : isAnySearchMatch ? " -mx-1 px-1 rounded-xl bg-amber-400/5" : "")}>
             {/* Selection checkbox — left side for own messages */}
             {selectable && (
               <div className={`h-5 w-5 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors ${isSelected ? "bg-primary border-primary" : "border-muted-foreground/40"}`}>
@@ -1906,27 +1971,29 @@ export default function Groups() {
                 </div>
               ) : (
                 <div className="relative group/bbl w-full flex flex-col items-end">
-                  {/* Hover actions — appear to the left of own bubble */}
-                  <div className={`absolute right-full top-0 pr-1 transition-opacity flex items-center gap-0.5 z-10 ${reportSelectionMode ? "opacity-100" : "opacity-0 group-hover/bbl:opacity-100"}`}>
-                    {isJoined && (
-                      <button onClick={e => { e.stopPropagation(); setReactionPickerMsgId(reactionPickerMsgId === m.id ? null : m.id); }}
-                        className="h-7 w-7 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground">
-                        <Smile className="h-3.5 w-3.5" />
-                      </button>
-                    )}
-                    {canMenu && (
-                      <button onClick={e => { e.stopPropagation(); setMsgMenuId(menuOpen ? null : m.id); }}
-                        className="h-7 w-7 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground">
-                        <MoreHorizontal className="h-3.5 w-3.5" />
-                      </button>
-                    )}
-                    {isJoined && (
-                      <button onClick={e => { e.stopPropagation(); setReplyTo(m); inputRef.current?.focus(); }}
-                        className="h-7 w-7 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground">
-                        <CornerUpLeft className="h-3.5 w-3.5" />
-                      </button>
-                    )}
-                  </div>
+                  {/* Hover actions — appear to the left of own bubble; hidden in report mode */}
+                  {!reportSelectionMode && (
+                    <div className="absolute right-full top-0 pr-1 transition-opacity opacity-0 group-hover/bbl:opacity-100 flex items-center gap-0.5 z-10">
+                      {isJoined && (
+                        <button onClick={e => { e.stopPropagation(); setReactionPickerMsgId(reactionPickerMsgId === m.id ? null : m.id); }}
+                          className="h-7 w-7 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground">
+                          <Smile className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                      {canMenu && (
+                        <button onClick={e => { e.stopPropagation(); setMsgMenuId(menuOpen ? null : m.id); }}
+                          className="h-7 w-7 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground">
+                          <MoreHorizontal className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                      {isJoined && (
+                        <button onClick={e => { e.stopPropagation(); setReplyTo(m); inputRef.current?.focus(); }}
+                          className="h-7 w-7 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground">
+                          <CornerUpLeft className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  )}
                   {m.media_type === "image" && m.media_url ? (
                     <ImageMsg
                       url={m.media_url} text={m.text} isMe={true}
@@ -1970,12 +2037,14 @@ export default function Groups() {
                       })()}
                       {m.text?.trim() && m.media_type !== "file" && (
                         <p className="text-sm leading-relaxed whitespace-pre-wrap break-words px-3 pt-2 pb-2" style={{ maxWidth: "360px" }}>
-                          {renderTextWithLinks(m.text.trim(), members.map(mb => mb.name), true)}
+                          {showSearch && searchQuery.trim().length >= 2
+                            ? highlightText(m.text.trim(), searchQuery, true)
+                            : renderTextWithLinks(m.text.trim(), members.map(mb => mb.name), true)}
                         </p>
                       )}
                     </div>
                   )}
-                  {menuOpen && (
+                  {!reportSelectionMode && menuOpen && (
                     <div className="absolute right-0 bottom-full mb-1 z-40 bg-card border border-border rounded-xl shadow-xl overflow-hidden min-w-[170px]"
                       onClick={e => e.stopPropagation()}>
                       <button onClick={() => startEditMsg(m)}
@@ -1989,8 +2058,8 @@ export default function Groups() {
                       </button>
                     </div>
                   )}
-                  {/* Emoji picker */}
-                  {reactionPickerMsgId === m.id && (
+                  {/* Emoji picker — hidden in report mode */}
+                  {!reportSelectionMode && reactionPickerMsgId === m.id && (
                     <div className="absolute right-0 bottom-full mb-1 z-50 bg-card border border-border rounded-2xl shadow-xl px-2 py-1.5 flex gap-1"
                       onClick={e => e.stopPropagation()}>
                       {QUICK_EMOJIS.map(e => (
@@ -2001,8 +2070,8 @@ export default function Groups() {
                       ))}
                     </div>
                   )}
-                  {/* Reaction pills */}
-                  {reactions[m.id] && Object.keys(reactions[m.id]).length > 0 && (
+                  {/* Reaction pills — hidden in report mode */}
+                  {!reportSelectionMode && reactions[m.id] && Object.keys(reactions[m.id]).length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-1 justify-end">
                       {Object.entries(reactions[m.id]).map(([emoji, { count, userIds }]) => (
                         <button key={emoji} onClick={() => handleReaction(m.id, emoji)}
@@ -2027,7 +2096,7 @@ export default function Groups() {
         els.push(
           <div key={m.id} id={`msg-${m.id}`}
             onClick={selectable ? () => setReportSelectedMsgIds(prev => { const s = new Set(prev); isSelected ? s.delete(m.id) : s.add(m.id); return s; }) : undefined}
-            className={"flex items-start gap-2 group relative " + (grouped ? "mt-1" : "mt-5") + (isMentioned && !reportSelectionMode ? " -mx-1 px-1 rounded-xl bg-emerald-500/5" : "") + (selectable ? " cursor-pointer select-none -mx-2 px-2 rounded-xl transition-colors " + (isSelected ? "bg-primary/10" : "hover:bg-muted/60") : "")}>
+            className={"flex items-start gap-2 group relative " + (grouped ? "mt-1" : "mt-5") + (isMentioned && !reportSelectionMode ? " -mx-1 px-1 rounded-xl bg-emerald-500/5" : "") + (selectable ? " cursor-pointer select-none -mx-2 px-2 rounded-xl transition-colors " + (isSelected ? "bg-primary/10" : "hover:bg-muted/60") : "") + (isCurrentSearchMatch ? " -mx-1 px-1 rounded-xl bg-amber-400/10" : isAnySearchMatch ? " -mx-1 px-1 rounded-xl bg-amber-400/5" : "")}>
             {/* Selection checkbox — before avatar for others' messages */}
             {selectable && (
               <div className={`h-5 w-5 rounded-full border-2 shrink-0 flex items-center justify-center mt-1.5 transition-colors ${isSelected ? "bg-primary border-primary" : "border-muted-foreground/40"}`}>
@@ -2076,8 +2145,9 @@ export default function Groups() {
                 </div>
               ) : (
                 <div className="relative group/bbl">
-                  {/* Hover actions — appear to the right of others' bubble */}
-                  <div className={`absolute left-full top-0 pl-1 transition-opacity flex items-center gap-0.5 z-10 ${reportSelectionMode ? "opacity-100" : "opacity-0 group-hover/bbl:opacity-100"}`}>
+                  {/* Hover actions — appear to the right of others' bubble; hidden in report mode */}
+                  {!reportSelectionMode && (
+                    <div className="absolute left-full top-0 pl-1 transition-opacity opacity-0 group-hover/bbl:opacity-100 flex items-center gap-0.5 z-10">
                     {isJoined && (
                       <button onClick={e => { e.stopPropagation(); setReplyTo(m); inputRef.current?.focus(); }}
                         className="h-7 w-7 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground">
@@ -2096,7 +2166,8 @@ export default function Groups() {
                         <MoreHorizontal className="h-3.5 w-3.5" />
                       </button>
                     )}
-                  </div>
+                    </div>
+                  )}
                   {m.media_type === "image" && m.media_url ? (
                     <ImageMsg
                       url={m.media_url} text={m.text} isMe={false}
@@ -2127,7 +2198,9 @@ export default function Groups() {
                       )}
                       {m.text?.trim() && m.media_type !== "file" && (
                         <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap break-words px-3 pt-2 pb-2" style={{ maxWidth: "360px" }}>
-                          {renderTextWithLinks(m.text.trim(), members.map(mb => mb.name))}
+                          {showSearch && searchQuery.trim().length >= 2
+                            ? highlightText(m.text.trim(), searchQuery)
+                            : renderTextWithLinks(m.text.trim(), members.map(mb => mb.name))}
                         </p>
                       )}
                       {m.media_type === "file" && m.media_url && (() => {
@@ -2145,7 +2218,7 @@ export default function Groups() {
                       })()}
                     </div>
                   )}
-                  {menuOpen && (
+                  {!reportSelectionMode && menuOpen && (
                     <div className="absolute left-0 bottom-full mb-1 z-40 bg-card border border-border rounded-xl shadow-xl overflow-hidden min-w-[170px]"
                       onClick={e => e.stopPropagation()}>
                       {canManageMsg && (
@@ -2157,8 +2230,8 @@ export default function Groups() {
                       )}
                     </div>
                   )}
-                  {/* Emoji picker */}
-                  {reactionPickerMsgId === m.id && (
+                  {/* Emoji picker — hidden in report mode */}
+                  {!reportSelectionMode && reactionPickerMsgId === m.id && (
                     <div className="absolute left-0 bottom-full mb-1 z-50 bg-card border border-border rounded-2xl shadow-xl px-2 py-1.5 flex gap-1"
                       onClick={e => e.stopPropagation()}>
                       {QUICK_EMOJIS.map(e => (
@@ -2169,8 +2242,8 @@ export default function Groups() {
                       ))}
                     </div>
                   )}
-                  {/* Reaction pills */}
-                  {reactions[m.id] && Object.keys(reactions[m.id]).length > 0 && (
+                  {/* Reaction pills — hidden in report mode */}
+                  {!reportSelectionMode && reactions[m.id] && Object.keys(reactions[m.id]).length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-1">
                       {Object.entries(reactions[m.id]).map(([emoji, { count, userIds }]) => (
                         <button key={emoji} onClick={() => handleReaction(m.id, emoji)}
@@ -2876,7 +2949,15 @@ export default function Groups() {
         <div className="flex h-[calc(100vh-4rem)] md:h-screen max-w-3xl mx-auto flex-col relative">
           {/* Header */}
           <div className="px-4 py-3 border-b border-border flex items-center gap-3 shrink-0 bg-card/80 backdrop-blur-sm">
-            <button onClick={() => { viewRef.current = "list"; activeGroupIdRef.current = undefined; setView("list"); setMsgMenuId(null); setEditingMsgId(null); }}
+            <button onClick={() => {
+              if (reportSelectionMode) {
+                setReportSelectionMode(false);
+                setReportSelectedMsgIds(new Set());
+                setReportType("");
+                return;
+              }
+              viewRef.current = "list"; activeGroupIdRef.current = undefined; setView("list"); setMsgMenuId(null); setEditingMsgId(null);
+            }}
               className="text-muted-foreground hover:text-foreground transition-colors">
               <ArrowLeft className="h-5 w-5" />
             </button>
@@ -2944,61 +3025,54 @@ export default function Groups() {
 
           {/* Search bar — shown when search mode active */}
           {showSearch && (
-            <div className="px-4 py-2 border-b border-border bg-card/80">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <input
-                  autoFocus
-                  value={searchQuery}
-                  onChange={e => {
-                    const q = e.target.value;
-                    setSearchQuery(q);
-                    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
-                    // Instantly clear results + spinner if query is too short
-                    if (q.trim().length < 2) { setSearchResults([]); setSearchLoading(false); return; }
-                    searchDebounceRef.current = setTimeout(() => runSearch(q), 350);
-                  }}
-                  placeholder="Search messages…"
-                  className="w-full pl-9 pr-4 py-1.5 text-sm bg-muted rounded-xl outline-none text-foreground placeholder:text-muted-foreground"
-                />
-                {searchLoading && (
-                  <div className="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+            <div className="px-4 py-2 border-b border-border bg-card/80 shrink-0">
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                  <input
+                    autoFocus
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        if (searchMatchIds.length === 0) return;
+                        setSearchMatchIndex(i => (i + 1) % searchMatchIds.length);
+                      }
+                      if (e.key === "Escape") { setShowSearch(false); setSearchQuery(""); }
+                    }}
+                    placeholder="Search in chat…"
+                    className="w-full pl-8 pr-3 py-1.5 text-sm bg-muted rounded-xl outline-none text-foreground placeholder:text-muted-foreground"
+                  />
+                </div>
+                {searchQuery.trim().length >= 2 && (
+                  <>
+                    <span className="text-[11px] text-muted-foreground shrink-0 tabular-nums min-w-[46px] text-center">
+                      {searchMatchIds.length === 0 ? "0 of 0" : `${searchMatchIndex + 1} of ${searchMatchIds.length}`}
+                    </span>
+                    <button
+                      disabled={searchMatchIds.length === 0}
+                      onClick={() => setSearchMatchIndex(i => (i - 1 + searchMatchIds.length) % searchMatchIds.length)}
+                      className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted disabled:opacity-30 transition-colors shrink-0">
+                      <ChevronUp className="h-4 w-4" />
+                    </button>
+                    <button
+                      disabled={searchMatchIds.length === 0}
+                      onClick={() => setSearchMatchIndex(i => (i + 1) % searchMatchIds.length)}
+                      className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted disabled:opacity-30 transition-colors shrink-0">
+                      <ChevronDown className="h-4 w-4" />
+                    </button>
+                  </>
                 )}
               </div>
-            </div>
-          )}
-
-          {/* Search results overlay */}
-          {showSearch && (
-            <div className="flex-1 overflow-y-auto p-4">
-              {searchQuery.trim().length < 2 && (
-                <p className="text-center text-sm text-muted-foreground py-8">Type at least 2 characters to search</p>
+              {searchQuery.trim().length >= 2 && searchMatchIds.length === 0 && (
+                <p className="text-[11px] text-muted-foreground mt-1.5 pl-1">No messages found for "{searchQuery}"</p>
               )}
-              {searchQuery.trim().length >= 2 && !searchLoading && searchResults.length === 0 && (
-                <p className="text-center text-sm text-muted-foreground py-8">No results for "{searchQuery}"</p>
-              )}
-              {searchResults.map(r => (
-                <button key={r.id} onClick={() => jumpToMessage(r.id, r.created_at)}
-                  className="w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-xl hover:bg-muted transition-colors mb-1">
-                  <div className={`h-8 w-8 rounded-full ${r.sender.color} flex items-center justify-center text-white text-xs font-semibold shrink-0 overflow-hidden`}>
-                    {r.sender.avatar_url
-                      ? <img src={r.sender.avatar_url} alt={r.sender.name} className="w-full h-full object-cover" />
-                      : r.sender.name.split(" ").map((w: string) => w[0]).slice(0, 2).join("").toUpperCase()}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-0.5">
-                      <span className="text-xs font-semibold text-foreground">{r.sender.name}</span>
-                      <span className="text-[10px] text-muted-foreground">{fmtTime(r.created_at)}</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground truncate">{r.snippet || r.text}</p>
-                  </div>
-                </button>
-              ))}
             </div>
           )}
 
           {/* Messages area */}
-          <div ref={messagesAreaRef} className={`flex-1 overflow-y-auto p-4 ${showSearch ? "hidden" : ""}`}>
+          <div ref={messagesAreaRef} className="flex-1 overflow-y-auto p-4">
             {!isJoined && (
               <div className="text-center py-10">
                 <p className="text-sm text-muted-foreground mb-3">
