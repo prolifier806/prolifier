@@ -920,7 +920,7 @@ export default function Messages() {
     const bgColor = isMe ? sentBg : recvBg;
 
     const bubbleStyle: React.CSSProperties = {
-      maxWidth: 320,
+      maxWidth: "min(320px, 100%)",
       width: "fit-content",
       borderRadius: isMe ? "14px 14px 2px 14px" : "14px 14px 14px 2px",
       overflow: "hidden",
@@ -933,6 +933,7 @@ export default function Messages() {
     // Exact match to HTML demo .bubble-wrap — position:relative for tail only
     const wrapStyle: React.CSSProperties = {
       position: "relative",
+      display: "inline-block",   // ✅ ADD THIS
     };
 
     const replyBtn = (flip = false) => (
@@ -979,7 +980,11 @@ export default function Messages() {
     // ── Image message — EXACT HTML demo structure ─────────────────────────
     if (m.media_type === "image" && m.media_url) {
       return (
-        <div key={m.id} className={`group flex items-end gap-1.5 ${isMe ? "justify-end" : "justify-start"}`}>
+        <div
+          key={m.id}
+          className={`group flex items-end gap-1.5 ${isMe ? "justify-end" : "justify-start"}`}
+          style={{ width: "100%" }}   // ✅ ADD THIS
+        >
           {!isMe && replyBtn()}
 
           {/* bubble-wrap: position:relative for tail anchor, inline-block shrinks to content */}
