@@ -188,6 +188,60 @@ const DateDivider = memo(({ label }: { label: string }) => (
   </div>
 ));
 
+// Image message bubble — no colored background around the image.
+// Portrait images (height > 1.2× width) are cropped to 1:1 square.
+function ImageMsg({
+  url, text, isMe, reply, onLightbox, renderCaption,
+}: {
+  url: string;
+  text: string | null;
+  isMe: boolean;
+  reply?: { author?: string | null; text?: string | null } | null;
+  onLightbox: () => void;
+  renderCaption: (t: string) => React.ReactNode;
+}) {
+  const [portrait, setPortrait] = useState(false);
+  const radius = isMe ? "18px 18px 4px 18px" : "18px 18px 18px 4px";
+  const captionBg = isMe ? "hsl(var(--primary))" : "hsl(var(--muted))";
+  const captionColor = isMe ? "hsl(var(--primary-foreground))" : "hsl(var(--foreground))";
+  const replyBorder = isMe ? "rgba(255,255,255,0.45)" : "hsl(var(--primary))";
+  const replyLabelColor = isMe ? "rgba(255,255,255,0.75)" : "hsl(var(--primary))";
+  const replyTextColor = isMe ? "rgba(255,255,255,0.65)" : "hsl(var(--muted-foreground))";
+
+  return (
+    <div style={{ borderRadius: radius, overflow: "hidden", maxWidth: "100%" }}>
+      {reply && (
+        <div style={{ background: captionBg, color: captionColor, padding: "6px 10px 4px 8px", borderLeft: `3px solid ${replyBorder}` }}>
+          {reply.author && <p style={{ fontSize: 10, fontWeight: 700, color: replyLabelColor, marginBottom: 1 }}>{reply.author}</p>}
+          <p style={{ fontSize: 11, color: replyTextColor }}>{reply.text ? reply.text.slice(0, 80) : "📎 Media"}</p>
+        </div>
+      )}
+      <button onClick={onLightbox} className="block w-full" style={{ display: "block" }}>
+        <img
+          src={url}
+          alt="shared"
+          className="block w-full"
+          style={{
+            height: "auto",
+            aspectRatio: portrait ? "1 / 1" : undefined,
+            objectFit: portrait ? "cover" : undefined,
+          }}
+          onLoad={e => {
+            const img = e.currentTarget;
+            setPortrait(img.naturalHeight > img.naturalWidth * 1.2);
+          }}
+          loading="lazy"
+        />
+      </button>
+      {text?.trim() && (
+        <div style={{ background: captionBg, color: captionColor, padding: "6px 12px 10px", fontSize: 13, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+          {renderCaption(text.trim())}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const ShareLinkModal = memo(({ group, onClose }: { group: Group; onClose: () => void }) => {
   const link = `${window.location.origin}/groups/${group.id}`;
   const copy = () => { navigator.clipboard.writeText(link).then(() => toast({ title: "Link copied! 🔗" })); };
@@ -1712,7 +1766,19 @@ export default function Groups() {
                       </button>
                     )}
                   </div>
-                  {/* Primary bubble */}
+                  {/* Image message — no colored bubble background */}
+                  {m.media_type === "image" && m.media_url && (
+                    <ImageMsg
+                      url={m.media_url}
+                      text={m.text}
+                      isMe={true}
+                      reply={m.reply_to_id ? { author: m.reply_to_author, text: m.reply_to_text } : null}
+                      onLightbox={() => setLightboxUrl(m.media_url!)}
+                      renderCaption={t => renderTextWithLinks(t, members.map(mb => mb.name), true)}
+                    />
+                  )}
+                  {/* Primary bubble — text / video / file */}
+                  {m.media_type !== "image" && (
                   <div className="bg-primary text-primary-foreground rounded-2xl rounded-tr-sm overflow-hidden max-w-full">
                     {m.reply_to_id && (
                       <div
@@ -1725,19 +1791,7 @@ export default function Groups() {
                         </div>
                       </div>
                     )}
-                    {m.media_type === "image" && m.media_url && (
-                      <div>
-                        <button onClick={() => setLightboxUrl(m.media_url!)} className="block w-full">
-                          <img src={m.media_url} alt="shared" className="block w-full" style={{ height: "auto", maxHeight: "400px", objectFit: "contain", background: "rgba(0,0,0,0.04)" }} loading="lazy" />
-                        </button>
-                        {m.text?.trim() && (
-                          <p className="text-sm leading-snug whitespace-pre-wrap break-words px-3 py-2">
-                            {renderTextWithLinks(m.text.trim(), members.map(mb => mb.name), true)}
-                          </p>
-                        )}
-                      </div>
-                    )}
-                    {m.media_type !== "image" && m.text?.trim() && (
+                    {m.text?.trim() && (
                       <p className="text-sm leading-relaxed whitespace-pre-wrap break-words px-3 py-2">
                         {renderTextWithLinks(m.text.trim(), members.map(mb => mb.name), true)}
                       </p>
@@ -1751,6 +1805,7 @@ export default function Groups() {
                       </a>
                     )}
                   </div>
+                  )}
                   {menuOpen && (
                     <div className="absolute right-0 bottom-full mb-1 z-40 bg-card border border-border rounded-xl shadow-xl overflow-hidden min-w-[170px]"
                       onClick={e => e.stopPropagation()}>
@@ -1866,7 +1921,19 @@ export default function Groups() {
                       </button>
                     )}
                   </div>
-                  {/* Muted bubble */}
+                  {/* Image message — no colored bubble background */}
+                  {m.media_type === "image" && m.media_url && (
+                    <ImageMsg
+                      url={m.media_url}
+                      text={m.text}
+                      isMe={false}
+                      reply={m.reply_to_id ? { author: m.reply_to_author, text: m.reply_to_text } : null}
+                      onLightbox={() => setLightboxUrl(m.media_url!)}
+                      renderCaption={t => renderTextWithLinks(t, members.map(mb => mb.name))}
+                    />
+                  )}
+                  {/* Muted bubble — text / video / file */}
+                  {m.media_type !== "image" && (
                   <div className="bg-muted rounded-2xl rounded-tl-sm overflow-hidden">
                     {m.reply_to_id && (
                       <div
@@ -1879,19 +1946,7 @@ export default function Groups() {
                         </div>
                       </div>
                     )}
-                    {m.media_type === "image" && m.media_url && (
-                      <div>
-                        <button onClick={() => setLightboxUrl(m.media_url!)} className="block w-full">
-                          <img src={m.media_url} alt="shared" className="block w-full" style={{ height: "auto", maxHeight: "400px", objectFit: "contain", background: "rgba(0,0,0,0.04)" }} loading="lazy" />
-                        </button>
-                        {m.text?.trim() && (
-                          <p className="text-sm text-foreground leading-snug whitespace-pre-wrap break-words px-3 py-2">
-                            {renderTextWithLinks(m.text.trim(), members.map(mb => mb.name))}
-                          </p>
-                        )}
-                      </div>
-                    )}
-                    {m.media_type !== "image" && m.text?.trim() && (
+                    {m.text?.trim() && (
                       <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap break-words px-3 py-2">
                         {renderTextWithLinks(m.text.trim(), members.map(mb => mb.name))}
                       </p>
@@ -1905,6 +1960,7 @@ export default function Groups() {
                       </a>
                     )}
                   </div>
+                  )}
                   {menuOpen && (
                     <div className="absolute left-0 bottom-full mb-1 z-40 bg-card border border-border rounded-xl shadow-xl overflow-hidden min-w-[170px]"
                       onClick={e => e.stopPropagation()}>
