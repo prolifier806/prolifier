@@ -802,7 +802,7 @@ export default function Groups() {
       // then reverse to display oldest-first (bottom of chat).
       const { data: msgsDesc, error } = await (supabase as any)
         .from("group_messages")
-        .select("id, group_id, user_id, text, media_url, media_type, created_at, edited, unsent, removed_by_admin, is_system")
+        .select("id, group_id, user_id, text, media_url, media_type, created_at, edited, unsent, removed_by_admin, is_system, reply_to_id")
         .eq("group_id", groupId)
         .order("created_at", { ascending: false })
         .limit(100);
@@ -817,7 +817,12 @@ export default function Groups() {
         .select("id, name, color, avatar_url, role")
         .in("id", userIds);
       const profileMap: Record<string, { name: string; color: string; avatar_url?: string; role?: string }> = {};
-      (profiles || []).forEach((p: any) => { profileMap[p.id] = { name: p.name, color: p.color, avatar_url: p.avatar_url || undefined, role: p.role }; });
+      (profiles || []).forEach((p: any) => {
+        const entry = { name: p.name, color: p.color, avatar_url: p.avatar_url ?? undefined, role: p.role };
+        profileMap[p.id] = entry;
+        // Seed profileCache so CDC/Socket.IO path has data without an extra fetch
+        profileCache.current[p.id] = entry;
+      });
 
       const mapped = msgs.map((row: any) => ({
         id: row.id,
@@ -832,6 +837,9 @@ export default function Groups() {
         unsent: row.unsent ?? false,
         removed_by_admin: row.removed_by_admin ?? false,
         is_system: row.is_system ?? false,
+        reply_to_id: row.reply_to_id ?? null,
+        reply_to_text: null,
+        reply_to_author: null,
         author_name: profileMap[row.user_id]?.name || "Unknown",
         author_color: profileMap[row.user_id]?.color || "bg-primary",
         author_avatar_url: profileMap[row.user_id]?.avatar_url,
@@ -1842,7 +1850,7 @@ export default function Groups() {
                 <button onClick={() => navigate(`/profile/${m.user_id}`)}
                   className={"h-8 w-8 rounded-full " + m.author_color + " flex items-center justify-center text-white text-xs font-semibold shrink-0 overflow-hidden hover:opacity-80 transition-opacity"}>
                   {m.author_avatar_url
-                    ? <img src={m.author_avatar_url} alt={m.author_name} className="w-full h-full object-cover" />
+                    ? <img src={m.author_avatar_url} alt={m.author_name} className="w-full h-full object-cover" onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
                     : initials(m.author_name)}
                 </button>
               )
@@ -1859,7 +1867,8 @@ export default function Groups() {
       const isMentioned = !m.is_system && m.text?.includes(`@${user.name}`);
 
       const isSelected = reportSelectedMsgIds.has(m.id);
-      const selectable = reportSelectionMode && !m.is_system && !m.unsent;
+      // Can only report others' messages — not own, not system, not unsent
+      const selectable = reportSelectionMode && !m.is_system && !m.unsent && m.user_id !== user.id;
 
       if (isMe) {
         // ── Own message — right-aligned bubble ───────────────────────────────
@@ -1898,7 +1907,7 @@ export default function Groups() {
               ) : (
                 <div className="relative group/bbl w-full flex flex-col items-end">
                   {/* Hover actions — appear to the left of own bubble */}
-                  <div className="absolute right-full top-0 pr-1 opacity-0 group-hover/bbl:opacity-100 transition-opacity flex items-center gap-0.5 z-10">
+                  <div className={`absolute right-full top-0 pr-1 transition-opacity flex items-center gap-0.5 z-10 ${reportSelectionMode ? "opacity-100" : "opacity-0 group-hover/bbl:opacity-100"}`}>
                     {isJoined && (
                       <button onClick={e => { e.stopPropagation(); setReactionPickerMsgId(reactionPickerMsgId === m.id ? null : m.id); }}
                         className="h-7 w-7 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground">
@@ -2031,7 +2040,7 @@ export default function Groups() {
                 <button onClick={() => navigate(`/profile/${m.user_id}`)}
                   className={"h-8 w-8 rounded-full mt-0.5 " + m.author_color + " flex items-center justify-center text-white text-xs font-semibold shrink-0 overflow-hidden hover:opacity-80 transition-opacity"}>
                   {m.author_avatar_url
-                    ? <img src={m.author_avatar_url} alt={m.author_name} className="w-full h-full object-cover" />
+                    ? <img src={m.author_avatar_url} alt={m.author_name} className="w-full h-full object-cover" onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
                     : initials(m.author_name)}
                 </button>
               )
@@ -2068,7 +2077,7 @@ export default function Groups() {
               ) : (
                 <div className="relative group/bbl">
                   {/* Hover actions — appear to the right of others' bubble */}
-                  <div className="absolute left-full top-0 pl-1 opacity-0 group-hover/bbl:opacity-100 transition-opacity flex items-center gap-0.5 z-10">
+                  <div className={`absolute left-full top-0 pl-1 transition-opacity flex items-center gap-0.5 z-10 ${reportSelectionMode ? "opacity-100" : "opacity-0 group-hover/bbl:opacity-100"}`}>
                     {isJoined && (
                       <button onClick={e => { e.stopPropagation(); setReplyTo(m); inputRef.current?.focus(); }}
                         className="h-7 w-7 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground">
@@ -2096,7 +2105,7 @@ export default function Groups() {
                       renderCaption={t => renderTextWithLinks(t, members.map(mb => mb.name))}
                     />
                   ) : (
-                    <div className="rounded-2xl overflow-hidden bg-muted">
+                    <div className="rounded-2xl overflow-hidden bg-muted border border-border/50">
                       {m.reply_to_id && (
                         <div onClick={() => { const el = document.getElementById(`msg-${m.reply_to_id}`); el?.scrollIntoView({ behavior: "smooth", block: "center" }); }}
                           className="flex items-start gap-1.5 mx-3 mt-2 mb-1.5 pl-2 border-l-2 border-primary/40 cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 rounded-r-lg transition-colors">
@@ -3253,7 +3262,16 @@ export default function Groups() {
                 </button>
               </div>
               <div className="p-4 space-y-2">
-                {["Spam", "Abuse", "Harassment", "Other"].map(option => (
+                {[
+                  "Spam",
+                  "Abuse",
+                  "Harassment",
+                  "Violence",
+                  "Sexual content",
+                  "Hate speech",
+                  "Misinformation",
+                  "Other",
+                ].map(option => (
                   <button key={option}
                     onClick={() => {
                       setReportType(option);
@@ -3261,7 +3279,7 @@ export default function Groups() {
                       setShowReportTypeSheet(false);
                       setReportSelectionMode(true);
                     }}
-                    className="w-full flex items-center gap-3 px-4 py-3.5 rounded-xl border border-border hover:border-primary hover:bg-primary/5 text-left text-sm font-medium text-foreground transition-all">
+                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-border hover:border-primary hover:bg-primary/5 text-left text-sm font-medium text-foreground transition-all">
                     <div className="h-4 w-4 rounded-full border-2 border-muted-foreground/40 shrink-0" />
                     {option}
                   </button>
