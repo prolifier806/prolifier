@@ -1824,7 +1824,7 @@ export default function Groups() {
                         </div>
                       )}
                       {m.media_type === "video" && m.media_url && (
-                        <video src={m.media_url} controls className="w-full bg-black" style={{ display: "block" }} />
+                        <video src={m.media_url} controls className="block w-full bg-black" style={{ maxWidth: "360px" }} />
                       )}
                       {m.media_type === "file" && m.media_url && (() => {
                         const nl = m.text?.indexOf("\n") ?? -1;
@@ -1840,7 +1840,7 @@ export default function Groups() {
                         );
                       })()}
                       {m.text?.trim() && m.media_type !== "file" && (
-                        <p className="text-sm leading-relaxed whitespace-pre-wrap break-words px-3 pt-2 pb-2">
+                        <p className="text-sm leading-relaxed whitespace-pre-wrap break-words px-3 pt-2 pb-2" style={{ maxWidth: "360px" }}>
                           {renderTextWithLinks(m.text.trim(), members.map(mb => mb.name), true)}
                         </p>
                       )}
@@ -1980,10 +1980,10 @@ export default function Groups() {
                         </div>
                       )}
                       {m.media_type === "video" && m.media_url && (
-                        <video src={m.media_url} controls className="w-full bg-black" style={{ display: "block" }} />
+                        <video src={m.media_url} controls className="block w-full bg-black" style={{ maxWidth: "360px" }} />
                       )}
                       {m.text?.trim() && m.media_type !== "file" && (
-                        <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap break-words px-3 pt-2 pb-2">
+                        <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap break-words px-3 pt-2 pb-2" style={{ maxWidth: "360px" }}>
                           {renderTextWithLinks(m.text.trim(), members.map(mb => mb.name))}
                         </p>
                       )}
