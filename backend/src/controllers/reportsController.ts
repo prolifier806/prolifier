@@ -5,7 +5,7 @@ import { AuthRequest } from "../lib/types";
 
 export const createReportSchema = z.object({
   targetId: z.string().uuid(),
-  targetType: z.enum(["post", "collab", "comment", "user"]),
+  targetType: z.enum(["post", "collab", "comment", "user", "group"]),
   reason: z.string().min(1).max(200),
   details: z.string().max(1000).optional(),
 });

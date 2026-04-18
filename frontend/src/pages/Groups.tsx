@@ -12,7 +12,7 @@ import {
   Lock, Globe, Plus, Settings, X, Check,
   Crown, Image, Video, Paperclip,
   Link2, Copy, LogOut, Edit3, Trash2, UserX, MoreHorizontal,
-  ShieldOff, RefreshCw, AtSign, ChevronsUp, UserPlus, Bell, SlidersHorizontal, Download, CornerUpLeft, Smile,
+  ShieldOff, RefreshCw, AtSign, ChevronsUp, UserPlus, Bell, SlidersHorizontal, Download, CornerUpLeft, Smile, Flag,
 } from "lucide-react";
 import Layout from "@/components/Layout";
 import { toast } from "@/hooks/use-toast";
@@ -42,6 +42,7 @@ import {
   searchGroupMessages,
 } from "@/api/groups";
 import { uploadPostImage, uploadVideo, uploadFile } from "@/api/uploads";
+import { createReport } from "@/api/reports";
 
 
 // ── Types ─────────────────────────────────────────────────────────────────
@@ -435,6 +436,11 @@ export default function Groups() {
   const [addMemberSearch, setAddMemberSearch] = useState("");
   // Settings panel modal: which section is open
   const [settingsPanel, setSettingsPanel] = useState<null | "members" | "add" | "banned" | "requests">(null);
+
+  // Report community modal
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportReason, setReportReason] = useState("");
+  const [reportSubmitting, setReportSubmitting] = useState(false);
 
   // Community image upload (settings)
   const [editImageUrl, setEditImageUrl] = useState<string | null>(null);
@@ -1448,6 +1454,66 @@ export default function Groups() {
     }
   }, [activeGroup]);
 
+  // ── Jump to message (search result click) ────────────────────────────────
+  // If the message is already loaded, just scroll. Otherwise fetch messages
+  // anchored at that timestamp so the target is visible, then scroll.
+  const jumpToMessage = useCallback(async (msgId: string, createdAt: string) => {
+    setShowSearch(false);
+    setSearchQuery("");
+    setSearchResults([]);
+
+    const alreadyLoaded = messages.find(m => m.id === msgId);
+    if (alreadyLoaded) {
+      setTimeout(() => {
+        document.getElementById(`msg-${msgId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 100);
+      return;
+    }
+
+    if (!activeGroup) return;
+    setLoadingMessages(true);
+    try {
+      // Fetch 50 messages up to and including the target timestamp
+      const { data: msgsDesc, error } = await (supabase as any)
+        .from("group_messages")
+        .select("id, group_id, user_id, text, media_url, media_type, created_at, edited, unsent, removed_by_admin, is_system")
+        .eq("group_id", activeGroup.id)
+        .lte("created_at", createdAt)
+        .order("created_at", { ascending: false })
+        .limit(60);
+      if (error) throw error;
+      const msgs = msgsDesc ? [...msgsDesc].reverse() : [];
+
+      const userIds = [...new Set(msgs.map((m: any) => m.user_id))] as string[];
+      const { data: profiles } = await (supabase as any)
+        .from("profiles")
+        .select("id, name, color, avatar_url, role")
+        .in("id", userIds);
+      const profileMap: Record<string, any> = {};
+      (profiles || []).forEach((p: any) => { profileMap[p.id] = p; });
+
+      const mapped: GroupMessage[] = msgs.map((row: any) => ({
+        id: row.id, group_id: row.group_id, user_id: row.user_id,
+        text: row.text, media_url: row.media_url, media_type: row.media_type,
+        created_at: row.created_at, edited: row.edited ?? false,
+        deleted: false, unsent: row.unsent ?? false,
+        removed_by_admin: row.removed_by_admin ?? false, is_system: row.is_system ?? false,
+        author_name: profileMap[row.user_id]?.name || "Unknown",
+        author_color: profileMap[row.user_id]?.color || "bg-primary",
+        author_avatar_url: profileMap[row.user_id]?.avatar_url,
+        author_role: profileMap[row.user_id]?.role,
+      }));
+      setMessages(mapped);
+      setTimeout(() => {
+        document.getElementById(`msg-${msgId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 250);
+    } catch (err) {
+      if (import.meta.env.DEV) console.error("jumpToMessage:", err);
+    } finally {
+      setLoadingMessages(false);
+    }
+  }, [messages, activeGroup]);
+
   // ── Toggle reaction ───────────────────────────────────────────────────────
   const QUICK_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
 
@@ -1824,7 +1890,14 @@ export default function Groups() {
                         </div>
                       )}
                       {m.media_type === "video" && m.media_url && (
-                        <video src={m.media_url} controls className="block w-full bg-black" style={{ maxWidth: "360px" }} />
+                        <div className="relative inline-block" style={{ maxWidth: "360px", width: "100%" }}>
+                          <video src={m.media_url} controls controlsList="nodownload noplaybackrate nopictureinpicture nofullscreen" disablePictureInPicture className="block w-full bg-black" />
+                          <button onClick={async e => { e.stopPropagation(); const blob = await fetch(m.media_url!).then(r => r.blob()); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "video.mp4"; a.click(); URL.revokeObjectURL(a.href); }}
+                            className="absolute top-2 right-2 h-7 w-7 rounded-full bg-black/50 hover:bg-black/70 flex items-center justify-center transition-colors"
+                            title="Save video">
+                            <Download className="h-3.5 w-3.5 text-white" />
+                          </button>
+                        </div>
                       )}
                       {m.media_type === "file" && m.media_url && (() => {
                         const nl = m.text?.indexOf("\n") ?? -1;
@@ -1980,7 +2053,14 @@ export default function Groups() {
                         </div>
                       )}
                       {m.media_type === "video" && m.media_url && (
-                        <video src={m.media_url} controls className="block w-full bg-black" style={{ maxWidth: "360px" }} />
+                        <div className="relative inline-block" style={{ maxWidth: "360px", width: "100%" }}>
+                          <video src={m.media_url} controls controlsList="nodownload noplaybackrate nopictureinpicture nofullscreen" disablePictureInPicture className="block w-full bg-black" />
+                          <button onClick={async e => { e.stopPropagation(); const blob = await fetch(m.media_url!).then(r => r.blob()); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "video.mp4"; a.click(); URL.revokeObjectURL(a.href); }}
+                            className="absolute top-2 right-2 h-7 w-7 rounded-full bg-black/50 hover:bg-black/70 flex items-center justify-center transition-colors"
+                            title="Save video">
+                            <Download className="h-3.5 w-3.5 text-white" />
+                          </button>
+                        </div>
                       )}
                       {m.text?.trim() && m.media_type !== "file" && (
                         <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap break-words px-3 pt-2 pb-2" style={{ maxWidth: "360px" }}>
@@ -2601,6 +2681,14 @@ export default function Groups() {
               </div>
             )}
 
+            {/* Report community — visible to non-owners only */}
+            {!isOwner && (
+              <button onClick={() => { setReportReason(""); setShowReportModal(true); }}
+                className="w-full h-10 rounded-xl border border-border text-sm text-muted-foreground hover:bg-muted transition-colors flex items-center justify-center gap-2">
+                <Flag className="h-4 w-4" /> Report community
+              </button>
+            )}
+
             {isOwner ? (
               <Button variant="outline" className="w-full gap-2 text-destructive border-destructive/30 hover:bg-destructive/5" onClick={deleteGroup}>
                 <Trash2 className="h-4 w-4" /> Delete community
@@ -2622,6 +2710,62 @@ export default function Groups() {
             onConfirm={confirmPromoteAdmin}
             onClose={() => setPromoteModal(null)}
           />
+        )}
+
+        {/* Report community modal */}
+        {showReportModal && (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 px-4 pb-4 sm:pb-0"
+            onClick={e => { if (e.target === e.currentTarget) setShowReportModal(false); }}>
+            <div className="w-full max-w-md bg-card rounded-2xl border border-border shadow-xl overflow-hidden">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+                <p className="font-semibold text-base">Report Community</p>
+                <button onClick={() => setShowReportModal(false)} className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="p-5 space-y-2">
+                <p className="text-xs text-muted-foreground mb-3">Why are you reporting this community?</p>
+                {[
+                  "Spam or misleading",
+                  "Inappropriate content",
+                  "Harassment or bullying",
+                  "Hate speech",
+                  "Misinformation",
+                  "Violates community guidelines",
+                  "Other",
+                ].map(option => (
+                  <button key={option} onClick={() => setReportReason(option)}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border text-left text-sm transition-all ${reportReason === option ? "border-primary bg-primary/5 text-primary" : "border-border hover:border-foreground/20 text-foreground"}`}>
+                    <div className={`h-4 w-4 rounded-full border-2 flex items-center justify-center shrink-0 ${reportReason === option ? "border-primary" : "border-muted-foreground/40"}`}>
+                      {reportReason === option && <div className="h-2 w-2 rounded-full bg-primary" />}
+                    </div>
+                    {option}
+                  </button>
+                ))}
+              </div>
+              <div className="px-5 pb-5">
+                <Button
+                  className="w-full"
+                  disabled={!reportReason || reportSubmitting}
+                  onClick={async () => {
+                    if (!reportReason || !activeGroup) return;
+                    setReportSubmitting(true);
+                    try {
+                      await createReport({ targetId: activeGroup.id, targetType: "group", reason: reportReason });
+                      setShowReportModal(false);
+                      toast({ title: "Report submitted", description: "Thank you for helping keep the community safe." });
+                    } catch (err: any) {
+                      toast({ title: err?.message || "Failed to submit report", variant: "destructive" });
+                    } finally {
+                      setReportSubmitting(false);
+                    }
+                  }}
+                >
+                  {reportSubmitting ? "Submitting…" : "Submit Report"}
+                </Button>
+              </div>
+            </div>
+          </div>
         )}
       </Layout>
     );
@@ -2718,15 +2862,7 @@ export default function Groups() {
                 <p className="text-center text-sm text-muted-foreground py-8">No results for "{searchQuery}"</p>
               )}
               {searchResults.map(r => (
-                <button key={r.id} onClick={() => {
-                  setShowSearch(false);
-                  setSearchQuery("");
-                  setSearchResults([]);
-                  // Give DOM time to re-render before scrolling
-                  setTimeout(() => {
-                    document.getElementById(`msg-${r.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
-                  }, 100);
-                }}
+                <button key={r.id} onClick={() => jumpToMessage(r.id, r.created_at)}
                   className="w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-xl hover:bg-muted transition-colors mb-1">
                   <div className={`h-8 w-8 rounded-full ${r.sender.color} flex items-center justify-center text-white text-xs font-semibold shrink-0 overflow-hidden`}>
                     {r.sender.avatar_url
