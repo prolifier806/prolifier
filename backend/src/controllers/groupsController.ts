@@ -397,29 +397,6 @@ export async function unbanMember(req: AuthRequest, res: Response): Promise<void
   res.json({ success: true, data: null });
 }
 
-// ── Mark group messages as viewed ─────────────────────────────────────────────
-export async function viewGroupMessages(req: AuthRequest, res: Response): Promise<void> {
-  const { id: groupId } = req.params;
-  const userId = req.user.id;
-  const { messageIds } = req.body;
-
-  if (!Array.isArray(messageIds) || messageIds.length === 0) {
-    res.json({ success: true }); return;
-  }
-
-  // Verify user is a member of the group before recording views
-  const { data: member } = await supabaseAdmin
-    .from("group_members").select("id").eq("group_id", groupId).eq("user_id", userId).maybeSingle();
-  if (!member) { res.status(403).json({ success: false, error: "Not a member" }); return; }
-
-  await (supabaseAdmin as any).rpc("mark_group_messages_viewed", {
-    msg_ids: messageIds.slice(0, 200),
-    viewer_id: userId,
-  });
-
-  res.json({ success: true });
-}
-
 // ── Delete group message ──────────────────────────────────────────────────────
 export async function deleteGroupMessage(req: AuthRequest, res: Response): Promise<void> {
   const { id: groupId, messageId } = req.params;

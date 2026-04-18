@@ -12,7 +12,7 @@ import {
   Lock, Globe, Plus, Settings, X, Check,
   Crown, Image, Video, Paperclip,
   Link2, Copy, LogOut, Edit3, Trash2, UserX, MoreHorizontal,
-  ShieldOff, RefreshCw, AtSign, ChevronsUp, UserPlus, Bell, SlidersHorizontal, Download, CornerUpLeft, Smile, Eye,
+  ShieldOff, RefreshCw, AtSign, ChevronsUp, UserPlus, Bell, SlidersHorizontal, Download, CornerUpLeft, Smile,
 } from "lucide-react";
 import Layout from "@/components/Layout";
 import { toast } from "@/hooks/use-toast";
@@ -39,7 +39,6 @@ import {
   deleteGroupMessage as apiDeleteGroupMessage,
   toggleReaction as apiToggleReaction,
   getMessageReactions as apiGetMessageReactions,
-  markMessagesViewed as apiMarkViewed,
   searchGroupMessages,
 } from "@/api/groups";
 import { uploadPostImage, uploadVideo, uploadFile } from "@/api/uploads";
@@ -68,7 +67,6 @@ type GroupMessage = {
   reply_to_id?: string | null;
   reply_to_text?: string | null;
   reply_to_author?: string | null;
-  view_count?: number;
 };
 
 type JoinRequest = {
@@ -193,7 +191,7 @@ const DateDivider = memo(({ label }: { label: string }) => (
 // Image message bubble — no colored background around the image.
 // Portrait images (height > 1.2× width) are cropped to 3:4.
 function ImageMsg({
-  url, text, isMe, reply, onLightbox, renderCaption, viewChip,
+  url, text, isMe, reply, onLightbox, renderCaption,
 }: {
   url: string;
   text: string | null;
@@ -201,7 +199,6 @@ function ImageMsg({
   reply?: { author?: string | null; text?: string | null } | null;
   onLightbox: () => void;
   renderCaption: (t: string) => React.ReactNode;
-  viewChip?: React.ReactNode;
 }) {
   const [portrait, setPortrait] = useState(false);
   const captionBg = isMe ? "hsl(var(--primary))" : "hsl(0deg 0% 87.55%)";
@@ -237,12 +234,9 @@ function ImageMsg({
         />
       </button>
       {text?.trim() ? (
-        <div style={{ background: captionBg, color: captionColor, padding: "6px 12px 10px", fontSize: 13, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word", position: "relative" }}>
-          <span style={{ paddingRight: viewChip ? "3rem" : 0 }}>{renderCaption(text.trim())}</span>
-          {viewChip && <span style={{ position: "absolute", bottom: 6, right: 0 }}>{viewChip}</span>}
+        <div style={{ background: captionBg, color: captionColor, padding: "6px 12px 10px", fontSize: 13, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+          {renderCaption(text.trim())}
         </div>
-      ) : viewChip ? (
-        <div style={{ position: "absolute", bottom: 0, right: 0 }}>{viewChip}</div>
       ) : null}
     </div>
   );
@@ -386,10 +380,6 @@ export default function Groups() {
   // Reactions: messageId → emoji → { count, userIds }
   type ReactionMap = Record<string, Record<string, { count: number; userIds: string[] }>>;
   const [reactions, setReactions] = useState<ReactionMap>({});
-  // View counts: messageId → count (updated by realtime)
-  const [viewCounts, setViewCounts] = useState<Record<string, number>>({});
-  // Track which message IDs we've already sent a view event for in this session
-  const viewedIdsRef = useRef<Set<string>>(new Set());
   // Which message's emoji picker is open
   const [reactionPickerMsgId, setReactionPickerMsgId] = useState<string | null>(null);
 
@@ -558,13 +548,6 @@ export default function Groups() {
           created_at: msg.created_at,
         } : m
       ));
-      // Transfer view count from temp id to real id
-      setViewCounts(prev => {
-        const cur = prev[clientId] ?? 0;
-        const next = { ...prev, [msg.id]: cur };
-        delete next[clientId];
-        return next;
-      });
     }, []),
 
     onMessageUpdated: useCallback((partial) => {
@@ -782,7 +765,7 @@ export default function Groups() {
       // then reverse to display oldest-first (bottom of chat).
       const { data: msgsDesc, error } = await (supabase as any)
         .from("group_messages")
-        .select("id, group_id, user_id, text, media_url, media_type, created_at, edited, unsent, removed_by_admin, is_system, view_count")
+        .select("id, group_id, user_id, text, media_url, media_type, created_at, edited, unsent, removed_by_admin, is_system")
         .eq("group_id", groupId)
         .order("created_at", { ascending: false })
         .limit(100);
@@ -816,24 +799,11 @@ export default function Groups() {
         author_color: profileMap[row.user_id]?.color || "bg-primary",
         author_avatar_url: profileMap[row.user_id]?.avatar_url,
         author_role: profileMap[row.user_id]?.role,
-        view_count: row.view_count ?? 0,
       }));
       setMessages(mapped);
 
-      // Seed view counts from fetched rows
-      const vcInit: Record<string, number> = {};
-      mapped.forEach((m: GroupMessage) => { if (!m.is_system && !m.unsent) vcInit[m.id] = m.view_count ?? 0; });
-      setViewCounts(vcInit);
-
-      // Mark all loaded messages as viewed (skip own messages — handled server-side)
       const visibleIds = mapped.filter((m: GroupMessage) => !m.is_system && !m.unsent).map((m: GroupMessage) => m.id);
       if (visibleIds.length > 0) {
-        const unseen = visibleIds.filter((id: string) => !viewedIdsRef.current.has(id));
-        if (unseen.length > 0) {
-          unseen.forEach((id: string) => viewedIdsRef.current.add(id));
-          apiMarkViewed(groupId, unseen).catch(() => {});
-        }
-
         // Fetch reactions for loaded messages
         apiGetMessageReactions(groupId, visibleIds)
           .then(res => { if (res.success && res.data) setReactions(res.data); })
@@ -967,13 +937,7 @@ export default function Groups() {
               author_color: profileCache.current[row.user_id]?.color || "bg-primary",
               author_avatar_url: profileCache.current[row.user_id]?.avatar_url,
               author_role: profileCache.current[row.user_id]?.role,
-              view_count: 0,
             };
-            // Mark as viewed if user is actively looking at the group
-            if (isActiveAndViewing && !row.is_system && !viewedIdsRef.current.has(row.id)) {
-              viewedIdsRef.current.add(row.id);
-              apiMarkViewed(row.group_id, [row.id]).catch(() => {});
-            }
             // Detect new mention for the current user
             if (!row.is_system && row.text?.includes(`@${user.name}`)) {
               setMentionMsgIds(prev => prev.includes(row.id) ? prev : [...prev, row.id]);
@@ -991,11 +955,8 @@ export default function Groups() {
         } else if (payload.eventType === "UPDATE") {
           const row = payload.new as any;
           setMessages(prev => prev.map(m =>
-            m.id === row.id ? { ...m, text: row.text, edited: row.edited ?? true, unsent: row.unsent ?? false, removed_by_admin: row.removed_by_admin ?? false, view_count: row.view_count ?? m.view_count } : m
+            m.id === row.id ? { ...m, text: row.text, edited: row.edited ?? true, unsent: row.unsent ?? false, removed_by_admin: row.removed_by_admin ?? false } : m
           ));
-          if (row.view_count !== undefined) {
-            setViewCounts(prev => ({ ...prev, [row.id]: row.view_count }));
-          }
         } else if (payload.eventType === "DELETE") {
           setMessages(prev => prev.filter(m => m.id !== payload.old.id));
         }
@@ -1279,10 +1240,7 @@ export default function Groups() {
       reply_to_id: replyRef?.id ?? null,
       reply_to_text: replyRef?.text ?? null,
       reply_to_author: replyRef?.author_name ?? null,
-      view_count: 0,
     }]);
-    // Seed view count for the optimistic message
-    setViewCounts(prev => ({ ...prev, [clientId]: 0 }));
     setChatInput("");
     // Reset textarea height after clearing input
     if (inputRef.current) { inputRef.current.style.height = "auto"; }
@@ -1807,48 +1765,37 @@ export default function Groups() {
                       </button>
                     )}
                   </div>
-                  {(() => {
-                    const chip = !m.unsent && !m.is_system ? (
-                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5">
-                        <Eye className="h-2.5 w-2.5 text-white/80" />
-                        <span className="text-[10px] font-semibold text-white/80 tabular-nums leading-none">{viewCounts[m.id] ?? 0}</span>
-                      </span>
-                    ) : null;
-                    if (m.media_type === "image" && m.media_url) return (
-                      <ImageMsg
-                        url={m.media_url} text={m.text} isMe={true}
-                        reply={m.reply_to_id ? { author: m.reply_to_author, text: m.reply_to_text } : null}
-                        onLightbox={() => setLightboxUrl(m.media_url!)}
-                        renderCaption={t => renderTextWithLinks(t, members.map(mb => mb.name), true)}
-                        viewChip={chip}
-                      />
-                    );
-                    return (
-                      <div className="relative bg-primary text-primary-foreground rounded-2xl overflow-hidden max-w-full">
-                        {m.reply_to_id && (
-                          <div onClick={() => { const el = document.getElementById(`msg-${m.reply_to_id}`); el?.scrollIntoView({ behavior: "smooth", block: "center" }); }}
-                            className="flex items-start gap-1.5 mx-3 mt-2 mb-1.5 pl-2 border-l-2 border-white/40 cursor-pointer hover:bg-white/10 rounded-r-lg transition-colors">
-                            <div className="min-w-0">
-                              {m.reply_to_author && <p className="text-[10px] font-semibold text-white/80 truncate">{m.reply_to_author}</p>}
-                              <p className="text-[11px] text-white/60 truncate">{m.reply_to_text ? m.reply_to_text.slice(0, 80) : "📎 Media"}</p>
-                            </div>
+                  {m.media_type === "image" && m.media_url ? (
+                    <ImageMsg
+                      url={m.media_url} text={m.text} isMe={true}
+                      reply={m.reply_to_id ? { author: m.reply_to_author, text: m.reply_to_text } : null}
+                      onLightbox={() => setLightboxUrl(m.media_url!)}
+                      renderCaption={t => renderTextWithLinks(t, members.map(mb => mb.name), true)}
+                    />
+                  ) : (
+                    <div className="bg-primary text-primary-foreground rounded-2xl overflow-hidden max-w-full">
+                      {m.reply_to_id && (
+                        <div onClick={() => { const el = document.getElementById(`msg-${m.reply_to_id}`); el?.scrollIntoView({ behavior: "smooth", block: "center" }); }}
+                          className="flex items-start gap-1.5 mx-3 mt-2 mb-1.5 pl-2 border-l-2 border-white/40 cursor-pointer hover:bg-white/10 rounded-r-lg transition-colors">
+                          <div className="min-w-0">
+                            {m.reply_to_author && <p className="text-[10px] font-semibold text-white/80 truncate">{m.reply_to_author}</p>}
+                            <p className="text-[11px] text-white/60 truncate">{m.reply_to_text ? m.reply_to_text.slice(0, 80) : "📎 Media"}</p>
                           </div>
-                        )}
-                        {m.text?.trim() && (
-                          <p className="text-sm leading-relaxed whitespace-pre-wrap break-words px-3 pt-2 pb-1">
-                            {renderTextWithLinks(m.text.trim(), members.map(mb => mb.name), true)}
-                          </p>
-                        )}
-                        {m.media_type === "video" && m.media_url && <video src={m.media_url} controls className="w-full max-h-48 bg-black" />}
-                        {m.media_type === "file" && m.media_url && (
-                          <a href={m.media_url} download className="inline-flex items-center gap-2 mx-3 my-2 px-3 py-2 rounded-xl bg-white/10 text-sm text-white hover:bg-white/20 transition-colors max-w-xs">
-                            <Paperclip className="h-4 w-4 shrink-0" /><span className="truncate">File</span>
-                          </a>
-                        )}
-                        {chip && <div className="flex justify-end pb-1 pr-1">{chip}</div>}
-                      </div>
-                    );
-                  })()}
+                        </div>
+                      )}
+                      {m.media_type === "video" && m.media_url && <video src={m.media_url} controls className="w-full max-h-48 bg-black" />}
+                      {m.media_type === "file" && m.media_url && (
+                        <a href={m.media_url} download className="inline-flex items-center gap-2 mx-3 my-2 px-3 py-2 rounded-xl bg-white/10 text-sm text-white hover:bg-white/20 transition-colors max-w-xs">
+                          <Paperclip className="h-4 w-4 shrink-0" /><span className="truncate">File</span>
+                        </a>
+                      )}
+                      {m.text?.trim() && (
+                        <p className="text-sm leading-relaxed whitespace-pre-wrap break-words px-3 pt-2 pb-2">
+                          {renderTextWithLinks(m.text.trim(), members.map(mb => mb.name), true)}
+                        </p>
+                      )}
+                    </div>
+                  )}
                   {menuOpen && (
                     <div className="absolute right-0 bottom-full mb-1 z-40 bg-card border border-border rounded-xl shadow-xl overflow-hidden min-w-[170px]"
                       onClick={e => e.stopPropagation()}>
@@ -1964,48 +1911,37 @@ export default function Groups() {
                       </button>
                     )}
                   </div>
-                  {(() => {
-                    const chip = !m.unsent && !m.is_system ? (
-                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5">
-                        <Eye className="h-2.5 w-2.5 text-foreground/50" />
-                        <span className="text-[10px] font-semibold text-foreground/50 tabular-nums leading-none">{viewCounts[m.id] ?? 0}</span>
-                      </span>
-                    ) : null;
-                    if (m.media_type === "image" && m.media_url) return (
-                      <ImageMsg
-                        url={m.media_url} text={m.text} isMe={false}
-                        reply={m.reply_to_id ? { author: m.reply_to_author, text: m.reply_to_text } : null}
-                        onLightbox={() => setLightboxUrl(m.media_url!)}
-                        renderCaption={t => renderTextWithLinks(t, members.map(mb => mb.name))}
-                        viewChip={chip}
-                      />
-                    );
-                    return (
-                      <div className="rounded-2xl overflow-hidden" style={{ background: "hsl(0deg 0% 87.55%)" }}>
-                        {m.reply_to_id && (
-                          <div onClick={() => { const el = document.getElementById(`msg-${m.reply_to_id}`); el?.scrollIntoView({ behavior: "smooth", block: "center" }); }}
-                            className="flex items-start gap-1.5 mx-3 mt-2 mb-1.5 pl-2 border-l-2 border-primary/40 cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 rounded-r-lg transition-colors">
-                            <div className="min-w-0">
-                              {m.reply_to_author && <p className="text-[10px] font-semibold text-primary truncate">{m.reply_to_author}</p>}
-                              <p className="text-[11px] text-muted-foreground truncate">{m.reply_to_text ? m.reply_to_text.slice(0, 80) : "📎 Media"}</p>
-                            </div>
+                  {m.media_type === "image" && m.media_url ? (
+                    <ImageMsg
+                      url={m.media_url} text={m.text} isMe={false}
+                      reply={m.reply_to_id ? { author: m.reply_to_author, text: m.reply_to_text } : null}
+                      onLightbox={() => setLightboxUrl(m.media_url!)}
+                      renderCaption={t => renderTextWithLinks(t, members.map(mb => mb.name))}
+                    />
+                  ) : (
+                    <div className="rounded-2xl overflow-hidden" style={{ background: "hsl(0deg 0% 87.55%)" }}>
+                      {m.reply_to_id && (
+                        <div onClick={() => { const el = document.getElementById(`msg-${m.reply_to_id}`); el?.scrollIntoView({ behavior: "smooth", block: "center" }); }}
+                          className="flex items-start gap-1.5 mx-3 mt-2 mb-1.5 pl-2 border-l-2 border-primary/40 cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 rounded-r-lg transition-colors">
+                          <div className="min-w-0">
+                            {m.reply_to_author && <p className="text-[10px] font-semibold text-primary truncate">{m.reply_to_author}</p>}
+                            <p className="text-[11px] text-muted-foreground truncate">{m.reply_to_text ? m.reply_to_text.slice(0, 80) : "📎 Media"}</p>
                           </div>
-                        )}
-                        {m.text?.trim() && (
-                          <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap break-words px-3 pt-2 pb-1">
-                            {renderTextWithLinks(m.text.trim(), members.map(mb => mb.name))}
-                          </p>
-                        )}
-                        {m.media_type === "video" && m.media_url && <video src={m.media_url} controls className="w-full max-h-48 bg-black" />}
-                        {m.media_type === "file" && m.media_url && (
-                          <a href={m.media_url} download className="inline-flex items-center gap-2 mx-3 my-2 px-3 py-2 rounded-xl bg-secondary text-sm text-foreground hover:bg-card transition-colors max-w-xs">
-                            <Paperclip className="h-4 w-4 shrink-0 text-muted-foreground" /><span className="truncate">File</span>
-                          </a>
-                        )}
-                        {chip && <div className="flex justify-end pb-1 pr-1">{chip}</div>}
-                      </div>
-                    );
-                  })()}
+                        </div>
+                      )}
+                      {m.text?.trim() && (
+                        <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap break-words px-3 pt-2 pb-2">
+                          {renderTextWithLinks(m.text.trim(), members.map(mb => mb.name))}
+                        </p>
+                      )}
+                      {m.media_type === "video" && m.media_url && <video src={m.media_url} controls className="w-full max-h-48 bg-black" />}
+                      {m.media_type === "file" && m.media_url && (
+                        <a href={m.media_url} download className="inline-flex items-center gap-2 mx-3 my-2 px-3 py-2 rounded-xl bg-secondary text-sm text-foreground hover:bg-card transition-colors max-w-xs">
+                          <Paperclip className="h-4 w-4 shrink-0 text-muted-foreground" /><span className="truncate">File</span>
+                        </a>
+                      )}
+                    </div>
+                  )}
                   {menuOpen && (
                     <div className="absolute left-0 bottom-full mb-1 z-40 bg-card border border-border rounded-xl shadow-xl overflow-hidden min-w-[170px]"
                       onClick={e => e.stopPropagation()}>

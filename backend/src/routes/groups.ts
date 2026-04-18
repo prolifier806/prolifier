@@ -5,7 +5,7 @@ import {
   createGroup, updateGroup, deleteGroup,
   joinGroup, leaveGroup, removeMember, banMember,
   getBannedUsers, unbanMember, assignRole,
-  sendGroupMessage, deleteGroupMessage, viewGroupMessages,
+  sendGroupMessage, deleteGroupMessage,
   requestToJoin, cancelJoinRequest, getJoinRequests, respondJoinRequest,
   addMember,
   toggleReaction, getReactions,
@@ -40,9 +40,6 @@ router.delete("/:id/bans/:userId", unbanMember as any);
 
 router.post("/:id/messages", validate(sendGroupMessageSchema), sendGroupMessage as any);
 router.delete("/:id/messages/:messageId", deleteGroupMessage as any);
-
-// Static sub-paths before parameterised ones to avoid /:messageId swallowing them
-router.post("/:id/messages/views", viewGroupMessages as any);
 
 // Reactions
 router.get("/:id/messages/reactions", getReactions as any);
