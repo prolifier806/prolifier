@@ -69,7 +69,7 @@ function previewText(text: string | null, mediaType: string | null): string {
 }
 
 // ── Link-aware text renderer ──────────────────────────────────────────────
-function renderTextWithLinks(text: string) {
+function renderTextWithLinks(text: string, isMe = false) {
   const URL_RE = /(https?:\/\/[^\s]+)/g;
   const parts = text.split(URL_RE);
   return parts.map((part, i) =>
@@ -79,7 +79,7 @@ function renderTextWithLinks(text: string) {
         href={part}
         target="_blank"
         rel="noopener noreferrer"
-        className="text-primary underline decoration-primary/60 hover:opacity-80 break-all"
+        className={`underline break-all ${isMe ? "text-white/90 decoration-white/60 hover:decoration-white" : "text-primary decoration-primary/60 hover:opacity-80"}`}
         onClick={e => e.stopPropagation()}
       >
         {part}
@@ -960,11 +960,11 @@ export default function Messages() {
     const isMe = m.sender_id === user.id;
     const onReply = () => { setReplyTo({ id: m.id, text: quoteLabel(m) }); setTimeout(() => inputRef.current?.focus(), 50); };
 
-    // Minimal, clean bubble colors — subtle sender/receiver difference, no heavy styling
-    const SENT_BG  = "hsl(var(--primary) / 0.13)";
+    // Bubble colors — solid primary for sent, muted for received
+    const SENT_BG  = "hsl(var(--primary))";
     const RECV_BG  = "hsl(var(--muted))";
     const bgColor  = isMe ? SENT_BG : RECV_BG;
-    const textColor = "hsl(var(--foreground))";
+    const textColor = isMe ? "hsl(var(--primary-foreground))" : "hsl(var(--foreground))";
 
     // Uniform rounded corners — no tail, no directional pointer
     const radius = "18px";
@@ -1097,7 +1097,7 @@ export default function Messages() {
             {m.text && (
               <div style={{ padding:"6px 12px 2px", fontSize:14, lineHeight:1.4,
                 whiteSpace:"pre-wrap", wordBreak:"break-word", color:textColor }}>
-                {renderTextWithLinks(m.text)}
+                {renderTextWithLinks(m.text, isMe)}
               </div>
             )}
             <Meta m={m} isMe={isMe} />
@@ -1122,7 +1122,7 @@ export default function Messages() {
               <ReplyStrip isMe={isMe} />
               <div style={{ padding: m.reply_to_text ? "8px 12px 2px" : "10px 12px 2px",
                 fontSize:15, lineHeight:1.45, whiteSpace:"pre-wrap", wordBreak:"break-word" }}>
-                {renderTextWithLinks(m.text)}
+                {renderTextWithLinks(m.text, isMe)}
               </div>
               <Meta m={m} isMe={isMe} />
             </div>
