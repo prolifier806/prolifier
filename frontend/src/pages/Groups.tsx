@@ -525,6 +525,7 @@ export default function Groups() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const messagesAreaRef = useRef<HTMLDivElement>(null);
   const savedScrollRef = useRef<number>(-1); // -1 = scroll to bottom (default)
+  const isInitialLoadRef = useRef(false); // true after openGroup until first scroll-to-bottom
   const lightboxRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLInputElement>(null);
@@ -613,11 +614,25 @@ export default function Groups() {
     }, []),
 
     onMessageUpdated: useCallback((partial) => {
-      setMessages(prev => prev.map(m =>
-        m.id === partial.id
-          ? { ...m, ...partial, id: (partial as any).new_id ?? partial.id }
-          : m
-      ));
+      const newId = (partial as any).new_id as string | undefined;
+      if (newId) {
+        // Swap the temp clientId → real DB id in the dedup set so CDC is blocked
+        knownMsgIdsRef.current.delete(partial.id);
+        knownMsgIdsRef.current.add(newId);
+      }
+      setMessages(prev => {
+        if (newId) {
+          // If CDC arrived before this update it appended a duplicate with newId —
+          // filter it out before remapping so we never end up with two identical rows.
+          const withoutDupe = prev.filter(m => m.id !== newId);
+          return withoutDupe.map(m =>
+            m.id === partial.id ? { ...m, ...partial, id: newId } : m
+          );
+        }
+        return prev.map(m =>
+          m.id === partial.id ? { ...m, ...partial, id: partial.id } : m
+        );
+      });
     }, []),
 
     onMessageDeleted: useCallback((id) => {
@@ -1154,15 +1169,22 @@ export default function Groups() {
     });
   }, [showSettings]);
 
-  // Effect 2: Auto-scroll to bottom only on initial load or when already near bottom
+  // Effect 2: Auto-scroll to bottom on initial load (instant) or when near bottom (smooth)
   useEffect(() => {
     if (messages.length === 0) return;
     if (savedScrollRef.current >= 0) return; // will be handled by effect 1
     const el = messagesAreaRef.current;
-    if (!el) {
-      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+
+    if (isInitialLoadRef.current) {
+      // Initial group open: jump instantly so messages are visible without animation lag
+      isInitialLoadRef.current = false;
+      if (el) el.scrollTop = el.scrollHeight;
+      else bottomRef.current?.scrollIntoView();
       return;
     }
+
+    // New message arrived: only auto-scroll if user is already near the bottom
+    if (!el) { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); return; }
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
     if (distanceFromBottom < 200) {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -1243,6 +1265,8 @@ export default function Groups() {
     setSearchResults([]);
     // Clear dedup set so switching groups never carries over stale IDs
     knownMsgIdsRef.current = new Set();
+    // Signal that the next messages render should instantly jump to bottom
+    isInitialLoadRef.current = true;
     // Mark this group as read instantly — reset unread + mentions + persist timestamp
     setUnreadCounts(prev => ({ ...prev, [group.id]: 0 }));
     setMentionGroupIds(prev => { const s = new Set(prev); s.delete(group.id); return s; });
@@ -1919,12 +1943,23 @@ export default function Groups() {
       }
 
       const prev = visible[idx - 1];
-      // Group only if: same sender, same day, within 90 seconds
-      const grouped =
+      const next = visible[idx + 1];
+      const GROUP_MS = 5 * 60 * 1000; // 5-minute window
+
+      // isContinuation: this message continues a streak from the same sender
+      const isContinuation =
         !!prev &&
         prev.user_id === m.user_id &&
         fmtDate(prev.created_at) === dateLabel &&
-        new Date(m.created_at).getTime() - new Date(prev.created_at).getTime() < 90 * 1000;
+        new Date(m.created_at).getTime() - new Date(prev.created_at).getTime() < GROUP_MS;
+
+      // isLastInGroup: this message ends the streak (next is different sender/day/gap)
+      // — avatar shown here (Telegram style)
+      const isLastInGroup =
+        !next ||
+        next.user_id !== m.user_id ||
+        fmtDate(next.created_at) !== dateLabel ||
+        new Date(next.created_at).getTime() - new Date(m.created_at).getTime() >= GROUP_MS;
 
       const isMe = m.user_id === user.id;
       const isEditingThis = editingMsgId === m.id;
@@ -1950,8 +1985,8 @@ export default function Groups() {
       if (m.unsent) {
         const isMyTombstone = m.user_id === user.id;
         els.push(
-          <div key={m.id} className={"flex items-end gap-2 " + (grouped ? "mt-1" : "mt-5") + (isMyTombstone ? " justify-end" : "")}>
-            {!isMyTombstone && (!grouped
+          <div key={m.id} className={"flex items-end gap-2 " + (isContinuation ? "mt-1" : "mt-5") + (isMyTombstone ? " justify-end" : "")}>
+            {!isMyTombstone && (isLastInGroup
               ? (
                 <button onClick={() => navigate(`/profile/${m.user_id}`)}
                   className={"h-8 w-8 rounded-full " + m.author_color + " flex items-center justify-center text-white text-xs font-semibold shrink-0 overflow-hidden hover:opacity-80 transition-opacity"}>
@@ -1984,7 +2019,7 @@ export default function Groups() {
         els.push(
           <div key={m.id} id={`msg-${m.id}`}
             onClick={selectable ? () => setReportSelectedMsgIds(prev => { const s = new Set(prev); isSelected ? s.delete(m.id) : s.add(m.id); return s; }) : undefined}
-            className={"flex items-end justify-end gap-2 group relative " + (grouped ? "mt-1" : "mt-5") + (isMentioned && !reportSelectionMode ? " -mx-1 px-1 rounded-xl bg-emerald-500/5" : "") + (selectable ? " cursor-pointer select-none -mx-2 px-2 rounded-xl transition-colors " + (isSelected ? "bg-primary/10" : "hover:bg-muted/60") : "") + (isCurrentSearchMatch ? " -mx-1 px-1 rounded-xl bg-amber-400/10" : isAnySearchMatch ? " -mx-1 px-1 rounded-xl bg-amber-400/5" : "")}>
+            className={"flex items-end justify-end gap-2 group relative " + (isContinuation ? "mt-1" : "mt-5") + (isMentioned && !reportSelectionMode ? " -mx-1 px-1 rounded-xl bg-emerald-500/5" : "") + (selectable ? " cursor-pointer select-none -mx-2 px-2 rounded-xl transition-colors " + (isSelected ? "bg-primary/10" : "hover:bg-muted/60") : "") + (isCurrentSearchMatch ? " -mx-1 px-1 rounded-xl bg-amber-400/10" : isAnySearchMatch ? " -mx-1 px-1 rounded-xl bg-amber-400/5" : "")}>
             {/* Selection checkbox — left side for own messages */}
             {selectable && (
               <div className={`h-5 w-5 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors ${isSelected ? "bg-primary border-primary" : "border-muted-foreground/40"}`}>
@@ -1992,7 +2027,7 @@ export default function Groups() {
               </div>
             )}
             <div className="max-w-[72%] min-w-0 flex flex-col items-end">
-              {!grouped && (
+              {!isContinuation && (
                 <div className="flex items-center gap-1.5 mb-1 mr-1">
                   {m.edited && <span className="text-[10px] text-muted-foreground italic">edited ·</span>}
                   <span className="text-[10px] text-muted-foreground">{fmtTime(m.created_at)}</span>
@@ -2140,18 +2175,18 @@ export default function Groups() {
         els.push(
           <div key={m.id} id={`msg-${m.id}`}
             onClick={selectable ? () => setReportSelectedMsgIds(prev => { const s = new Set(prev); isSelected ? s.delete(m.id) : s.add(m.id); return s; }) : undefined}
-            className={"flex items-start gap-2 group relative " + (grouped ? "mt-1" : "mt-5") + (isMentioned && !reportSelectionMode ? " -mx-1 px-1 rounded-xl bg-emerald-500/5" : "") + (selectable ? " cursor-pointer select-none -mx-2 px-2 rounded-xl transition-colors " + (isSelected ? "bg-primary/10" : "hover:bg-muted/60") : "") + (isCurrentSearchMatch ? " -mx-1 px-1 rounded-xl bg-amber-400/10" : isAnySearchMatch ? " -mx-1 px-1 rounded-xl bg-amber-400/5" : "")}>
+            className={"flex items-end gap-2 group relative " + (isContinuation ? "mt-1" : "mt-5") + (isMentioned && !reportSelectionMode ? " -mx-1 px-1 rounded-xl bg-emerald-500/5" : "") + (selectable ? " cursor-pointer select-none -mx-2 px-2 rounded-xl transition-colors " + (isSelected ? "bg-primary/10" : "hover:bg-muted/60") : "") + (isCurrentSearchMatch ? " -mx-1 px-1 rounded-xl bg-amber-400/10" : isAnySearchMatch ? " -mx-1 px-1 rounded-xl bg-amber-400/5" : "")}>
             {/* Selection checkbox — before avatar for others' messages */}
             {selectable && (
               <div className={`h-5 w-5 rounded-full border-2 shrink-0 flex items-center justify-center mt-1.5 transition-colors ${isSelected ? "bg-primary border-primary" : "border-muted-foreground/40"}`}>
                 {isSelected && <Check className="h-3 w-3 text-primary-foreground" />}
               </div>
             )}
-            {/* Avatar */}
-            {!grouped
+            {/* Avatar — shown only on the last message of a streak (Telegram style) */}
+            {isLastInGroup
               ? (
                 <button onClick={() => navigate(`/profile/${m.user_id}`)}
-                  className={"h-8 w-8 rounded-full mt-0.5 " + m.author_color + " flex items-center justify-center text-white text-xs font-semibold shrink-0 overflow-hidden hover:opacity-80 transition-opacity"}>
+                  className={"h-8 w-8 rounded-full " + m.author_color + " flex items-center justify-center text-white text-xs font-semibold shrink-0 overflow-hidden hover:opacity-80 transition-opacity"}>
                   {m.author_avatar_url
                     ? <img src={m.author_avatar_url} alt={m.author_name} className="w-full h-full object-cover" onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
                     : initials(m.author_name)}
@@ -2160,7 +2195,7 @@ export default function Groups() {
               : <div className="w-8 shrink-0" />
             }
             <div className="max-w-[72%] min-w-0">
-              {!grouped && (
+              {!isContinuation && (
                 <div className="flex items-center gap-1.5 mb-1 ml-1 flex-wrap">
                   <button onClick={() => navigate(`/profile/${m.user_id}`)}
                     className="text-xs font-semibold text-foreground hover:underline leading-none">{m.author_name}</button>
