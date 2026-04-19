@@ -808,6 +808,87 @@ function ReportDialog({ open, onClose, target, targetType, targetId }: {
   );
 }
 
+// ── Comment helpers (module-level — stable across renders) ────────────────
+function renderMentionText(txt: string) {
+  const parts = txt.split(/(@[^ \t\n\r\f\v]+)/g);
+  return parts.map((part, i) =>
+    part.startsWith("@")
+      ? <span key={i} className="text-primary font-medium mr-0.5">{part.replace(/\u00A0/g, " ")}</span>
+      : <span key={i}>{part}</span>
+  );
+}
+
+// Memo: only re-renders when the comment itself, edit state, or callbacks change.
+// Critically, it does NOT re-render when the user types in the new-comment input.
+const CommentItem = memo(function CommentItem({ c, isReply, isEditing, editText, currentUserId, postUserId, postId, onStartEdit, onSubmitEdit, onCancelEdit, onEditTextChange, onDelete, onReport, onReply, onNavigate }: {
+  c: Comment; isReply: boolean; isEditing: boolean; editText: string;
+  currentUserId: string; postUserId: string; postId: string;
+  onStartEdit: (c: Comment) => void; onSubmitEdit: () => void; onCancelEdit: () => void; onEditTextChange: (v: string) => void;
+  onDelete: (cId: string, pId: string) => void; onReport: (cId: string) => void; onReply: (c: Comment) => void;
+  onNavigate: (path: string) => void;
+}) {
+  const editInputRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => { if (isEditing) setTimeout(() => editInputRef.current?.focus(), 50); }, [isEditing]);
+
+  return (
+    <div className={`flex gap-3 ${isReply ? "ml-8 mt-2.5" : ""}`}>
+      <Avatar initials={c.avatar} color={c.color || AVATAR_COLORS[0]} url={c.avatarUrl} size="sm" />
+      <div className="flex-1 min-w-0">
+        {isEditing ? (
+          <div className="bg-secondary rounded-xl px-3 py-2.5">
+            <textarea ref={editInputRef} value={editText} onChange={e => onEditTextChange(e.target.value)}
+              className="w-full text-sm bg-transparent resize-none outline-none leading-relaxed" rows={2}
+              onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onSubmitEdit(); } if (e.key === "Escape") onCancelEdit(); }} />
+            <div className="flex gap-3 mt-1.5">
+              <button onClick={onSubmitEdit} className="text-xs text-primary font-semibold hover:opacity-80">Save</button>
+              <button onClick={onCancelEdit} className="text-xs text-muted-foreground hover:text-foreground">Cancel</button>
+            </div>
+          </div>
+        ) : (
+          <div className={`bg-secondary rounded-xl px-3 py-2.5 ${isReply ? "border-l-2 border-primary/30" : ""}`}>
+            <div className="flex items-center gap-2 mb-1">
+              <span
+                className={`inline-flex items-center gap-1 text-xs font-semibold text-foreground ${c.user_id !== currentUserId ? "cursor-pointer hover:underline" : ""}`}
+                onClick={() => c.user_id === currentUserId ? onNavigate("/profile") : onNavigate(`/profile/${c.user_id}`)}
+              >
+                {c.author}
+                {c.role === "admin" && (
+                  <span title="Verified" className="shrink-0 h-3.5 w-3.5 rounded-full bg-blue-500 inline-flex items-center justify-center">
+                    <Check className="h-2 w-2 text-white stroke-[3]" />
+                  </span>
+                )}
+              </span>
+              <span className="text-xs text-muted-foreground">{c.time}</span>
+            </div>
+            <p className="text-sm text-foreground leading-relaxed">{renderMentionText(c.text)}</p>
+          </div>
+        )}
+        {!isEditing && (
+          <div className="flex items-center gap-3 mt-1 ml-1">
+            {c.user_id === currentUserId ? (
+              <>
+                <button onClick={() => onStartEdit(c)} className="text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors">Edit</button>
+                <button onClick={() => onDelete(c.id, postId)} className="text-[11px] font-medium text-destructive/60 hover:text-destructive transition-colors">Delete</button>
+              </>
+            ) : (
+              <>
+                {!isReply && (
+                  <button onClick={() => onReply(c)} className="text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors">Reply</button>
+                )}
+                {postUserId === currentUserId ? (
+                  <button onClick={() => onDelete(c.id, postId)} className="text-[11px] font-medium text-destructive/60 hover:text-destructive transition-colors">Delete</button>
+                ) : (
+                  <button onClick={() => onReport(c.id)} className="text-[11px] font-medium text-muted-foreground/60 hover:text-destructive transition-colors">Report</button>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+});
+
 // ── Comment Sheet ──────────────────────────────────────────────────────────
 function CommentSheet({ post, currentUserId, onClose, onAddComment, onDeleteComment, onEditComment, onReportComment }: {
   post: Post;
@@ -827,10 +908,12 @@ function CommentSheet({ post, currentUserId, onClose, onAddComment, onDeleteComm
   const [mentionSuggestions, setMentionSuggestions] = useState<{ id: string; name: string; username: string | null; avatar: string; color: string; avatar_url: string | null }[]>([]);
   const [mentionStart, setMentionStart] = useState(-1);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const editRef = useRef<HTMLTextAreaElement>(null);
   const [lightboxSrc, setLightboxSrc] = useState<string|null>(null);
   const mentionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mentionAbortRef = useRef<AbortController | null>(null);
+  // Stable ref so submitEdit callback never needs to change
+  const editStateRef = useRef({ editingId: null as string | null, editText: "" });
+  editStateRef.current = { editingId, editText };
   useEffect(() => { setTimeout(() => inputRef.current?.focus(), 100); }, []);
 
   // Build threaded structure
@@ -899,100 +982,37 @@ function CommentSheet({ post, currentUserId, onClose, onAddComment, onDeleteComm
     setMentionSuggestions([]);
   };
 
-  const startReply = (c: Comment) => {
+  // Stable callbacks — don't change on text/mentionSuggestions state changes,
+  // so CommentItem memo skips re-render while the user is typing.
+  const cbStartReply = useCallback((c: Comment) => {
     const handle = c.username || c.author;
     setReplyingTo({ id: c.id, author: c.author, username: c.username });
     setText(`@${handle} `);
     setTimeout(() => { inputRef.current?.focus(); inputRef.current?.setSelectionRange(9999, 9999); }, 50);
-  };
+  }, []);
 
-  const startEdit = (c: Comment) => {
+  const cbStartEdit = useCallback((c: Comment) => {
     setEditingId(c.id);
     setEditText(c.text);
-    setTimeout(() => editRef.current?.focus(), 50);
-  };
+  }, []);
 
-  const submitEdit = () => {
-    if (!editText.trim() || !editingId) return;
-    onEditComment(editingId, post.id, editText.trim());
+  // Reads latest editingId/editText from ref so this callback never needs to change
+  const cbSubmitEdit = useCallback(() => {
+    const { editingId: eid, editText: et } = editStateRef.current;
+    if (!et.trim() || !eid) return;
+    onEditComment(eid, post.id, et.trim());
     setEditingId(null);
-  };
+  }, [onEditComment, post.id]);
 
-  const renderMentions = (txt: string) => {
-    // Avoid \s — in modern JS \s matches \u00A0 (NBSP), which is used to join
-    // multi-word names. Use explicit ASCII whitespace so NBSP stays in the token.
-    const parts = txt.split(/(@[^ \t\n\r\f\v]+)/g);
-    return parts.map((part, i) =>
-      part.startsWith("@")
-        ? <span key={i} className="text-primary font-medium mr-0.5">{part.replace(/\u00A0/g, ' ')}</span>
-        : <span key={i}>{part}</span>
-    );
-  };
-
-  const renderComment = (c: Comment, isReply = false) => (
-    <div key={c.id} className={`flex gap-3 ${isReply ? "ml-8 mt-2.5" : ""}`}>
-      <Avatar initials={c.avatar} color={c.color || AVATAR_COLORS[0]} url={c.avatarUrl} size="sm" />
-      <div className="flex-1 min-w-0">
-        {editingId === c.id ? (
-          <div className="bg-secondary rounded-xl px-3 py-2.5">
-            <textarea ref={editRef} value={editText} onChange={e => setEditText(e.target.value)}
-              className="w-full text-sm bg-transparent resize-none outline-none leading-relaxed" rows={2}
-              onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitEdit(); } if (e.key === "Escape") setEditingId(null); }} />
-            <div className="flex gap-3 mt-1.5">
-              <button onClick={submitEdit} className="text-xs text-primary font-semibold hover:opacity-80">Save</button>
-              <button onClick={() => setEditingId(null)} className="text-xs text-muted-foreground hover:text-foreground">Cancel</button>
-            </div>
-          </div>
-        ) : (
-          <div className={`bg-secondary rounded-xl px-3 py-2.5 ${isReply ? "border-l-2 border-primary/30" : ""}`}>
-            <div className="flex items-center gap-2 mb-1">
-              <span
-                className={`inline-flex items-center gap-1 text-xs font-semibold text-foreground ${c.user_id !== currentUserId ? "cursor-pointer hover:underline" : ""}`}
-                onClick={() => { if (c.user_id === currentUserId) navigate("/profile"); else navigate(`/profile/${c.user_id}`); }}
-              >
-                {c.author}
-                {c.role === "admin" && (
-                  <span title="Verified" className="shrink-0 h-3.5 w-3.5 rounded-full bg-blue-500 inline-flex items-center justify-center">
-                    <Check className="h-2 w-2 text-white stroke-[3]" />
-                  </span>
-                )}
-              </span>
-              <span className="text-xs text-muted-foreground">{c.time}</span>
-            </div>
-            <p className="text-sm text-foreground leading-relaxed">{renderMentions(c.text)}</p>
-          </div>
-        )}
-        {editingId !== c.id && (
-          <div className="flex items-center gap-3 mt-1 ml-1">
-            {c.user_id === currentUserId ? (
-              <>
-                <button onClick={() => startEdit(c)} className="text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors">Edit</button>
-                <button onClick={() => onDeleteComment(c.id, post.id)} className="text-[11px] font-medium text-destructive/60 hover:text-destructive transition-colors">Delete</button>
-              </>
-            ) : (
-              <>
-                {!isReply && (
-                  <button onClick={() => startReply(c)} className="text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors">Reply</button>
-                )}
-                {post.user_id === currentUserId ? (
-                  <button onClick={() => onDeleteComment(c.id, post.id)} className="text-[11px] font-medium text-destructive/60 hover:text-destructive transition-colors">Delete</button>
-                ) : (
-                  <button onClick={() => onReportComment(c.id)} className="text-[11px] font-medium text-muted-foreground/60 hover:text-destructive transition-colors">Report</button>
-                )}
-              </>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  );
+  const cbCancelEdit = useCallback(() => setEditingId(null), []);
+  const cbEditTextChange = useCallback((v: string) => setEditText(v), []);
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center animate-in fade-in duration-150">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
       <div className="relative z-10 w-full max-w-lg bg-background rounded-t-2xl sm:rounded-2xl shadow-2xl border border-border flex flex-col max-h-[80vh] animate-in slide-in-from-bottom-4 duration-200">
         <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
-          <h3 className="font-semibold text-foreground">Comments · {post.comments.length || post.commentCount}</h3>
+          <h3 className="font-semibold text-foreground">Comments · {post.commentCount}</h3>
           <button onClick={onClose} className="h-7 w-7 rounded-full bg-muted flex items-center justify-center hover:bg-secondary transition-colors">
             <X className="h-4 w-4 text-muted-foreground" />
           </button>
@@ -1015,8 +1035,22 @@ function CommentSheet({ post, currentUserId, onClose, onAddComment, onDeleteComm
           )}
           {topLevel.map(c => (
             <div key={c.id}>
-              {renderComment(c, false)}
-              {(repliesMap[c.id] || []).map(r => renderComment(r, true))}
+              <CommentItem
+                c={c} isReply={false}
+                isEditing={editingId === c.id} editText={editingId === c.id ? editText : ""}
+                currentUserId={currentUserId} postUserId={post.user_id} postId={post.id}
+                onStartEdit={cbStartEdit} onSubmitEdit={cbSubmitEdit} onCancelEdit={cbCancelEdit} onEditTextChange={cbEditTextChange}
+                onDelete={onDeleteComment} onReport={onReportComment} onReply={cbStartReply} onNavigate={navigate}
+              />
+              {(repliesMap[c.id] || []).map(r => (
+                <CommentItem key={r.id}
+                  c={r} isReply={true}
+                  isEditing={editingId === r.id} editText={editingId === r.id ? editText : ""}
+                  currentUserId={currentUserId} postUserId={post.user_id} postId={post.id}
+                  onStartEdit={cbStartEdit} onSubmitEdit={cbSubmitEdit} onCancelEdit={cbCancelEdit} onEditTextChange={cbEditTextChange}
+                  onDelete={onDeleteComment} onReport={onReportComment} onReply={cbStartReply} onNavigate={navigate}
+                />
+              ))}
             </div>
           ))}
         </div>
@@ -1991,8 +2025,8 @@ export default function Feed() {
 
     // Filter out comments from blocked users (both directions)
     const visibleComments = loadedComments.filter(c => !blockedUserIds.has(c.user_id));
-    // Patch the post in state — sync count with real loaded count
-    const updatedPost = { ...post, comments: visibleComments, commentCount: visibleComments.length };
+    // Patch the post in state — keep the authoritative DB commentCount, only update the comments array
+    const updatedPost = { ...post, comments: visibleComments };
     setPosts(p => p.map(x => x.id === post.id ? updatedPost : x));
     setCommentingPost(updatedPost);
   }, [blockedUserIds]);
@@ -2068,12 +2102,15 @@ export default function Feed() {
     setPosts(p => p.map(x => {
       if (x.id !== postId) return x;
       const kept = prune(x.comments);
-      return { ...x, comments: kept, commentCount: kept.length };
+      // Decrement by the number of removed entries (comment + its replies)
+      const removed = x.comments.length - kept.length;
+      return { ...x, comments: kept, commentCount: Math.max(0, x.commentCount - removed) };
     }));
     setCommentingPost(prev => {
       if (!prev || prev.id !== postId) return prev;
       const kept = prune(prev.comments);
-      return { ...prev, comments: kept, commentCount: kept.length };
+      const removed = prev.comments.length - kept.length;
+      return { ...prev, comments: kept, commentCount: Math.max(0, prev.commentCount - removed) };
     });
   }, []);
 
