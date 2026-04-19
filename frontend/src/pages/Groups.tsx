@@ -870,7 +870,7 @@ export default function Groups() {
   }, [deepLinkId, user.id]);
 
   // ── Fetch messages ───────────────────────────────────────────────────────
-  const fetchMessages = useCallback(async (groupId: string) => {
+  const fetchMessages = useCallback(async (groupId: string, lastReadOverride?: string) => {
     setLoadingMessages(true);
     setMessages([]);
     try {
@@ -957,7 +957,9 @@ export default function Groups() {
           user.name ? `@${user.name}` : null,
           user.username ? `@${user.username}` : null,
         ].filter(Boolean) as string[];
-        const lastRead = localStorage.getItem(`prf_read_${user.id}_${groupId}`) ?? new Date(0).toISOString();
+        // Use the override (old lastRead captured before openGroup wrote "now") so
+        // we correctly identify messages that were unread when the user opened the group.
+        const lastRead = lastReadOverride ?? localStorage.getItem(`prf_read_${user.id}_${groupId}`) ?? new Date(0).toISOString();
         const ids = mapped
           .filter((m: GroupMessage) =>
             mentionTokens.some(tok => m.text?.includes(tok)) && (m.created_at ?? "") > lastRead
@@ -1320,6 +1322,9 @@ export default function Groups() {
     // Signal that the next messages render should instantly jump to bottom
     isInitialLoadRef.current = true;
     // Mark this group as read instantly — reset unread + mentions + persist timestamp
+    // Capture the OLD lastRead BEFORE overwriting it so fetchMessages can correctly
+    // identify which messages are genuinely unread (for the mention jump button).
+    const prevLastRead = localStorage.getItem(`prf_read_${user.id}_${group.id}`) ?? new Date(0).toISOString();
     setUnreadCounts(prev => ({ ...prev, [group.id]: 0 }));
     setMentionGroupIds(prev => { const s = new Set(prev); s.delete(group.id); return s; });
     try { localStorage.setItem(`prf_read_${user.id}_${group.id}`, new Date().toISOString()); } catch { /* storage full */ }
@@ -1327,7 +1332,7 @@ export default function Groups() {
     // Show cached pending count instantly (no delay), then refresh from API
     const cached = pendingCountsCacheRef.current[group.id] ?? 0;
     setPendingRequestCount(cached);
-    fetchMessages(group.id);
+    fetchMessages(group.id, prevLastRead);
     fetchMembers(group.id);
     // Refresh pending request count for private groups — cache result for next open
     if (group.visibility === "private") {
