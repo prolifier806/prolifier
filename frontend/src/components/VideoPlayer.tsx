@@ -144,6 +144,8 @@ export default function VideoPlayer({
         controls
         playsInline
         preload="metadata"
+        disablePictureInPicture
+        controlsList="nodownload nopictureinpicture noplaybackrate"
         className={compact ? "max-w-full max-h-56 w-full" : "w-full max-h-[70vh] object-contain"}
       />
 

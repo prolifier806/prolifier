@@ -179,7 +179,7 @@ function SmartVideo({ src, className }: { src: string; className?: string }) {
         poster={poster ?? undefined}
         controls
         disablePictureInPicture
-        controlsList="nodownload nopictureinpicture"
+        controlsList="nodownload nopictureinpicture noplaybackrate"
         className={`rounded-xl ${portrait ? "max-h-[70vh] w-auto max-w-full" : "w-full max-h-72"} ${className ?? ""}`}
         style={{ backgroundColor: "#000" }}
         onLoadedMetadata={e => {
