@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo, memo } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, memo } from "react";
 import { useParams } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
 import { useRealtimeChannel } from "@/hooks/useRealtimeChannel";
@@ -1199,21 +1199,26 @@ export default function Groups() {
     });
   }, [showSettings]);
 
-  // Effect 2: Auto-scroll to bottom on initial load (instant) or when near bottom (smooth)
+  // Effect 2a: Initial group open — scroll to bottom synchronously before paint
+  // useLayoutEffect fires before the browser paints so the user never sees mid-chat
+  useLayoutEffect(() => {
+    if (!isInitialLoadRef.current || messages.length === 0) return;
+    isInitialLoadRef.current = false;
+    const el = messagesAreaRef.current;
+    const scrollToBottom = () => { if (el) el.scrollTop = el.scrollHeight; };
+    scrollToBottom();
+    // Double rAF: first frame builds layout, second frame applies scroll with correct scrollHeight
+    requestAnimationFrame(() => { requestAnimationFrame(scrollToBottom); });
+    // Fallback for images/media that expand after layout
+    setTimeout(scrollToBottom, 100);
+  }, [messages.length]);
+
+  // Effect 2b: New message arrived — auto-scroll only if user is near the bottom
   useEffect(() => {
     if (messages.length === 0) return;
     if (savedScrollRef.current >= 0) return; // will be handled by effect 1
+    if (isInitialLoadRef.current) return; // handled by 2a
     const el = messagesAreaRef.current;
-
-    if (isInitialLoadRef.current) {
-      // Initial group open: jump instantly so messages are visible without animation lag
-      isInitialLoadRef.current = false;
-      if (el) el.scrollTop = el.scrollHeight;
-      else bottomRef.current?.scrollIntoView();
-      return;
-    }
-
-    // New message arrived: only auto-scroll if user is already near the bottom
     if (!el) { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); return; }
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
     if (distanceFromBottom < 200) {
@@ -1257,6 +1262,30 @@ export default function Groups() {
       document.getElementById(`msg-${id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
     });
   }, [searchMatchIndex, searchMatchIds]);
+
+  // Effect: Auto-clear mention highlight when the user scrolls a mention message into view
+  useEffect(() => {
+    if (mentionMsgIds.length === 0) return;
+    const root = messagesAreaRef.current;
+    if (!root) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const seenIds = entries
+          .filter(e => e.isIntersecting)
+          .map(e => e.target.id.replace("msg-", ""));
+        if (seenIds.length > 0) {
+          setMentionMsgIds(prev => prev.filter(id => !seenIds.includes(id)));
+          mentionJumpIdx.current = 0;
+        }
+      },
+      { root, threshold: 0.5 },
+    );
+    for (const id of mentionMsgIds) {
+      const el = document.getElementById(`msg-${id}`);
+      if (el) observer.observe(el);
+    }
+    return () => observer.disconnect();
+  }, [mentionMsgIds]);
 
   // ── Exit report selection mode on browser/hardware back ───────────────────
   useEffect(() => {
@@ -2035,7 +2064,7 @@ export default function Groups() {
         return;
       }
 
-      const isMentioned = !m.is_system && (
+      const isMentioned = !m.is_system && mentionMsgIds.includes(m.id) && (
         m.text?.includes(`@${user.name}`) ||
         (!!user.username && m.text?.includes(`@${user.username}`))
       );
@@ -3224,13 +3253,10 @@ export default function Groups() {
             <div className="absolute bottom-16 right-4 z-40">
               <button
                 onClick={() => {
-                  const idx = mentionJumpIdx.current % mentionMsgIds.length;
-                  const id = mentionMsgIds[idx];
-                  mentionJumpIdx.current++;
+                  if (mentionMsgIds.length === 0) return;
+                  const id = mentionMsgIds[mentionJumpIdx.current % mentionMsgIds.length];
+                  mentionJumpIdx.current = (mentionJumpIdx.current + 1) % mentionMsgIds.length;
                   document.getElementById(`msg-${id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
-                  // Remove this mention from the list (consumed)
-                  setMentionMsgIds(prev => prev.filter(x => x !== id));
-                  mentionJumpIdx.current = 0;
                 }}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500 text-white text-xs font-medium rounded-full shadow-lg hover:bg-emerald-600 transition-colors"
               >

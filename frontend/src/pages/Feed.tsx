@@ -829,6 +829,8 @@ function CommentSheet({ post, currentUserId, onClose, onAddComment, onDeleteComm
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const editRef = useRef<HTMLTextAreaElement>(null);
   const [lightboxSrc, setLightboxSrc] = useState<string|null>(null);
+  const mentionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mentionAbortRef = useRef<AbortController | null>(null);
   useEffect(() => { setTimeout(() => inputRef.current?.focus(), 100); }, []);
 
   // Build threaded structure
@@ -850,13 +852,24 @@ function CommentSheet({ post, currentUserId, onClose, onAddComment, onDeleteComm
       const query = atMatch[1].trimEnd();
       setMentionStart(cursor - atMatch[0].length);
       if (query.length >= 1) {
-        searchUsers(query)
-          .then(data => setMentionSuggestions((data as any) || []))
-          .catch(() => {});
+        // Cancel previous pending search
+        if (mentionTimerRef.current) clearTimeout(mentionTimerRef.current);
+        mentionAbortRef.current?.abort();
+        mentionTimerRef.current = setTimeout(() => {
+          const controller = new AbortController();
+          mentionAbortRef.current = controller;
+          searchUsers(query)
+            .then(data => { if (!controller.signal.aborted) setMentionSuggestions((data as any) || []); })
+            .catch(() => {});
+        }, 250);
       } else {
+        if (mentionTimerRef.current) clearTimeout(mentionTimerRef.current);
+        mentionAbortRef.current?.abort();
         setMentionSuggestions([]);
       }
     } else {
+      if (mentionTimerRef.current) clearTimeout(mentionTimerRef.current);
+      mentionAbortRef.current?.abort();
       setMentionSuggestions([]);
       setMentionStart(-1);
     }
