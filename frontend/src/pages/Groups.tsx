@@ -473,6 +473,7 @@ export default function Groups() {
   // Refs for mention message IDs in the current open chat
   const [mentionMsgIds, setMentionMsgIds] = useState<string[]>([]);
   const mentionJumpIdx = useRef(0);
+  const mentionClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Add members panel (admin)
   const [showAddMembers, setShowAddMembers] = useState(false);
@@ -922,6 +923,21 @@ export default function Groups() {
         author_role: profileMap[row.user_id]?.role,
       }));
       setMessages(mapped);
+      // Scroll to bottom after React renders the messages — two rAFs let the
+      // browser complete layout before we read scrollHeight, and the 150ms
+      // timeout handles images/media that expand the container after layout.
+      if (isInitialLoadRef.current) {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            const el = messagesAreaRef.current;
+            if (el) el.scrollTop = el.scrollHeight;
+          });
+        });
+        setTimeout(() => {
+          const el = messagesAreaRef.current;
+          if (el) el.scrollTop = el.scrollHeight;
+        }, 150);
+      }
       // Seed dedup set with all loaded IDs so incoming Socket.IO / CDC events
       // for already-loaded messages are silently ignored.
       knownMsgIdsRef.current = new Set(mapped.map((m: GroupMessage) => m.id));
@@ -1263,29 +1279,6 @@ export default function Groups() {
     });
   }, [searchMatchIndex, searchMatchIds]);
 
-  // Effect: Auto-clear mention highlight when the user scrolls a mention message into view
-  useEffect(() => {
-    if (mentionMsgIds.length === 0) return;
-    const root = messagesAreaRef.current;
-    if (!root) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const seenIds = entries
-          .filter(e => e.isIntersecting)
-          .map(e => e.target.id.replace("msg-", ""));
-        if (seenIds.length > 0) {
-          setMentionMsgIds(prev => prev.filter(id => !seenIds.includes(id)));
-          mentionJumpIdx.current = 0;
-        }
-      },
-      { root, threshold: 0.5 },
-    );
-    for (const id of mentionMsgIds) {
-      const el = document.getElementById(`msg-${id}`);
-      if (el) observer.observe(el);
-    }
-    return () => observer.disconnect();
-  }, [mentionMsgIds]);
 
   // ── Exit report selection mode on browser/hardware back ───────────────────
   useEffect(() => {
@@ -3254,9 +3247,20 @@ export default function Groups() {
               <button
                 onClick={() => {
                   if (mentionMsgIds.length === 0) return;
-                  const id = mentionMsgIds[mentionJumpIdx.current % mentionMsgIds.length];
-                  mentionJumpIdx.current = (mentionJumpIdx.current + 1) % mentionMsgIds.length;
+                  const idx = mentionJumpIdx.current % mentionMsgIds.length;
+                  const id = mentionMsgIds[idx];
                   document.getElementById(`msg-${id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+                  // Advance index for the next click (cycles forward)
+                  mentionJumpIdx.current = (idx + 1) % mentionMsgIds.length;
+                  // After 1.5s the user has seen it — clear the highlight
+                  if (mentionClearTimerRef.current) clearTimeout(mentionClearTimerRef.current);
+                  mentionClearTimerRef.current = setTimeout(() => {
+                    setMentionMsgIds(prev => {
+                      const next = prev.filter(x => x !== id);
+                      if (mentionJumpIdx.current >= next.length) mentionJumpIdx.current = 0;
+                      return next;
+                    });
+                  }, 1500);
                 }}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500 text-white text-xs font-medium rounded-full shadow-lg hover:bg-emerald-600 transition-colors"
               >
