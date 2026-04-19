@@ -926,30 +926,28 @@ function CommentSheet({ post, currentUserId, onClose, onAddComment, onDeleteComm
     }
   });
 
-  const handleTextChange = (val: string) => {
+  const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
     setText(val);
-    const cursor = inputRef.current?.selectionStart ?? val.length;
+    // Use e.target.selectionStart (reliable — read directly from the event's DOM node)
+    // inputRef.current.selectionStart is stale in React controlled inputs during onChange
+    const cursor = e.target.selectionStart ?? val.length;
     const before = val.slice(0, cursor);
-    const atMatch = before.match(/@([\w][\w ]*)$/);
+    // Match @username (word chars only — usernames have no spaces)
+    const atMatch = before.match(/@(\w+)$/);
     if (atMatch) {
-      const query = atMatch[1].trimEnd();
+      const query = atMatch[1];
       setMentionStart(cursor - atMatch[0].length);
-      if (query.length >= 1) {
-        // Cancel previous pending search
-        if (mentionTimerRef.current) clearTimeout(mentionTimerRef.current);
-        mentionAbortRef.current?.abort();
-        mentionTimerRef.current = setTimeout(() => {
-          const controller = new AbortController();
-          mentionAbortRef.current = controller;
-          searchUsers(query)
-            .then(data => { if (!controller.signal.aborted) setMentionSuggestions((data as any) || []); })
-            .catch(() => {});
-        }, 250);
-      } else {
-        if (mentionTimerRef.current) clearTimeout(mentionTimerRef.current);
-        mentionAbortRef.current?.abort();
-        setMentionSuggestions([]);
-      }
+      // Cancel previous pending search and fire new one after 250ms
+      if (mentionTimerRef.current) clearTimeout(mentionTimerRef.current);
+      mentionAbortRef.current?.abort();
+      mentionTimerRef.current = setTimeout(() => {
+        const controller = new AbortController();
+        mentionAbortRef.current = controller;
+        searchUsers(query)
+          .then(data => { if (!controller.signal.aborted) setMentionSuggestions((data as any) || []); })
+          .catch(() => {});
+      }, 250);
     } else {
       if (mentionTimerRef.current) clearTimeout(mentionTimerRef.current);
       mentionAbortRef.current?.abort();
@@ -1080,7 +1078,7 @@ function CommentSheet({ post, currentUserId, onClose, onAddComment, onDeleteComm
           <div className="flex gap-2">
             <Avatar initials={user.avatar} color={user.color} url={user.avatarUrl || undefined} size="sm" />
             <div className="flex-1 flex gap-2">
-              <Textarea ref={inputRef} value={text} onChange={(e) => handleTextChange(e.target.value)}
+              <Textarea ref={inputRef} value={text} onChange={handleTextChange}
                 placeholder={replyingTo ? `Reply to @${replyingTo.username || replyingTo.author}…` : "Write a comment…"} rows={1}
                 className="resize-none text-sm min-h-[38px] max-h-[100px] py-2"
                 onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); } }} />
@@ -2025,8 +2023,8 @@ export default function Feed() {
 
     // Filter out comments from blocked users (both directions)
     const visibleComments = loadedComments.filter(c => !blockedUserIds.has(c.user_id));
-    // Patch the post in state — keep the authoritative DB commentCount, only update the comments array
-    const updatedPost = { ...post, comments: visibleComments };
+    // Patch the post in state — use loaded count as authoritative (DB comment_count is often stale)
+    const updatedPost = { ...post, comments: visibleComments, commentCount: visibleComments.length };
     setPosts(p => p.map(x => x.id === post.id ? updatedPost : x));
     setCommentingPost(updatedPost);
   }, [blockedUserIds]);
