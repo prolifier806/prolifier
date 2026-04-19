@@ -9,7 +9,7 @@ import {
   MapPin, Github, Globe, Twitter, Edit, Check, X, Handshake, Camera,
   Eye, EyeOff, Shield, Lock, Heart, MessageCircle,
   ChevronRight, ArrowLeft, Bookmark, Sun, Moon, Users, HelpCircle,
-  Mail, FileText, UserX, MoreHorizontal, Edit3, Trash2,
+  Mail, FileText, UserX, MoreHorizontal, Edit3, Trash2, AtSign, Loader2,
 } from "lucide-react";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
@@ -24,7 +24,7 @@ import { useUser } from "@/context/UserContext";
 import { supabase } from "@/lib/supabase";
 import { isAbortError } from "@/api/client";
 import { uploadAvatar, removeAvatar } from "@/api/uploads";
-import { deleteMyAccount, unblockUser } from "@/api/users";
+import { deleteMyAccount, unblockUser, checkUsername, setUsername as apiSetUsername } from "@/api/users";
 import { updatePost, deletePost } from "@/api/posts";
 import { getConnections } from "@/api/connections";
 import { SKILL_CATEGORIES } from "@/lib/skills";
@@ -136,10 +136,15 @@ export default function Profile() {
   const { theme, toggleTheme } = useTheme();
   const { user, updateUser, signOut } = useUser();
 
+  const USERNAME_RE = /^[a-z0-9_]{3,20}$/;
+
   // Edit state
   const [editing, setEditing]             = useState(false);
   const [saving, setSaving]               = useState(false);
   const [draftName, setDraftName]         = useState("");
+  const [draftUsername, setDraftUsername] = useState("");
+  const [draftUsernameStatus, setDraftUsernameStatus] = useState<"idle" | "checking" | "available" | "taken" | "invalid" | "same">("idle");
+  const usernameTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [draftLocation, setDraftLocation] = useState("");
   const [draftBio, setDraftBio]           = useState("");
   const [draftProject, setDraftProject]   = useState("");
@@ -344,8 +349,26 @@ export default function Profile() {
     }
   };
 
+  const handleDraftUsernameChange = (val: string) => {
+    const clean = val.toLowerCase().replace(/[^a-z0-9_]/g, "");
+    setDraftUsername(clean);
+    if (usernameTimerRef.current) clearTimeout(usernameTimerRef.current);
+    if (!clean) { setDraftUsernameStatus("idle"); return; }
+    if (clean === user.username) { setDraftUsernameStatus("same"); return; }
+    if (!USERNAME_RE.test(clean)) { setDraftUsernameStatus("invalid"); return; }
+    setDraftUsernameStatus("checking");
+    usernameTimerRef.current = setTimeout(async () => {
+      try {
+        const res = await checkUsername(clean);
+        setDraftUsernameStatus(res?.available ? "available" : "taken");
+      } catch { setDraftUsernameStatus("idle"); }
+    }, 350);
+  };
+
   const startEditing = () => {
     setDraftName(user.name);
+    setDraftUsername(user.username || "");
+    setDraftUsernameStatus("idle");
     setDraftLocation(user.location);
     setLocationQuery(user.location);
     setDraftBio(user.bio);
@@ -368,7 +391,27 @@ export default function Profile() {
       toast({ title: "Name change too soon", description: `You can change your name again in ${nameCountdown}.`, variant: "destructive" });
       return;
     }
+    if (draftUsername && draftUsernameStatus === "taken") {
+      toast({ title: "Username already taken", variant: "destructive" }); return;
+    }
+    if (draftUsername && draftUsernameStatus === "checking") {
+      toast({ title: "Please wait while we check username availability", variant: "destructive" }); return;
+    }
+    if (draftUsername && draftUsernameStatus === "invalid") {
+      toast({ title: "Invalid username format", variant: "destructive" }); return;
+    }
     setSaving(true);
+    // Save username if changed
+    if (draftUsername.trim() && draftUsername.trim() !== user.username) {
+      try {
+        await apiSetUsername(draftUsername.trim());
+        await updateUser({ username: draftUsername.trim() } as any);
+      } catch (e: any) {
+        toast({ title: e?.message || "Username unavailable", variant: "destructive" });
+        setSaving(false);
+        return;
+      }
+    }
     await updateUser({
       name: draftName.trim(), location: draftLocation.trim(), bio: draftBio.trim(),
       project: draftProject.trim(), skills: draftSkills,
@@ -1046,6 +1089,33 @@ export default function Profile() {
                     <p className="text-xs text-destructive flex items-center gap-1">
                       <span className="font-mono">{nameCountdown}</span> until you can change your name
                     </p>
+                  )}
+                  {/* Username */}
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground select-none">
+                      <AtSign className="h-3.5 w-3.5" />
+                    </span>
+                    <Input
+                      value={draftUsername}
+                      onChange={e => handleDraftUsernameChange(e.target.value)}
+                      className="h-8 text-sm pl-7 pr-8"
+                      placeholder="username"
+                      maxLength={20}
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
+                    />
+                    <span className="absolute right-2.5 top-1/2 -translate-y-1/2">
+                      {draftUsernameStatus === "checking" && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+                      {(draftUsernameStatus === "available" || draftUsernameStatus === "same") && <Check className="h-3.5 w-3.5 text-emerald-500" />}
+                      {draftUsernameStatus === "taken" && <X className="h-3.5 w-3.5 text-destructive" />}
+                    </span>
+                  </div>
+                  {draftUsernameStatus === "taken" && (
+                    <p className="text-xs text-destructive">@{draftUsername} is already taken</p>
+                  )}
+                  {draftUsernameStatus === "invalid" && draftUsername.length > 0 && (
+                    <p className="text-xs text-destructive">3–20 chars: lowercase letters, numbers, underscores only</p>
                   )}
                   {/* Location autocomplete */}
                   <div ref={locationRef} className="relative">
