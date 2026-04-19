@@ -32,6 +32,7 @@ import {
 type Profile = {
   id: string;
   name: string;
+  username?: string;
   avatar: string;
   avatarUrl?: string;
   color: string;
@@ -170,6 +171,7 @@ export default function Discover() {
   const mapProfiles = (data: any[]): Profile[] => data.map((p: any) => ({
     id: p.id,
     name: p.name || "Unknown",
+    username: p.username || undefined,
     avatar: p.avatar || "?",
     avatarUrl: p.avatar_url || undefined,
     color: p.color || "bg-primary",
@@ -495,7 +497,7 @@ export default function Discover() {
                   : <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 }
                 <Input
-                  placeholder="Search by name, skill, bio, project..."
+                  placeholder="Search by name, @username, skill, bio, project..."
                   value={search}
                   onChange={e => setSearch(e.target.value)}
                   className="pl-10 h-11"
@@ -561,27 +563,28 @@ export default function Discover() {
                           )}
                         </button>
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <button
-                              onClick={() => navigate(`/profile/${p.id}`)}
-                              className="inline-flex items-center gap-1 font-semibold text-foreground hover:underline text-left text-sm"
-                            >
-                              {p.name}
-                              {p.role === "admin" && (
-                                <span title="Verified" className="shrink-0 h-4 w-4 rounded-full bg-blue-500 inline-flex items-center justify-center">
-                                  <Check className="h-2.5 w-2.5 text-white stroke-[3]" />
-                                </span>
-                              )}
-                            </button>
-                            <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full border ${
-                              p.openToCollab
-                                ? "bg-emerald-500 text-white border-emerald-500"
-                                : "bg-secondary text-muted-foreground border-border"
-                            }`}>
-                              <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${p.openToCollab ? "bg-white" : "bg-muted-foreground"}`}/>
-                              {p.openToCollab ? "Open to collab" : "Not available"}
-                            </span>
-                          </div>
+                          <button
+                            onClick={() => navigate(`/profile/${p.id}`)}
+                            className="inline-flex items-center gap-1 font-semibold text-foreground hover:underline text-left text-sm"
+                          >
+                            {p.name}
+                            {p.role === "admin" && (
+                              <span title="Verified" className="shrink-0 h-4 w-4 rounded-full bg-blue-500 inline-flex items-center justify-center">
+                                <Check className="h-2.5 w-2.5 text-white stroke-[3]" />
+                              </span>
+                            )}
+                          </button>
+                          {p.username && (
+                            <p className="text-xs text-muted-foreground/70 leading-tight">@{p.username}</p>
+                          )}
+                          <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full border mt-1 ${
+                            p.openToCollab
+                              ? "bg-emerald-500 text-white border-emerald-500"
+                              : "bg-secondary text-muted-foreground border-border"
+                          }`}>
+                            <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${p.openToCollab ? "bg-white" : "bg-muted-foreground"}`}/>
+                            {p.openToCollab ? "Open to collab" : "Not available"}
+                          </span>
                           {p.location && (
                             <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
                               <MapPin className="h-3 w-3 shrink-0" /> {p.location}

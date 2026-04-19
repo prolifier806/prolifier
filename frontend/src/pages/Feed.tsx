@@ -40,9 +40,10 @@ import { uploadPostImage, uploadVideo } from "@/api/uploads";
 import { createReport } from "@/api/reports";
 import { sendMessage } from "@/api/messages";
 import { apiGet, isAbortError } from "@/api/client";
+import { searchUsers } from "@/api/users";
 
 // ── Types ──────────────────────────────────────────────────────────────────
-type Comment = { id: string; user_id: string; author: string; avatar: string; avatarUrl?: string; color: string; text: string; time: string; parentId?: string | null; role?: string; };
+type Comment = { id: string; user_id: string; author: string; username?: string; avatar: string; avatarUrl?: string; color: string; text: string; time: string; parentId?: string | null; role?: string; };
 type Post = {
   id: string; user_id: string; author: string; avatar: string; avatarUrl?: string; avatarColor: string; location: string;
   authorSkills?: string[]; authorDeleted?: boolean; authorRole?: string;
@@ -822,8 +823,8 @@ function CommentSheet({ post, currentUserId, onClose, onAddComment, onDeleteComm
   const [text, setText] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
-  const [replyingTo, setReplyingTo] = useState<{ id: string; author: string } | null>(null);
-  const [mentionSuggestions, setMentionSuggestions] = useState<{ id: string; name: string; avatar: string; color: string; avatar_url?: string }[]>([]);
+  const [replyingTo, setReplyingTo] = useState<{ id: string; author: string; username?: string } | null>(null);
+  const [mentionSuggestions, setMentionSuggestions] = useState<{ id: string; name: string; username: string | null; avatar: string; color: string; avatar_url: string | null }[]>([]);
   const [mentionStart, setMentionStart] = useState(-1);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const editRef = useRef<HTMLTextAreaElement>(null);
@@ -849,8 +850,8 @@ function CommentSheet({ post, currentUserId, onClose, onAddComment, onDeleteComm
       const query = atMatch[1].trimEnd();
       setMentionStart(cursor - atMatch[0].length);
       if (query.length >= 1) {
-        apiGet<any[]>(`/api/users/discover?search=${encodeURIComponent(query)}&limit=5`)
-          .then(data => setMentionSuggestions(data || []))
+        searchUsers(query)
+          .then(data => setMentionSuggestions((data as any) || []))
           .catch(() => {});
       } else {
         setMentionSuggestions([]);
@@ -861,18 +862,18 @@ function CommentSheet({ post, currentUserId, onClose, onAddComment, onDeleteComm
     }
   };
 
-  const selectMention = (profile: { name: string }) => {
+  const selectMention = (profile: { name: string; username: string | null }) => {
+    const handle = profile.username || profile.name;
     const cursor = inputRef.current?.selectionStart ?? text.length;
     const before = text.slice(0, mentionStart);
     const after = text.slice(cursor);
-    // Use non-breaking spaces in multi-word names so the mention is one token
-    const newText = `${before}@${profile.name.replace(/ /g, '\u00A0')} ${after}`;
+    const newText = `${before}@${handle} ${after}`;
     setText(newText);
     setMentionSuggestions([]);
     setMentionStart(-1);
     setTimeout(() => {
       inputRef.current?.focus();
-      const pos = before.length + profile.name.length + 2;
+      const pos = before.length + handle.length + 2;
       inputRef.current?.setSelectionRange(pos, pos);
     }, 0);
   };
@@ -886,8 +887,9 @@ function CommentSheet({ post, currentUserId, onClose, onAddComment, onDeleteComm
   };
 
   const startReply = (c: Comment) => {
-    setReplyingTo({ id: c.id, author: c.author });
-    setText(`@${c.author.replace(/ /g, '\u00A0')} `);
+    const handle = c.username || c.author;
+    setReplyingTo({ id: c.id, author: c.author, username: c.username });
+    setText(`@${handle} `);
     setTimeout(() => { inputRef.current?.focus(); inputRef.current?.setSelectionRange(9999, 9999); }, 50);
   };
 
@@ -977,7 +979,7 @@ function CommentSheet({ post, currentUserId, onClose, onAddComment, onDeleteComm
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
       <div className="relative z-10 w-full max-w-lg bg-background rounded-t-2xl sm:rounded-2xl shadow-2xl border border-border flex flex-col max-h-[80vh] animate-in slide-in-from-bottom-4 duration-200">
         <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
-          <h3 className="font-semibold text-foreground">Comments · {post.commentCount}</h3>
+          <h3 className="font-semibold text-foreground">Comments · {post.comments.length || post.commentCount}</h3>
           <button onClick={onClose} className="h-7 w-7 rounded-full bg-muted flex items-center justify-center hover:bg-secondary transition-colors">
             <X className="h-4 w-4 text-muted-foreground" />
           </button>
@@ -1008,7 +1010,7 @@ function CommentSheet({ post, currentUserId, onClose, onAddComment, onDeleteComm
         <div className="px-5 py-4 border-t border-border shrink-0">
           {replyingTo && (
             <div className="flex items-center gap-2 mb-2">
-              <span className="text-xs text-primary font-medium">Replying to @{replyingTo.author}</span>
+              <span className="text-xs text-primary font-medium">Replying to @{replyingTo.username || replyingTo.author}</span>
               <button onClick={() => { setReplyingTo(null); setText(""); }} className="ml-auto text-muted-foreground hover:text-foreground">
                 <X className="h-3 w-3" />
               </button>
@@ -1019,8 +1021,11 @@ function CommentSheet({ post, currentUserId, onClose, onAddComment, onDeleteComm
               {mentionSuggestions.map(p => (
                 <button key={p.id} type="button" onMouseDown={() => selectMention(p)}
                   className="w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-secondary transition-colors">
-                  <Avatar initials={p.avatar || p.name?.slice(0,2).toUpperCase()} color={p.color || "bg-primary"} url={p.avatar_url} size="sm" />
-                  <span className="font-medium text-foreground">{p.name}</span>
+                  <Avatar initials={p.avatar || p.name?.slice(0,2).toUpperCase()} color={p.color || "bg-primary"} url={p.avatar_url || undefined} size="sm" />
+                  <div className="flex flex-col items-start min-w-0">
+                    <span className="font-medium text-foreground leading-tight">{p.name}</span>
+                    {p.username && <span className="text-xs text-muted-foreground leading-tight">@{p.username}</span>}
+                  </div>
                 </button>
               ))}
             </div>
@@ -1029,7 +1034,7 @@ function CommentSheet({ post, currentUserId, onClose, onAddComment, onDeleteComm
             <Avatar initials={user.avatar} color={user.color} url={user.avatarUrl || undefined} size="sm" />
             <div className="flex-1 flex gap-2">
               <Textarea ref={inputRef} value={text} onChange={(e) => handleTextChange(e.target.value)}
-                placeholder={replyingTo ? `Reply to @${replyingTo.author}…` : "Write a comment…"} rows={1}
+                placeholder={replyingTo ? `Reply to @${replyingTo.username || replyingTo.author}…` : "Write a comment…"} rows={1}
                 className="resize-none text-sm min-h-[38px] max-h-[100px] py-2"
                 onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); } }} />
               <button onClick={submit} disabled={!text.trim()}
@@ -1961,6 +1966,7 @@ export default function Feed() {
       id: c.id,
       user_id: c.user_id || c.userId,
       author: c.profiles?.name || c.author || "Unknown",
+      username: c.profiles?.username || c.username || undefined,
       avatar: c.profiles?.avatar || c.avatar || "?",
       avatarUrl: c.profiles?.avatar_url || c.avatarUrl || undefined,
       color: c.profiles?.color || c.color || "bg-primary",
@@ -1992,6 +1998,7 @@ export default function Feed() {
     const newComment: Comment = {
       id: data.id, user_id: data.user_id || user.id,
       author: data.profiles?.name || data.author || user.name,
+      username: data.profiles?.username || data.username || user.username || undefined,
       avatar: data.profiles?.avatar || data.avatar || user.avatar,
       avatarUrl: data.profiles?.avatar_url || data.avatarUrl || user.avatarUrl || undefined,
       color: data.profiles?.color || data.color || user.color,
@@ -2027,11 +2034,11 @@ export default function Feed() {
         });
       }
     }
-    // Notify @mentioned users
-    const mentionMatches = [...new Set((text.match(/@([\w][\w ]*)/g) || []).map(m => m.slice(1).trim()))];
+    // Notify @mentioned users — match by username or name
+    const mentionMatches = [...new Set((text.match(/@([\w\u00A0][\w\u00A0]*)/g) || []).map(m => m.slice(1).replace(/\u00A0/g, " ").trim()))];
     if (mentionMatches.length > 0) {
       const mentioned = await Promise.all(
-        mentionMatches.map(name => apiGet<any[]>(`/api/users/discover?search=${encodeURIComponent(name)}&limit=1`).catch(() => []))
+        mentionMatches.map(handle => searchUsers(handle).catch(() => [] as any[]))
       ).then(results => results.flat());
       (mentioned || []).forEach((p: any) => {
         if (p.id !== user.id) {

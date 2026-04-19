@@ -456,7 +456,7 @@ export async function getComments(req: AuthRequest, res: Response): Promise<void
 
   const { data, error } = await supabaseAdmin
     .from("comments")
-    .select("id, user_id, text, created_at, profiles:user_id (name, avatar, color, role)")
+    .select("id, user_id, parent_id, text, created_at, profiles:user_id (name, username, avatar, color, avatar_url, role)")
     .eq("post_id", id)
     .order("created_at", { ascending: true });
 

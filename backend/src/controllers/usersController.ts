@@ -152,7 +152,7 @@ export async function discoverProfiles(req: AuthRequest, res: Response): Promise
       // AND profiles that have React as a tagged skill — results are merged.
       const [textRes, skillRes, [blockedRes, blockerRes]] = await Promise.all([
         applyCommon(supabaseAdmin.from("profiles").select(BASE_SELECT))
-          .or(`name.ilike.${likeVal},bio.ilike.${likeVal},location.ilike.${likeVal},project.ilike.${likeVal}`),
+          .or(`name.ilike.${likeVal},username.ilike.${likeVal},bio.ilike.${likeVal},location.ilike.${likeVal},project.ilike.${likeVal}`),
         applyCommon(supabaseAdmin.from("profiles").select(BASE_SELECT))
           .overlaps("skills", [safe]),
         blocksPromise,
