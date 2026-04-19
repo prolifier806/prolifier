@@ -30,6 +30,7 @@ const PROFILE_REPORT_REASONS = [
 type ProfileData = {
   id: string;
   name: string;
+  username?: string;
   avatar: string;
   avatarUrl?: string;
   color: string;
@@ -173,6 +174,7 @@ export default function UserProfile() {
         setProfile({
           id: p.id,
           name: p.name || "Unknown",
+          username: p.username || undefined,
           avatar: p.avatar || "?",
           avatarUrl: p.avatar_url || undefined,
           color: p.color || "bg-primary",
@@ -422,6 +424,9 @@ export default function UserProfile() {
                   </span>
                 )}
               </div>
+              {profile.username && (
+                <p className="text-sm text-muted-foreground font-mono mt-0.5">@{profile.username}</p>
+              )}
               {profile.location && (
                 <p className="text-sm text-muted-foreground flex items-center gap-1 mt-0.5">
                   <MapPin className="h-3.5 w-3.5" /> {profile.location}

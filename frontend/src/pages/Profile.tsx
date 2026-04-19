@@ -1106,6 +1106,9 @@ export default function Profile() {
                       </Button>
                     </div>
                   </div>
+                  {user.username && (
+                    <p className="text-sm text-muted-foreground font-mono mt-0.5">@{user.username}</p>
+                  )}
                   <p className="text-sm text-muted-foreground flex items-center gap-1 mt-1">
                     <MapPin className="h-3.5 w-3.5" /> {user.location || "No location set"}
                   </p>
