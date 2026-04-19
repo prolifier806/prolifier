@@ -535,6 +535,12 @@ export default function Groups() {
   const profileCache = useRef<Record<string, { name: string; color: string; avatar_url?: string; role?: string }>>({});
   // Cache of pending request counts per group — populated on open so the red dot is instant
   const pendingCountsCacheRef = useRef<Record<string, number>>({});
+  // Dedup guard: tracks every message ID (temp + real) that has been added to state.
+  // Prevents duplicate messages from Socket.IO + CDC delivering the same event,
+  // and from rapid double-sends before setChatInput("") re-renders.
+  const knownMsgIdsRef = useRef<Set<string>>(new Set());
+  // Send lock: prevents the same text being sent twice from a rapid double-tap / double-Enter.
+  const sendLockRef = useRef(false);
   // Ref to track current view without stale closure in realtime handlers
   // Kept as refs (not derived from state) so realtime handlers always read the latest value
   // without stale closures. Updated synchronously in openGroup + setView calls.
@@ -564,26 +570,27 @@ export default function Groups() {
 
     // New message from another user via Socket.IO
     onMessage: useCallback((msg) => {
+      // O(1) dedup — skip if we already have this ID (own ack path, or CDC beat us)
+      if (knownMsgIdsRef.current.has(msg.id)) return;
+      knownMsgIdsRef.current.add(msg.id);
+
       const isActive = viewRef.current === "group" && activeGroupIdRef.current === msg.group_id;
       if (!isActive && !msg.is_system) {
         setUnreadCounts(prev => ({ ...prev, [msg.group_id]: (prev[msg.group_id] ?? 0) + 1 }));
       } else if (isActive) {
         try { localStorage.setItem(`prf_read_${user.id}_${msg.group_id}`, new Date().toISOString()); } catch { /* ignore */ }
       }
-      setMessages(prev => {
-        if (prev.find(m => m.id === msg.id)) return prev;
-        return [...prev, {
-          id: msg.id, group_id: msg.group_id, user_id: msg.user_id,
-          text: msg.text, media_url: msg.media_url, media_type: msg.media_type,
-          created_at: msg.created_at, edited: msg.edited, deleted: false,
-          unsent: msg.unsent, removed_by_admin: msg.removed_by_admin,
-          is_system: msg.is_system, reply_to_id: msg.reply_to_id,
-          reply_to_text: null, reply_to_author: null,
-          author_name: msg.author_name, author_color: msg.author_color,
-          author_avatar_url: msg.author_avatar_url ?? undefined,
-          author_role: msg.author_role ?? undefined,
-        }];
-      });
+      setMessages(prev => [...prev, {
+        id: msg.id, group_id: msg.group_id, user_id: msg.user_id,
+        text: msg.text, media_url: msg.media_url, media_type: msg.media_type,
+        created_at: msg.created_at, edited: msg.edited, deleted: false,
+        unsent: msg.unsent, removed_by_admin: msg.removed_by_admin,
+        is_system: msg.is_system, reply_to_id: msg.reply_to_id,
+        reply_to_text: null, reply_to_author: null,
+        author_name: msg.author_name, author_color: msg.author_color,
+        author_avatar_url: msg.author_avatar_url ?? undefined,
+        author_role: msg.author_role ?? undefined,
+      }]);
       if (!msg.is_system && msg.text?.includes(`@${user.name}`)) {
         setMentionMsgIds(prev => prev.includes(msg.id) ? prev : [...prev, msg.id]);
       }
@@ -592,6 +599,10 @@ export default function Groups() {
     // Server ack — replace temp UUID with real DB row
     onAck: useCallback((clientId, msg) => {
       setWsStatus("connected");
+      // Swap temp ID for real ID in the dedup set so CDC INSERT (which carries the
+      // real ID) is silently ignored even if it arrives after the ack.
+      knownMsgIdsRef.current.delete(clientId);
+      knownMsgIdsRef.current.add(msg.id);
       setMessages(prev => prev.map(m =>
         m.id === clientId ? {
           ...m,
@@ -872,6 +883,9 @@ export default function Groups() {
         author_role: profileMap[row.user_id]?.role,
       }));
       setMessages(mapped);
+      // Seed dedup set with all loaded IDs so incoming Socket.IO / CDC events
+      // for already-loaded messages are silently ignored.
+      knownMsgIdsRef.current = new Set(mapped.map((m: GroupMessage) => m.id));
 
       const visibleIds = mapped.filter((m: GroupMessage) => !m.is_system && !m.unsent).map((m: GroupMessage) => m.id);
       if (visibleIds.length > 0) {
@@ -982,6 +996,11 @@ export default function Groups() {
           // then replaces it on ack; Supabase CDC would cause a double entry.
           if (row.user_id === user.id) return;
 
+          // O(1) dedup against the knownMsgIds set (populated by onMessage + fetchMessages).
+          // This prevents CDC from appending a message already delivered by Socket.IO.
+          if (knownMsgIdsRef.current.has(row.id)) return;
+          knownMsgIdsRef.current.add(row.id);
+
           // Only increment unread when the user is NOT currently viewing this group
           const isActiveAndViewing = viewRef.current === "group" && activeGroupIdRef.current === row.group_id;
           if (!row.is_system && !isActiveAndViewing) {
@@ -995,7 +1014,7 @@ export default function Groups() {
             try { localStorage.setItem(`prf_read_${user.id}_${row.group_id}`, new Date().toISOString()); } catch { /* ignore */ }
           }
           setMessages(prev => {
-            // Already delivered by Socket.IO (real id or UUID since replaced) — skip
+            // Safety net: check state array as a final guard
             if (prev.find(m => m.id === row.id)) return prev;
             // Append (Socket.IO message:new + message:updated should have already
             // replaced the UUID, but this catches any edge-case timing gap)
@@ -1121,19 +1140,32 @@ export default function Groups() {
     ),
   );
 
-  // Scroll to bottom on new messages (skip if returning from settings with a saved position)
+  // Effect 1: Restore saved scroll position when returning from settings
   useEffect(() => {
-    if (messages.length > 0) {
-      if (savedScrollRef.current >= 0) {
-        // Restore position saved before opening settings
-        const pos = savedScrollRef.current;
-        savedScrollRef.current = -1;
-        requestAnimationFrame(() => {
-          if (messagesAreaRef.current) messagesAreaRef.current.scrollTop = pos;
-        });
-      } else {
-        bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-      }
+    if (showSettings) return; // settings just opened — do nothing
+    if (savedScrollRef.current < 0) return; // no saved position
+    const pos = savedScrollRef.current;
+    savedScrollRef.current = -1;
+    // Double rAF: first frame mounts the chat DOM, second applies scroll
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (messagesAreaRef.current) messagesAreaRef.current.scrollTop = pos;
+      });
+    });
+  }, [showSettings]);
+
+  // Effect 2: Auto-scroll to bottom only on initial load or when already near bottom
+  useEffect(() => {
+    if (messages.length === 0) return;
+    if (savedScrollRef.current >= 0) return; // will be handled by effect 1
+    const el = messagesAreaRef.current;
+    if (!el) {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+      return;
+    }
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (distanceFromBottom < 200) {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages.length]);
 
@@ -1209,6 +1241,8 @@ export default function Groups() {
     setShowSearch(false);
     setSearchQuery("");
     setSearchResults([]);
+    // Clear dedup set so switching groups never carries over stale IDs
+    knownMsgIdsRef.current = new Set();
     // Mark this group as read instantly — reset unread + mentions + persist timestamp
     setUnreadCounts(prev => ({ ...prev, [group.id]: 0 }));
     setMentionGroupIds(prev => { const s = new Set(prev); s.delete(group.id); return s; });
@@ -1332,8 +1366,16 @@ export default function Groups() {
   // Primary path: Socket.IO (immediate broadcast + DB persist on server).
   // The server acks with the real DB id; we replace the temp UUID via onAck.
   const sendMessage = (text?: string, mediaUrl?: string, mediaType?: string) => {
+    // Guard against double-send from rapid double-tap / double-Enter before
+    // setChatInput("") re-renders and clears the input.
+    if (sendLockRef.current) return;
     const trimmed = text?.trim();
     if ((!trimmed && !mediaUrl) || !activeGroup) return;
+    sendLockRef.current = true;
+    // Release lock after one event-loop tick — long enough to block a synchronous
+    // double-call but short enough not to block a deliberate next message.
+    setTimeout(() => { sendLockRef.current = false; }, 600);
+
     setMentionQuery("");
     setMentionResults([]);
     // Stop typing indicator on send
@@ -1345,6 +1387,8 @@ export default function Groups() {
 
     // Client-generated UUID — used for dedup on server + optimistic replacement
     const clientId = uuidv4();
+    // Register temp ID immediately so Socket.IO / CDC can't add a duplicate
+    knownMsgIdsRef.current.add(clientId);
 
     // Add to UI instantly with the UUID as the temp id
     setMessages(prev => [...prev, {

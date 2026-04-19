@@ -94,34 +94,42 @@ export function useGroupSocket(options: UseGroupSocketOptions): UseGroupSocketRe
 
     const onConnect = () => { connectedRef.current = true; };
     const onDisconnect = () => { connectedRef.current = false; };
+    const onMessageNew = (msg: Parameters<typeof cbRef.current.onMessage>[0]) => cbRef.current.onMessage(msg);
+    const onMessageAck = ({ clientId, message }: { clientId: string; message: Parameters<typeof cbRef.current.onAck>[1] }) => cbRef.current.onAck(clientId, message);
+    const onMessageUpdated = (partial: Parameters<typeof cbRef.current.onMessageUpdated>[0]) => cbRef.current.onMessageUpdated(partial);
+    const onMessageDeleted = ({ id, group_id }: { id: string; group_id: string }) => cbRef.current.onMessageDeleted(id, group_id);
+    const onPresenceSnapshot = ({ groupId, users }: { groupId: string; users: Parameters<typeof cbRef.current.onPresenceSnapshot>[1] }) => cbRef.current.onPresenceSnapshot(groupId, users);
+    const onPresenceUpdate = ({ groupId, user, online }: { groupId: string; user: Parameters<typeof cbRef.current.onPresenceUpdate>[1]; online: boolean }) => cbRef.current.onPresenceUpdate(groupId, user, online);
+    const onTypingStart = ({ groupId, userId, userName }: { groupId: string; userId: string; userName: string }) => cbRef.current.onTypingStart(groupId, userId, userName);
+    const onTypingStop = ({ groupId, userId }: { groupId: string; userId: string }) => cbRef.current.onTypingStop(groupId, userId);
+    const onMessageReaction = (payload: Parameters<NonNullable<typeof cbRef.current.onReaction>>[0]) => cbRef.current.onReaction?.(payload);
 
     socket.on("connect", onConnect);
     socket.on("disconnect", onDisconnect);
-
-    socket.on("message:new", (msg) => cbRef.current.onMessage(msg));
-    socket.on("message:ack", ({ clientId, message }) => cbRef.current.onAck(clientId, message));
-    socket.on("message:updated", (partial) => cbRef.current.onMessageUpdated(partial));
-    socket.on("message:deleted", ({ id, group_id }) => cbRef.current.onMessageDeleted(id, group_id));
-    socket.on("presence:snapshot", ({ groupId, users }) => cbRef.current.onPresenceSnapshot(groupId, users));
-    socket.on("presence:update", ({ groupId, user, online }) => cbRef.current.onPresenceUpdate(groupId, user, online));
-    socket.on("typing:start", ({ groupId, userId, userName }) => cbRef.current.onTypingStart(groupId, userId, userName));
-    socket.on("typing:stop", ({ groupId, userId }) => cbRef.current.onTypingStop(groupId, userId));
-    socket.on("message:reaction", (payload) => cbRef.current.onReaction?.(payload));
+    socket.on("message:new", onMessageNew);
+    socket.on("message:ack", onMessageAck);
+    socket.on("message:updated", onMessageUpdated);
+    socket.on("message:deleted", onMessageDeleted);
+    socket.on("presence:snapshot", onPresenceSnapshot);
+    socket.on("presence:update", onPresenceUpdate);
+    socket.on("typing:start", onTypingStart);
+    socket.on("typing:stop", onTypingStop);
+    socket.on("message:reaction", onMessageReaction);
 
     if (!socket.connected) socket.connect();
 
     return () => {
       socket.off("connect", onConnect);
       socket.off("disconnect", onDisconnect);
-      socket.off("message:new");
-      socket.off("message:ack");
-      socket.off("message:updated");
-      socket.off("message:deleted");
-      socket.off("presence:snapshot");
-      socket.off("presence:update");
-      socket.off("typing:start");
-      socket.off("typing:stop");
-      socket.off("message:reaction");
+      socket.off("message:new", onMessageNew);
+      socket.off("message:ack", onMessageAck);
+      socket.off("message:updated", onMessageUpdated);
+      socket.off("message:deleted", onMessageDeleted);
+      socket.off("presence:snapshot", onPresenceSnapshot);
+      socket.off("presence:update", onPresenceUpdate);
+      socket.off("typing:start", onTypingStart);
+      socket.off("typing:stop", onTypingStop);
+      socket.off("message:reaction", onMessageReaction);
     };
   }, [token]);
 
