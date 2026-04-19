@@ -37,7 +37,7 @@ export default function ProfileSetup() {
     usernameTimerRef.current = setTimeout(async () => {
       try {
         const res = await checkUsername(clean);
-        if (res.data?.available) setUsernameStatus("available");
+        if (res?.available) setUsernameStatus("available");
         else setUsernameStatus("taken");
       } catch { setUsernameStatus("idle"); }
     }, 350);
