@@ -100,6 +100,7 @@ const DEFAULT_ADMIN_PERMISSIONS: AdminPermissions = {
 type GroupMember = {
   id: string;
   name: string;
+  username?: string;
   color: string;
   avatarUrl?: string;
   role: "owner" | "admin" | "member";
@@ -127,19 +128,24 @@ type Group = {
 
 const TOPICS = ["General", "AI", "Design", "Marketing", "Tech"];
 
-function renderTextWithLinks(text: string, validMentionNames?: string[], isOwn?: boolean) {
-  // Build a regex that only matches @MemberName for real member names.
-  // Sort longest-first so "John Doe" matches before "John".
-  let TOKEN_RE: RegExp;
-  if (validMentionNames && validMentionNames.length > 0) {
-    const escaped = [...validMentionNames]
-      .sort((a, b) => b.length - a.length)
-      .map(n => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-    TOKEN_RE = new RegExp(`(https?:\\/\\/[^\\s]+|@(?:${escaped.join("|")})(?=[\\s,!?.)]|$))`, "gi");
-  } else {
-    TOKEN_RE = /(https?:\/\/[^\s]+)/g; // no members — only linkify URLs
-  }
+function renderTextWithLinks(
+  text: string,
+  members?: Array<{ name: string; username?: string; id: string }>,
+  isOwn?: boolean,
+  onMentionClick?: (userId: string) => void,
+) {
+  // Match URLs and @username tokens (word chars only — usernames have no spaces)
+  const TOKEN_RE = /(https?:\/\/[^\s]+|@[a-zA-Z0-9_]+)/g;
   const parts = text.split(TOKEN_RE);
+
+  // Build lookup: username → member, name → member (fallback for old messages)
+  const byUsername: Record<string, { id: string; name: string }> = {};
+  const byName: Record<string, { id: string; name: string }> = {};
+  for (const m of (members ?? [])) {
+    if (m.username) byUsername[m.username.toLowerCase()] = m;
+    byName[m.name.toLowerCase()] = m;
+  }
+
   return parts.map((part, i) => {
     if (/^https?:\/\//i.test(part)) {
       return (
@@ -151,7 +157,20 @@ function renderTextWithLinks(text: string, validMentionNames?: string[], isOwn?:
       );
     }
     if (/^@/i.test(part)) {
-      return <span key={i} className={isOwn ? "text-white font-medium" : "text-emerald-500 font-medium"}>{part}</span>;
+      const handle = part.slice(1).toLowerCase();
+      const member = byUsername[handle] ?? byName[handle];
+      if (member) {
+        return (
+          <span
+            key={i}
+            className={`font-medium cursor-pointer hover:underline ${isOwn ? "text-white" : "text-emerald-500"}`}
+            onClick={e => { e.stopPropagation(); onMentionClick?.(member.id); }}>
+            {part}
+          </span>
+        );
+      }
+      // Unresolved mention — still highlight it
+      return <span key={i} className={isOwn ? "text-white/80 font-medium" : "text-emerald-400 font-medium"}>{part}</span>;
     }
     return <span key={i}>{part}</span>;
   });
@@ -592,7 +611,7 @@ export default function Groups() {
         author_avatar_url: msg.author_avatar_url ?? undefined,
         author_role: msg.author_role ?? undefined,
       }]);
-      if (!msg.is_system && msg.text?.includes(`@${user.name}`)) {
+      if (!msg.is_system && (msg.text?.includes(`@${user.name}`) || (user.username && msg.text?.includes(`@${user.username}`)))) {
         setMentionMsgIds(prev => prev.includes(msg.id) ? prev : [...prev, msg.id]);
       }
     }, [user.id, user.name]),
@@ -789,22 +808,27 @@ export default function Groups() {
         if (activeGroupIdRef.current) initialUnread[activeGroupIdRef.current] = 0;
         setUnreadCounts(initialUnread);
 
-        // Detect groups with unread @mentions
-        if (user.name && joinedArr.length > 0) {
+        // Detect groups with unread @mentions (check both @name and @username)
+        if ((user.name || user.username) && joinedArr.length > 0) {
           try {
-            const mentionStr = `@${user.name}`;
-            const { data: mentionMsgs } = await (supabase as any)
-              .from("group_messages")
-              .select("group_id, text, created_at")
-              .in("group_id", joinedArr)
-              .neq("user_id", user.id)
-              .eq("is_system", false)
-              .ilike("text", `%${mentionStr}%`);
+            const mentionTokens = [
+              user.name ? `@${user.name}` : null,
+              user.username ? `@${user.username}` : null,
+            ].filter(Boolean) as string[];
             const mentionSet = new Set<string>();
-            for (const msg of (mentionMsgs || [])) {
-              const lastRead = localStorage.getItem(`prf_read_${user.id}_${msg.group_id}`);
-              if (!lastRead || msg.created_at > lastRead) mentionSet.add(msg.group_id);
-            }
+            await Promise.all(mentionTokens.map(async mentionStr => {
+              const { data: mentionMsgs } = await (supabase as any)
+                .from("group_messages")
+                .select("group_id, text, created_at")
+                .in("group_id", joinedArr)
+                .neq("user_id", user.id)
+                .eq("is_system", false)
+                .ilike("text", `%${mentionStr}%`);
+              for (const msg of (mentionMsgs || [])) {
+                const lastRead = localStorage.getItem(`prf_read_${user.id}_${msg.group_id}`);
+                if (!lastRead || msg.created_at > lastRead) mentionSet.add(msg.group_id);
+              }
+            }));
             setMentionGroupIds(mentionSet);
           } catch { /* non-fatal */ }
         }
@@ -912,11 +936,16 @@ export default function Groups() {
 
       // Detect unread messages that mention the current user
       // Only show mention button for messages AFTER the last-read timestamp
-      if (user.name && groupId) {
-        const mention = `@${user.name}`;
+      if ((user.name || user.username) && groupId) {
+        const mentionTokens = [
+          user.name ? `@${user.name}` : null,
+          user.username ? `@${user.username}` : null,
+        ].filter(Boolean) as string[];
         const lastRead = localStorage.getItem(`prf_read_${user.id}_${groupId}`) ?? new Date(0).toISOString();
         const ids = mapped
-          .filter((m: GroupMessage) => m.text?.includes(mention) && (m.created_at ?? "") > lastRead)
+          .filter((m: GroupMessage) =>
+            mentionTokens.some(tok => m.text?.includes(tok)) && (m.created_at ?? "") > lastRead
+          )
           .map((m: GroupMessage) => m.id);
         setMentionMsgIds(ids);
         mentionJumpIdx.current = 0;
@@ -938,7 +967,7 @@ export default function Groups() {
       let count: number | null = null;
       const withPerms = await (supabase as any)
         .from("group_members")
-        .select("id, user_id, role, permissions, profiles:user_id (name, color, avatar_url)", { count: "exact" })
+        .select("id, user_id, role, permissions, profiles:user_id (name, username, color, avatar_url)", { count: "exact" })
         .eq("group_id", groupId)
         .order("joined_at", { ascending: true });
 
@@ -946,7 +975,7 @@ export default function Groups() {
         // Column may not exist — retry without permissions
         const fallback = await (supabase as any)
           .from("group_members")
-          .select("id, user_id, role, profiles:user_id (name, color, avatar_url)", { count: "exact" })
+          .select("id, user_id, role, profiles:user_id (name, username, color, avatar_url)", { count: "exact" })
           .eq("group_id", groupId)
           .order("joined_at", { ascending: true });
         if (fallback.error) throw fallback.error;
@@ -960,6 +989,7 @@ export default function Groups() {
       setMembers((data || []).map((row: any) => ({
         id: row.user_id,
         name: row.profiles?.name || "Unknown",
+        username: row.profiles?.username || undefined,
         color: row.profiles?.color || "bg-primary",
         avatarUrl: row.profiles?.avatar_url || undefined,
         role: row.role || "member",
@@ -1044,7 +1074,7 @@ export default function Groups() {
               author_role: profileCache.current[row.user_id]?.role,
             };
             // Detect new mention for the current user
-            if (!row.is_system && row.text?.includes(`@${user.name}`)) {
+            if (!row.is_system && (row.text?.includes(`@${user.name}`) || (user.username && row.text?.includes(`@${user.username}`)))) {
               setMentionMsgIds(prev => prev.includes(row.id) ? prev : [...prev, row.id]);
             }
             return [...prev, newMsg];
@@ -2005,7 +2035,10 @@ export default function Groups() {
         return;
       }
 
-      const isMentioned = !m.is_system && m.text?.includes(`@${user.name}`);
+      const isMentioned = !m.is_system && (
+        m.text?.includes(`@${user.name}`) ||
+        (!!user.username && m.text?.includes(`@${user.username}`))
+      );
 
       const isSelected = reportSelectedMsgIds.has(m.id);
       // Can only report others' messages — not own, not system, not unsent
@@ -2078,7 +2111,7 @@ export default function Groups() {
                       url={m.media_url} text={m.text} isMe={true}
                       reply={m.reply_to_id ? { author: m.reply_to_author, text: m.reply_to_text } : null}
                       onLightbox={() => setLightboxUrl(m.media_url!)}
-                      renderCaption={t => renderTextWithLinks(t, members.map(mb => mb.name), true)}
+                      renderCaption={t => renderTextWithLinks(t, members, true, (uid) => navigate(`/profile/${uid}`))}
                     />
                   ) : (
                     <div className="bg-primary text-primary-foreground rounded-2xl overflow-hidden max-w-full">
@@ -2118,7 +2151,7 @@ export default function Groups() {
                         <p className="text-sm leading-relaxed whitespace-pre-wrap break-words px-3 pt-2 pb-2" style={{ maxWidth: "360px" }}>
                           {showSearch && searchQuery.trim().length >= 2
                             ? highlightText(m.text.trim(), searchQuery, true)
-                            : renderTextWithLinks(m.text.trim(), members.map(mb => mb.name), true)}
+                            : renderTextWithLinks(m.text.trim(), members, true, (uid) => navigate(`/profile/${uid}`))}
                         </p>
                       )}
                     </div>
@@ -2252,7 +2285,7 @@ export default function Groups() {
                       url={m.media_url} text={m.text} isMe={false}
                       reply={m.reply_to_id ? { author: m.reply_to_author, text: m.reply_to_text } : null}
                       onLightbox={() => setLightboxUrl(m.media_url!)}
-                      renderCaption={t => renderTextWithLinks(t, members.map(mb => mb.name))}
+                      renderCaption={t => renderTextWithLinks(t, members, false, (uid) => navigate(`/profile/${uid}`))}
                     />
                   ) : (
                     <div className="rounded-2xl overflow-hidden bg-muted border border-border/50">
@@ -2279,7 +2312,7 @@ export default function Groups() {
                         <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap break-words px-3 pt-2 pb-2" style={{ maxWidth: "360px" }}>
                           {showSearch && searchQuery.trim().length >= 2
                             ? highlightText(m.text.trim(), searchQuery)
-                            : renderTextWithLinks(m.text.trim(), members.map(mb => mb.name))}
+                            : renderTextWithLinks(m.text.trim(), members, false, (uid) => navigate(`/profile/${uid}`))}
                         </p>
                       )}
                       {m.media_type === "file" && m.media_url && (() => {
@@ -3211,16 +3244,28 @@ export default function Groups() {
           {/* @mention dropdown */}
           {mentionResults.length > 0 && (
             <div className="absolute bottom-16 left-4 right-4 z-40 bg-card border border-border rounded-xl shadow-xl overflow-hidden">
-              {mentionResults.map((m, i) => (
-                <button key={m.id} onMouseDown={e => { e.preventDefault(); const replaced = chatInput.replace(/@\w*$/, `@${m.name} `); setChatInput(replaced); setMentionResults([]); setMentionQuery(""); }}
-                  className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${i === mentionIndex ? "bg-primary/10 text-primary" : "hover:bg-muted text-foreground"}`}>
-                  <div className={`h-7 w-7 rounded-full ${m.color} flex items-center justify-center text-white text-xs font-semibold shrink-0 overflow-hidden`}>
-                    {m.avatarUrl ? <img src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover" /> : initials(m.name)}
-                  </div>
-                  <span className="font-medium">{m.name}</span>
-                  {(m.role === "admin" || m.role === "owner") && <Crown className="h-3 w-3 text-amber-500 ml-auto" />}
-                </button>
-              ))}
+              {mentionResults.map((m, i) => {
+                const handle = m.username || m.name;
+                return (
+                  <button key={m.id} onMouseDown={e => {
+                    e.preventDefault();
+                    const replaced = chatInput.replace(/@\w*$/, `@${handle} `);
+                    setChatInput(replaced);
+                    setMentionResults([]);
+                    setMentionQuery("");
+                  }}
+                    className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${i === mentionIndex ? "bg-primary/10 text-primary" : "hover:bg-muted text-foreground"}`}>
+                    <div className={`h-7 w-7 rounded-full ${m.color} flex items-center justify-center text-white text-xs font-semibold shrink-0 overflow-hidden`}>
+                      {m.avatarUrl ? <img src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover" /> : initials(m.name)}
+                    </div>
+                    <div className="flex flex-col items-start min-w-0">
+                      <span className="font-medium leading-tight truncate">{m.name}</span>
+                      {m.username && <span className="text-[11px] text-muted-foreground leading-tight">@{m.username}</span>}
+                    </div>
+                    {(m.role === "admin" || m.role === "owner") && <Crown className="h-3 w-3 text-amber-500 ml-auto shrink-0" />}
+                  </button>
+                );
+              })}
             </div>
           )}
 
@@ -3325,7 +3370,12 @@ export default function Groups() {
                       if (atMatch) {
                         const q = atMatch[1].toLowerCase();
                         setMentionQuery(q);
-                        setMentionResults(members.filter(m => m.id !== user.id && m.name.toLowerCase().includes(q)).slice(0, 5));
+                        setMentionResults(
+                          members.filter(m =>
+                            m.id !== user.id &&
+                            (m.name.toLowerCase().includes(q) || (m.username ?? "").toLowerCase().includes(q))
+                          ).slice(0, 6)
+                        );
                         setMentionIndex(0);
                       } else {
                         setMentionQuery("");
@@ -3351,7 +3401,8 @@ export default function Groups() {
                         if (e.key === "Enter" || e.key === "Tab") {
                           e.preventDefault();
                           const m = mentionResults[mentionIndex];
-                          const replaced = chatInput.replace(/@\w*$/, `@${m.name} `);
+                          const handle = m.username || m.name;
+                          const replaced = chatInput.replace(/@\w*$/, `@${handle} `);
                           setChatInput(replaced);
                           setMentionResults([]);
                           setMentionQuery("");

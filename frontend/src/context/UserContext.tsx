@@ -14,6 +14,7 @@ export type CurrentUser = {
   id: string;
   email: string;
   name: string;
+  username: string;
   avatar: string;
   avatarUrl: string;
   color: string;
@@ -41,6 +42,7 @@ const DEFAULT_USER: CurrentUser = {
   id: "",
   email: "",
   name: "",
+  username: "",
   avatar: "",
   avatarUrl: "",
   color: "bg-primary",
@@ -135,6 +137,7 @@ function profileFromRow(userId: string, email: string, row: any): CurrentUser {
     id: userId,
     email,
     name: row.name || "",
+    username: row.username || "",
     avatar: row.avatar || "",
     avatarUrl: row.avatar_url || "",
     color: row.color || "bg-primary",
@@ -452,6 +455,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
     const nameChanged = patch.name !== undefined;
     const profileData: Record<string, any> = {
       name: next.name,
+      username: next.username || null,
       avatar: next.avatar,
       color: next.color,
       location: next.location,

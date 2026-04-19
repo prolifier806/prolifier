@@ -4,6 +4,7 @@ import { validate } from "../middleware/validate";
 import {
   getProfile, getMyProfile, updateMyProfile, discoverProfiles,
   blockUser, unblockUser, deleteMyAccount, recoverAccount, purgeExpiredAccount,
+  searchUsers,
   updateProfileSchema, blockUserSchema,
 } from "../controllers/usersController";
 import { supabaseAdmin } from "../lib/supabase";
@@ -12,6 +13,7 @@ const router = Router();
 router.use(requireAuth as any);
 
 router.get("/discover", discoverProfiles as any);
+router.get("/search", searchUsers as any);
 router.get("/me", getMyProfile as any);
 router.patch("/me", validate(updateProfileSchema), updateMyProfile as any);
 router.delete("/me", deleteMyAccount as any);

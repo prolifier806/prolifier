@@ -17,6 +17,7 @@ export const updateProfileSchema = z.object({
   avatar: z.string().max(10).optional(),
   color: z.string().max(50).optional(),
   startup_stage: z.enum(["Ideation", "MVP", "Traction", "Scaling", "None"]).optional(),
+  username: z.string().regex(/^[a-z0-9_]{3,20}$/).optional(),
 });
 
 export const blockUserSchema = z.object({
@@ -28,7 +29,7 @@ export async function getProfile(req: AuthRequest, res: Response): Promise<void>
 
   const { data, error } = await supabaseAdmin
     .from("profiles")
-    .select("id, name, avatar, color, avatar_url, location, bio, project, skills, open_to_collab, created_at, role, profile_complete")
+    .select("id, name, username, avatar, color, avatar_url, location, bio, project, skills, open_to_collab, created_at, role, profile_complete")
     .eq("id", id)
     .single();
 
@@ -130,7 +131,7 @@ export async function discoverProfiles(req: AuthRequest, res: Response): Promise
     return q;
   };
 
-  const BASE_SELECT = "id, name, avatar, color, avatar_url, location, bio, project, skills, open_to_collab, created_at, role";
+  const BASE_SELECT = "id, name, username, avatar, color, avatar_url, location, bio, project, skills, open_to_collab, created_at, role";
 
   let rawData: any[] = [];
 
@@ -329,4 +330,59 @@ export async function purgeExpiredAccount(req: AuthRequest, res: Response): Prom
   await supabaseAdmin.auth.admin.deleteUser(userId);
 
   res.json({ success: true, data: { purged: true } });
+}
+
+/** GET /api/users/search?q=xxx
+ *  Searches profiles by username (primary) and name (fallback).
+ *  Used by the @mention autocomplete and global search.
+ *  Returns up to 15 results, blocked users excluded.
+ */
+export async function searchUsers(req: AuthRequest, res: Response): Promise<void> {
+  const userId = req.user.id;
+  const raw = (req.query.q as string ?? "").toLowerCase().trim().replace(/[%_,.()"']/g, "").slice(0, 50);
+
+  if (!raw) { res.json({ success: true, data: [] }); return; }
+
+  const like = `%${raw}%`;
+  const LIMIT = 15;
+
+  const [byUsername, byName, [blockedRes, blockerRes]] = await Promise.all([
+    supabaseAdmin
+      .from("profiles")
+      .select("id, name, username, avatar, color, avatar_url, role")
+      .ilike("username", like)
+      .eq("profile_complete", true)
+      .is("deleted_at", null)
+      .neq("permanently_deleted", true)
+      .neq("id", userId)
+      .limit(LIMIT),
+    supabaseAdmin
+      .from("profiles")
+      .select("id, name, username, avatar, color, avatar_url, role")
+      .ilike("name", like)
+      .eq("profile_complete", true)
+      .is("deleted_at", null)
+      .neq("permanently_deleted", true)
+      .neq("id", userId)
+      .limit(LIMIT),
+    Promise.all([
+      supabaseAdmin.from("blocks").select("blocked_id").eq("blocker_id", userId),
+      supabaseAdmin.from("blocks").select("blocker_id").eq("blocked_id", userId),
+    ]),
+  ]);
+
+  const hiddenIds = new Set([
+    ...(blockedRes.data ?? []).map((r: any) => r.blocked_id),
+    ...(blockerRes.data ?? []).map((r: any) => r.blocker_id),
+  ]);
+
+  // Username matches first, then name matches (deduplicated)
+  const merged: any[] = [...(byUsername.data ?? [])];
+  const seen = new Set(merged.map((p: any) => p.id));
+  for (const p of (byName.data ?? [])) {
+    if (!seen.has(p.id)) { merged.push(p); seen.add(p.id); }
+  }
+
+  const filtered = merged.filter((p: any) => !hiddenIds.has(p.id)).slice(0, LIMIT);
+  res.json({ success: true, data: filtered });
 }

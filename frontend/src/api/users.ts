@@ -31,3 +31,17 @@ export const recoverMyAccount = () => apiPost("/api/users/me/recover", {});
 export const purgeCheckAccount = () => apiPost("/api/users/me/purge-check", {});
 export const blockUser        = (blockedId: string) => apiPost("/api/users/me/block", { blockedId });
 export const unblockUser      = (id: string) => apiDelete(`/api/users/me/block/${id}`);
+
+/** Check if a username is available. No auth required. */
+export const checkUsername = (username: string) =>
+  apiGet<{ available: boolean }>(`/api/username/check?username=${encodeURIComponent(username)}`);
+
+/** Claim / change the authenticated user's username. */
+export const setUsername = (username: string) =>
+  apiPost<{ id: string; username: string }>("/api/username/set", { username });
+
+/** Search users by username or name (for @mention autocomplete & global search). */
+export const searchUsers = (q: string) =>
+  apiGet<Array<{ id: string; name: string; username: string | null; avatar: string; color: string; avatar_url: string | null; role: string }>>(
+    `/api/users/search?q=${encodeURIComponent(q)}`
+  );

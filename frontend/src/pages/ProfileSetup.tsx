@@ -1,24 +1,47 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { X, Plus, Camera, MapPin } from "lucide-react";
+import { X, Plus, Camera, MapPin, AtSign, Check, Loader2 } from "lucide-react";
 import { useUser } from "@/context/UserContext";
 import { toast } from "@/hooks/use-toast";
 import { uploadAvatar, removeAvatar } from "@/api/uploads";
+import { checkUsername, setUsername as apiSetUsername } from "@/api/users";
 import { SKILL_CATEGORIES } from "@/lib/skills";
 import { LOCATIONS } from "@/lib/locations";
 
-const TOTAL_STEPS = 3;
+const TOTAL_STEPS = 4; // 0=username, 1=basic info, 2=skills, 3=links
 const MAX_SKILLS = 3;
+const USERNAME_RE = /^[a-z0-9_]{3,20}$/;
 
 export default function ProfileSetup() {
   const [step, setStep]     = useState(0);
   const navigate            = useNavigate();
   const { user, updateUser, completeProfileSetup } = useUser();
+
+  // ── Username state ─────────────────────────────────────────────────────────
+  const [username, setUsername]           = useState(user.username || "");
+  const [usernameStatus, setUsernameStatus] = useState<"idle" | "checking" | "available" | "taken" | "invalid">("idle");
+  const usernameTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleUsernameChange = (val: string) => {
+    const clean = val.toLowerCase().replace(/[^a-z0-9_]/g, "");
+    setUsername(clean);
+    if (usernameTimerRef.current) clearTimeout(usernameTimerRef.current);
+    if (!clean) { setUsernameStatus("idle"); return; }
+    if (!USERNAME_RE.test(clean)) { setUsernameStatus("invalid"); return; }
+    setUsernameStatus("checking");
+    usernameTimerRef.current = setTimeout(async () => {
+      try {
+        const res = await checkUsername(clean);
+        if (res.data?.available) setUsernameStatus("available");
+        else setUsernameStatus("taken");
+      } catch { setUsernameStatus("idle"); }
+    }, 350);
+  };
 
   const [name, setName]         = useState(user.name || "");
   const [location, setLocation] = useState("");
@@ -100,6 +123,7 @@ export default function ProfileSetup() {
     const initials = name.trim().split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
     return {
       name: name.trim(), avatar: initials,
+      username: username.trim() || undefined,
       avatarUrl,
       location: location.trim(), bio: bio.trim(), project: building.trim(),
       skills, lookingFor: [], roles: [],
@@ -112,6 +136,14 @@ export default function ProfileSetup() {
   const finish = async () => {
     setFinishing(true);
     try {
+      // Persist username via dedicated endpoint (handles uniqueness server-side)
+      if (username.trim()) {
+        try { await apiSetUsername(username.trim()); } catch (e: any) {
+          toast({ title: e?.message || "Username unavailable", variant: "destructive" });
+          setFinishing(false);
+          return;
+        }
+      }
       await updateUser(buildPayload());
       await completeProfileSetup();
       navigate("/feed");
@@ -133,12 +165,19 @@ export default function ProfileSetup() {
 
   const next = async () => {
     if (step === 0) {
+      // Username step
+      if (!username.trim()) { toast({ title: "Username is required", variant: "destructive" }); return; }
+      if (!USERNAME_RE.test(username)) { toast({ title: "Invalid username format", variant: "destructive" }); return; }
+      if (usernameStatus === "taken") { toast({ title: "Username already taken", variant: "destructive" }); return; }
+      if (usernameStatus === "checking") { toast({ title: "Please wait while we check availability", variant: "destructive" }); return; }
+    }
+    if (step === 1) {
       if (!name.trim()) return;
       if (!location.trim()) { toast({ title: "Location is required", variant: "destructive" }); return; }
       if (!LOCATIONS.includes(location.trim())) { toast({ title: "Please select a location from the list", variant: "destructive" }); return; }
       if (!bio.trim()) { toast({ title: "Bio is required", variant: "destructive" }); return; }
     }
-    if (step === 1 && skills.length === 0) {
+    if (step === 2 && skills.length === 0) {
       toast({ title: "Please select at least one skill", variant: "destructive" }); return;
     }
     if (step < TOTAL_STEPS - 1) {
@@ -148,9 +187,56 @@ export default function ProfileSetup() {
     }
   };
 
-  const stepLabels = ["Basic info", "Skills", "Links"];
+  const stepLabels = ["Username", "Basic info", "Skills", "Links"];
 
   const steps = [
+    // ── Step 0: Username ──────────────────────────────────────
+    <div className="space-y-5" key="s0">
+      <div className="text-center mb-4">
+        <div className="h-14 w-14 bg-primary/10 rounded-2xl flex items-center justify-center mx-auto mb-3">
+          <AtSign className="h-7 w-7 text-primary" />
+        </div>
+        <p className="text-muted-foreground text-sm">Choose a unique username. This is how others will mention you.</p>
+      </div>
+      <div>
+        <label className="text-sm font-medium text-foreground mb-1.5 block">
+          Username <span className="text-destructive">*</span>
+        </label>
+        <div className="relative">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground font-medium select-none">@</span>
+          <Input
+            value={username}
+            onChange={e => handleUsernameChange(e.target.value)}
+            placeholder="your_username"
+            className="h-11 pl-7 pr-10"
+            maxLength={20}
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+          />
+          <span className="absolute right-3 top-1/2 -translate-y-1/2">
+            {usernameStatus === "checking" && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+            {usernameStatus === "available" && <Check className="h-4 w-4 text-emerald-500" />}
+            {usernameStatus === "taken" && <X className="h-4 w-4 text-destructive" />}
+          </span>
+        </div>
+        <div className="mt-1.5 h-4">
+          {usernameStatus === "invalid" && username.length > 0 && (
+            <p className="text-xs text-destructive">3–20 characters: lowercase letters, numbers, underscores only</p>
+          )}
+          {usernameStatus === "taken" && (
+            <p className="text-xs text-destructive">@{username} is already taken</p>
+          )}
+          {usernameStatus === "available" && (
+            <p className="text-xs text-emerald-600">@{username} is available!</p>
+          )}
+        </div>
+        <p className="text-xs text-muted-foreground mt-2">
+          Allowed: a–z, 0–9, underscore (_) · 3–20 characters
+        </p>
+      </div>
+    </div>,
+
     // ── Step 1: Basic info ────────────────────────────────────
     <div className="space-y-5" key="s1">
       <div className="flex flex-col items-center gap-2 mb-2">
@@ -361,19 +447,24 @@ export default function ProfileSetup() {
           )}
           <Button
             onClick={next}
-            disabled={(step === 0 && (!name.trim() || !location.trim() || !bio.trim())) || (step === 1 && skills.length === 0) || finishing}
+            disabled={
+              (step === 0 && (!username.trim() || usernameStatus === "taken" || usernameStatus === "checking" || usernameStatus === "invalid")) ||
+              (step === 1 && (!name.trim() || !location.trim() || !bio.trim())) ||
+              (step === 2 && skills.length === 0) ||
+              finishing
+            }
             className="flex-1 h-11 font-semibold"
           >
             {finishing ? "Saving…" : step === TOTAL_STEPS - 1 ? "Complete setup" : "Continue"}
           </Button>
         </div>
 
-        {step === 1 && (
-          <button onClick={() => setStep(2)} className="w-full mt-3 text-center text-sm text-muted-foreground hover:text-foreground transition-colors">
+        {step === 2 && (
+          <button onClick={() => setStep(3)} className="w-full mt-3 text-center text-sm text-muted-foreground hover:text-foreground transition-colors">
             Skip for now
           </button>
         )}
-        {step === 2 && (
+        {step === 3 && (
           <button onClick={skipToFeed} disabled={finishing}
             className="w-full mt-3 text-center text-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50">
             Skip to feed
