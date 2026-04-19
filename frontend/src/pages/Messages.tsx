@@ -9,7 +9,8 @@ import { Button } from "@/components/ui/button";
 import {
   Search, Send, ArrowLeft, Image, Video, Paperclip,
   X, Play, Pause, Mic, StopCircle, RefreshCw, Check, CheckCheck,
-  BellOff, Bell, Flag, Trash2, Reply, MessageCircle, Eye,
+  BellOff, Bell, Flag, Trash2, Reply, MessageCircle, MoreHorizontal,
+  Smile, Download,
 } from "lucide-react";
 import Layout from "@/components/Layout";
 import { toast } from "@/hooks/use-toast";
@@ -68,7 +69,7 @@ function previewText(text: string | null, mediaType: string | null): string {
 }
 
 // ── Link-aware text renderer ──────────────────────────────────────────────
-function renderTextWithLinks(text: string, isMe: boolean) {
+function renderTextWithLinks(text: string) {
   const URL_RE = /(https?:\/\/[^\s]+)/g;
   const parts = text.split(URL_RE);
   return parts.map((part, i) =>
@@ -78,11 +79,7 @@ function renderTextWithLinks(text: string, isMe: boolean) {
         href={part}
         target="_blank"
         rel="noopener noreferrer"
-        className={`underline break-all ${
-          isMe
-            ? "text-white/95 decoration-white/60 hover:decoration-white"
-            : "text-blue-600 dark:text-blue-400 hover:opacity-80"
-        }`}
+        className="text-primary underline decoration-primary/60 hover:opacity-80 break-all"
         onClick={e => e.stopPropagation()}
       >
         {part}
@@ -187,7 +184,7 @@ function useVoiceRecorder(onStop: (blob: Blob) => void) {
 }
 
 import { createReport } from "@/api/reports";
-import { hideConversation } from "@/api/messages";
+import { hideConversation, toggleDmReaction, getDmMessageReactions } from "@/api/messages";
 import { uploadPostImage, uploadVideo as apiUploadVideo } from "@/api/uploads";
 import { unblockUser } from "@/api/users";
 import { apiPost, apiUpload, isAbortError } from "@/api/client";
@@ -219,7 +216,7 @@ export default function Messages() {
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollBehaviorRef = useRef<"smooth" | "instant">("instant");
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const imageRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -250,8 +247,17 @@ export default function Messages() {
   // Delete chat confirmation
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingChat, setDeletingChat] = useState(false);
+  // Target for sidebar-triggered delete (may differ from selectedId)
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   // Reply-to state
   const [replyTo, setReplyTo] = useState<{ id: string; text: string } | null>(null);
+  // Reactions
+  type ReactionMap = Record<string, Record<string, { count: number; userIds: string[] }>>;
+  const [reactions, setReactions] = useState<ReactionMap>({});
+  const [reactionPickerMsgId, setReactionPickerMsgId] = useState<string | null>(null);
+  const QUICK_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
+  // Sidebar conversation context menu
+  const [convoMenuId, setConvoMenuId] = useState<string | null>(null);
 
   // Socket.IO — primary realtime transport
   const [socketToken, setSocketToken] = useState<string | null>(null);
@@ -426,21 +432,23 @@ export default function Messages() {
   };
 
   const handleDeleteChat = async () => {
-    if (!selectedId) return;
+    const targetId = deleteTargetId ?? selectedId;
+    if (!targetId) return;
     setDeletingChat(true);
     try {
       // Only hide the conversation on this user's side — do NOT delete messages
       // from the DB (the other person should still see everything).
-      // Persist hidden state in localStorage — survives refresh without DB table
-      addHiddenId(selectedId);
-      // Also persist via API (best-effort)
-      hideConversation(selectedId).catch(() => {});
-      // Remove from conversations list and clear chat view
-      setConversations(prev => prev.filter(c => c.id !== selectedId));
-      setMessages([]);
-      setSelectedId(null);
-      setShowMobileChat(false);
+      addHiddenId(targetId);
+      hideConversation(targetId).catch(() => {});
+      setConversations(prev => prev.filter(c => c.id !== targetId));
+      // Only clear the chat view if we deleted the currently open conversation
+      if (selectedId === targetId) {
+        setMessages([]);
+        setSelectedId(null);
+        setShowMobileChat(false);
+      }
       setShowDeleteConfirm(false);
+      setDeleteTargetId(null);
       toast({ title: "Chat hidden" });
     } catch (err: any) {
       if (!isAbortError(err)) toast({ title: "Failed to delete chat", description: err.message, variant: "destructive" });
@@ -633,6 +641,12 @@ export default function Messages() {
       const rows: Message[] = (data || []).reverse();
       scrollBehaviorRef.current = "instant";
       setMessages(rows);
+      setReactions({});
+      if (rows.length > 0) {
+        getDmMessageReactions(rows.map(m => m.id))
+          .then(res => { if (res.success && res.data) setReactions(res.data); })
+          .catch(() => {});
+      }
 
       if (rows.length === MSG_PAGE) {
         setHasOlderMsgs(true);
@@ -893,14 +907,43 @@ export default function Messages() {
     }
   };
 
-  // ── SVG tail (Telegram-style) ─────────────────────────────────────────────
-  const TgTail = ({ isMe, color }: { isMe: boolean; color: string }) => (
-    <svg viewBox="0 0 11 20" width="11" height="20"
-      style={{ position:"absolute", bottom:0, pointerEvents:"none",
-        ...(isMe ? { right:-10 } : { left:-10, transform:"scaleX(-1)" }) }}>
-      <path fill={color} d="M6 17C4.5 17 1 16 1 11.5V1L11 20H8.5C7.5 20 6.5 19 6 17Z" />
-    </svg>
-  );
+  // ── DM reaction handler ───────────────────────────────────────────────────
+  const handleReaction = async (msgId: string, emoji: string) => {
+    setReactionPickerMsgId(null);
+    const msgReactions = reactions[msgId] ?? {};
+    const alreadyReacted = msgReactions[emoji]?.userIds.includes(user.id) ?? false;
+    const existingEmoji = Object.entries(msgReactions).find(
+      ([e, data]) => e !== emoji && data.userIds.includes(user.id)
+    )?.[0];
+
+    // Optimistic update
+    setReactions(prev => {
+      const msg = { ...(prev[msgId] ?? {}) };
+      if (existingEmoji) {
+        const ids = (msg[existingEmoji]?.userIds ?? []).filter(id => id !== user.id);
+        if (ids.length === 0) delete msg[existingEmoji];
+        else msg[existingEmoji] = { count: ids.length, userIds: ids };
+      }
+      if (alreadyReacted) {
+        const ids = (msg[emoji]?.userIds ?? []).filter(id => id !== user.id);
+        if (ids.length === 0) delete msg[emoji];
+        else msg[emoji] = { count: ids.length, userIds: ids };
+      } else {
+        const ids = msg[emoji]?.userIds ?? [];
+        msg[emoji] = { count: ids.length + 1, userIds: [...ids, user.id] };
+      }
+      return { ...prev, [msgId]: msg };
+    });
+
+    try {
+      await toggleDmReaction(msgId, emoji);
+    } catch {
+      // Revert on failure
+      getDmMessageReactions([msgId])
+        .then(res => { if (res.success && res.data) setReactions(prev => ({ ...prev, ...res.data })); })
+        .catch(() => {});
+    }
+  };
 
   // ── Timestamp + tick row ──────────────────────────────────────────────────
   const Meta = ({ m, isMe }: { m: Message; isMe: boolean }) => (
@@ -917,15 +960,16 @@ export default function Messages() {
     const isMe = m.sender_id === user.id;
     const onReply = () => { setReplyTo({ id: m.id, text: quoteLabel(m) }); setTimeout(() => inputRef.current?.focus(), 50); };
 
-    const SENT_BG  = "hsl(var(--primary))";
-    const RECV_BG  = "hsl(var(--card,var(--background)))";
+    // Minimal, clean bubble colors — subtle sender/receiver difference, no heavy styling
+    const SENT_BG  = "hsl(var(--primary) / 0.13)";
+    const RECV_BG  = "hsl(var(--muted))";
     const bgColor  = isMe ? SENT_BG : RECV_BG;
-    const textColor = isMe ? "hsl(var(--primary-foreground))" : "hsl(var(--foreground))";
+    const textColor = "hsl(var(--foreground))";
 
-    // Bubble corner radii — Telegram style
-    const radius = isMe ? "18px 18px 4px 18px" : "18px 18px 18px 4px";
+    // Uniform rounded corners — no tail, no directional pointer
+    const radius = "18px";
 
-    // Shared text-bubble style (for text / audio / video / file)
+    // Shared bubble style
     const textBubble: React.CSSProperties = {
       position: "relative",
       maxWidth: 320,
@@ -933,19 +977,18 @@ export default function Messages() {
       color: textColor,
       borderRadius: radius,
       overflow: "hidden",
-      ...(isMe ? {} : { border: "1px solid hsl(var(--border))" }),
     };
 
     // Reply-quote strip inside a bubble
-    const ReplyStrip = ({ isMe }: { isMe: boolean }) => m.reply_to_text ? (
+    const ReplyStrip = ({ isMe: me }: { isMe: boolean }) => m.reply_to_text ? (
       <div style={{ margin:"8px 10px 0", padding:"6px 8px", borderRadius:8,
-        borderLeft:`3px solid ${isMe ? "rgba(255,255,255,.5)" : "hsl(var(--primary))"}`,
-        background: isMe ? "rgba(255,255,255,.12)" : "hsl(var(--muted))" }}>
+        borderLeft:`3px solid hsl(var(--primary))`,
+        background: "hsl(var(--background) / 0.5)" }}>
         <p style={{ fontSize:10, fontWeight:700, textTransform:"uppercase",
-          color: isMe ? "rgba(255,255,255,.7)" : "hsl(var(--primary))", marginBottom:2 }}>
-          {isMe ? "You replied" : "Reply"}
+          color:"hsl(var(--primary))", marginBottom:2 }}>
+          {me ? "You replied" : "Reply"}
         </p>
-        <p style={{ fontSize:12, opacity:.8, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+        <p style={{ fontSize:12, opacity:.7, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
           {m.reply_to_text}
         </p>
       </div>
@@ -959,7 +1002,46 @@ export default function Messages() {
       </button>
     );
 
-    const rowCls = `group flex items-end gap-2 ${isMe ? "justify-end" : "justify-start"}`;
+    const reactionBtn = (
+      <button
+        onClick={e => { e.stopPropagation(); setReactionPickerMsgId(reactionPickerMsgId === m.id ? null : m.id); }}
+        className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground
+          opacity-0 group-hover:opacity-100 hover:bg-muted/80 transition-all shrink-0 self-end mb-1">
+        <Smile className="h-3.5 w-3.5" />
+      </button>
+    );
+
+    const rowCls = `group flex items-end gap-1 ${isMe ? "justify-end" : "justify-start"}`;
+
+    // Reaction picker + pills — shared for all message types
+    const ReactionPicker = () => reactionPickerMsgId === m.id ? (
+      <div
+        className={`absolute ${isMe ? "right-0" : "left-0"} bottom-full mb-1 z-50 bg-card border border-border rounded-2xl shadow-xl px-2 py-1.5 flex gap-1`}
+        onClick={e => e.stopPropagation()}>
+        {QUICK_EMOJIS.map(emoji => (
+          <button key={emoji} onClick={() => handleReaction(m.id, emoji)}
+            className="text-lg hover:scale-125 transition-transform px-0.5">
+            {emoji}
+          </button>
+        ))}
+      </div>
+    ) : null;
+
+    const ReactionPills = () => reactions[m.id] && Object.keys(reactions[m.id]).length > 0 ? (
+      <div className={`flex flex-wrap gap-1 mt-1 ${isMe ? "justify-end" : "justify-start"}`}>
+        {Object.entries(reactions[m.id]).map(([emoji, { count, userIds }]) => (
+          <button key={emoji} onClick={() => handleReaction(m.id, emoji)}
+            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border transition-colors ${
+              userIds.includes(user.id)
+                ? "bg-primary/10 border-primary/40 text-primary"
+                : "bg-card border-border text-foreground hover:bg-muted"
+            }`}>
+            <span>{emoji}</span>
+            {count > 1 && <span className="font-medium">{count}</span>}
+          </button>
+        ))}
+      </div>
+    ) : null;
 
     // ── Shared post card ──────────────────────────────────────────────────
     if (m.media_type === "shared_post" && m.text) {
@@ -971,8 +1053,9 @@ export default function Messages() {
         return (
           <div key={m.id} className={rowCls}>
             {!isMe && replyBtn()}
-            <div style={{ position:"relative", maxWidth:300 }}>
-              <TgTail isMe={isMe} color={bgColor} />
+            {!isMe && reactionBtn}
+            <div className="relative" style={{ maxWidth:300 }}>
+              <ReactionPicker />
               <div style={{ ...textBubble, cursor:"pointer" }} onClick={() => navigate(link)}>
                 {share.image && <img src={share.image} alt="preview" style={{ display:"block", width:"100%", height:"auto" }} loading="lazy" />}
                 <div style={{ padding:"10px 12px 4px" }}>
@@ -985,7 +1068,9 @@ export default function Messages() {
                 </div>
                 <Meta m={m} isMe={isMe} />
               </div>
+              <ReactionPills />
             </div>
+            {isMe && reactionBtn}
             {isMe && replyBtn(true)}
           </div>
         );
@@ -993,18 +1078,13 @@ export default function Messages() {
     }
 
     // ── Image message ─────────────────────────────────────────────────────
-    // Strategy: wrapper is a normal block flex-child with maxWidth.
-    // img width:100% fills the wrapper. No inline-block, no fit-content tricks.
-    // The wrapper shrinks to the image's natural width because flex items don't
-    // stretch in the main axis — only in the cross axis (which is height here).
     if (m.media_type === "image" && m.media_url) {
       return (
         <div key={m.id} className={rowCls}>
           {!isMe && replyBtn()}
-          <div style={{ position:"relative", maxWidth:300, borderRadius:radius, overflow:"hidden",
-            background: bgColor,
-            ...(isMe ? {} : { border:"1px solid hsl(var(--border))" }) }}>
-            <TgTail isMe={isMe} color={bgColor} />
+          {!isMe && reactionBtn}
+          <div className="relative" style={{ maxWidth:300, borderRadius:radius, overflow:"hidden", background:bgColor }}>
+            <ReactionPicker />
             <ReplyStrip isMe={isMe} />
             <img
               src={m.media_url}
@@ -1017,11 +1097,13 @@ export default function Messages() {
             {m.text && (
               <div style={{ padding:"6px 12px 2px", fontSize:14, lineHeight:1.4,
                 whiteSpace:"pre-wrap", wordBreak:"break-word", color:textColor }}>
-                {renderTextWithLinks(m.text, isMe)}
+                {renderTextWithLinks(m.text)}
               </div>
             )}
             <Meta m={m} isMe={isMe} />
+            <ReactionPills />
           </div>
+          {isMe && reactionBtn}
           {isMe && replyBtn(true)}
         </div>
       );
@@ -1031,25 +1113,44 @@ export default function Messages() {
     return (
       <div key={m.id} className={rowCls}>
         {!isMe && replyBtn()}
-        <div style={{ position:"relative", maxWidth:300 }}>
-          <TgTail isMe={isMe} color={bgColor} />
+        {!isMe && reactionBtn}
+        <div className="relative" style={{ maxWidth:300 }}>
+          <ReactionPicker />
 
           {m.text && (!m.media_type || m.media_type === "text") && (
             <div style={textBubble}>
               <ReplyStrip isMe={isMe} />
               <div style={{ padding: m.reply_to_text ? "8px 12px 2px" : "10px 12px 2px",
                 fontSize:15, lineHeight:1.45, whiteSpace:"pre-wrap", wordBreak:"break-word" }}>
-                {renderTextWithLinks(m.text, isMe)}
+                {renderTextWithLinks(m.text)}
               </div>
               <Meta m={m} isMe={isMe} />
             </div>
           )}
 
           {m.media_type === "video" && m.media_url && (
-            <div style={textBubble}>
+            <div
+              style={{ ...textBubble, cursor:"pointer" }}
+              onClick={() => setMediaPreview({ type:"video", url:m.media_url! })}>
               <ReplyStrip isMe={isMe} />
-              <div style={{ marginTop: m.reply_to_text ? 8 : 0 }}>
-                <VideoPlayerInMessage src={m.media_url} />
+              <div className="relative" style={{ marginTop: m.reply_to_text ? 8 : 0 }}>
+                <video
+                  src={m.media_url}
+                  controls
+                  controlsList="nodownload noplaybackrate nopictureinpicture nofullscreen"
+                  disablePictureInPicture
+                  className="block w-full bg-black"
+                  onClick={e => e.stopPropagation()}
+                />
+                <button
+                  onClick={async e => {
+                    e.stopPropagation();
+                    await downloadFile(m.media_url!, "video.mp4");
+                  }}
+                  className="absolute top-2 right-2 h-7 w-7 rounded-full bg-black/50 hover:bg-black/70 flex items-center justify-center transition-colors"
+                  title="Save video">
+                  <Download className="h-3.5 w-3.5 text-white" />
+                </button>
               </div>
               <Meta m={m} isMe={isMe} />
             </div>
@@ -1061,7 +1162,7 @@ export default function Messages() {
               <button onClick={() => downloadFile(m.media_url!, m.text || "file")}
                 style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 14px 4px",
                   fontSize:14, width:"100%", cursor:"pointer", background:"none", border:"none", color:"inherit" }}>
-                <div style={{ width:36, height:36, borderRadius:10, background:"rgba(255,255,255,.15)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                <div style={{ width:36, height:36, borderRadius:10, background:"hsl(var(--primary) / 0.15)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
                   <Paperclip style={{ width:16, height:16 }} />
                 </div>
                 <span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", fontSize:13, fontWeight:500 }}>{m.text || "File"}</span>
@@ -1078,7 +1179,10 @@ export default function Messages() {
               <Meta m={m} isMe={isMe} />
             </div>
           )}
+
+          <ReactionPills />
         </div>
+        {isMe && reactionBtn}
         {isMe && replyBtn(true)}
       </div>
     );
@@ -1108,6 +1212,7 @@ export default function Messages() {
           </div>
 
           {/* Conversation list */}
+          {(convoMenuId !== null) && <div className="fixed inset-0 z-30" onClick={() => setConvoMenuId(null)} />}
           <div className="flex-1 overflow-y-auto">
             {loadingConvos ? (
               <div className="flex items-center justify-center py-12">
@@ -1119,29 +1224,50 @@ export default function Messages() {
                 <p className="text-xs">Message someone from their profile or a collab</p>
               </div>
             ) : filteredConvos.map(c => (
-              <button key={c.id} onClick={() => selectConvo(c.id)}
-                className={`w-full flex items-center gap-3 px-4 py-3.5 hover:bg-muted transition-colors border-b border-border/50 ${selectedId === c.id ? "bg-muted" : ""}`}>
-                <div className="relative shrink-0">
-                  <div className={`h-10 w-10 rounded-full ${c.avatarUrl ? "" : c.color} flex items-center justify-center text-white text-sm font-semibold overflow-hidden`}>
-                    {c.avatarUrl ? <img src={c.avatarUrl} alt={c.avatar} className="w-full h-full object-cover" /> : c.avatar}
+              <div key={c.id}
+                className={`relative group flex items-center border-b border-border/50 transition-colors ${selectedId === c.id ? "bg-muted" : "hover:bg-muted/60"}`}>
+                <button onClick={() => selectConvo(c.id)}
+                  className="flex items-center gap-3 flex-1 min-w-0 px-4 py-3.5 text-left">
+                  <div className="relative shrink-0">
+                    <div className={`h-10 w-10 rounded-full ${c.avatarUrl ? "" : c.color} flex items-center justify-center text-white text-sm font-semibold overflow-hidden`}>
+                      {c.avatarUrl ? <img src={c.avatarUrl} alt={c.avatar} className="w-full h-full object-cover" /> : c.avatar}
+                    </div>
+                    {c.unread > 0 && <span className="absolute -top-0.5 -right-0.5 h-4 w-4 rounded-full bg-accent text-accent-foreground text-[9px] font-bold flex items-center justify-center border-2 border-background">{c.unread}</span>}
                   </div>
-                  {c.unread > 0 && <span className="absolute -top-0.5 -right-0.5 h-4 w-4 rounded-full bg-accent text-accent-foreground text-[9px] font-bold flex items-center justify-center border-2 border-background">{c.unread}</span>}
-                </div>
-                <div className="flex-1 min-w-0 text-left">
-                  <div className="flex items-center justify-between">
-                    <p className={`inline-flex items-center gap-1 text-sm truncate ${c.unread > 0 ? "font-semibold" : "font-medium"}`}>
-                      {c.name}
-                      {c.role === "admin" && (
-                        <span title="Verified" className="shrink-0 h-3.5 w-3.5 rounded-full bg-blue-500 inline-flex items-center justify-center">
-                          <Check className="h-2 w-2 text-white stroke-[3]" />
-                        </span>
-                      )}
-                    </p>
-                    <span className="text-xs text-muted-foreground shrink-0 ml-2">{c.lastTime}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <p className={`inline-flex items-center gap-1 text-sm truncate ${c.unread > 0 ? "font-semibold" : "font-medium"}`}>
+                        {c.name}
+                        {c.role === "admin" && (
+                          <span title="Verified" className="shrink-0 h-3.5 w-3.5 rounded-full bg-blue-500 inline-flex items-center justify-center">
+                            <Check className="h-2 w-2 text-white stroke-[3]" />
+                          </span>
+                        )}
+                      </p>
+                      <span className="text-xs text-muted-foreground shrink-0 ml-2">{c.lastTime}</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground truncate mt-0.5">{c.lastMsg}</p>
                   </div>
-                  <p className="text-xs text-muted-foreground truncate mt-0.5">{c.lastMsg}</p>
+                </button>
+                {/* 3-dot menu — visible on hover */}
+                <div className="relative pr-2 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button
+                    onClick={e => { e.stopPropagation(); setConvoMenuId(convoMenuId === c.id ? null : c.id); }}
+                    className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors">
+                    <MoreHorizontal className="h-4 w-4" />
+                  </button>
+                  {convoMenuId === c.id && (
+                    <div className="absolute right-0 top-full mt-0.5 z-50 bg-card border border-border rounded-xl shadow-lg min-w-[170px] py-1 overflow-hidden">
+                      <button
+                        onClick={e => { e.stopPropagation(); setConvoMenuId(null); setDeleteTargetId(c.id); setShowDeleteConfirm(true); }}
+                        className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-rose-500 hover:bg-muted/80 transition-colors">
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Delete conversation
+                      </button>
+                    </div>
+                  )}
                 </div>
-              </button>
+              </div>
             ))}
           </div>
         </div>
@@ -1222,13 +1348,6 @@ export default function Messages() {
                       className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-rose-500 transition-colors"
                     >
                       <Flag className="h-4 w-4" />
-                    </button>
-                    <button
-                      onClick={() => setShowDeleteConfirm(true)}
-                      title="Delete chat"
-                      className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-rose-500 transition-colors"
-                    >
-                      <Trash2 className="h-4 w-4" />
                     </button>
                   </div>
                 )}
@@ -1343,9 +1462,13 @@ export default function Messages() {
                         <Mic className="h-4 w-4" />
                       </button>
                     </div>
-                    <input ref={inputRef} value={msg}
+                    <textarea ref={inputRef} value={msg}
+                      rows={1}
                       onChange={e => {
                         setMsg(e.target.value);
+                        // Auto-resize up to ~120px
+                        e.target.style.height = "auto";
+                        e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`;
                         // Typing indicator — emit start, debounce stop after 3s
                         if (selectedId && e.target.value.length > 0) {
                           dmStartTyping(selectedId);
@@ -1359,10 +1482,18 @@ export default function Messages() {
                           dmStopTyping(selectedId);
                         }
                       }}
-                      onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(msg); } }}
+                      onKeyDown={e => {
+                        // Enter sends; Shift+Enter inserts a newline
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          sendMessage(msg);
+                          // Reset height after send
+                          e.currentTarget.style.height = "auto";
+                        }
+                      }}
                       placeholder={uploading ? "Uploading…" : `Message ${selectedConvo.name}…`}
                       disabled={uploading}
-                      className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none min-w-0 py-1 disabled:opacity-50" />
+                      className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none min-w-0 py-1 disabled:opacity-50 resize-none overflow-hidden leading-5" />
                     <button type="button" onClick={() => sendMessage(msg)} disabled={!msg.trim() || uploading}
                       className="h-7 w-7 rounded-full bg-primary text-primary-foreground flex items-center justify-center hover:opacity-90 transition-opacity disabled:opacity-30 shrink-0">
                       <Send className="h-3.5 w-3.5" />
@@ -1374,6 +1505,11 @@ export default function Messages() {
           )}
         </div>
       </div>
+
+      {/* Reaction picker backdrop */}
+      {reactionPickerMsgId !== null && (
+        <div className="fixed inset-0 z-40" onClick={() => setReactionPickerMsgId(null)} />
+      )}
 
       {/* Report modal */}
       {showReportModal && (
@@ -1409,8 +1545,10 @@ export default function Messages() {
       )}
 
       {/* Delete chat confirmation */}
-      {showDeleteConfirm && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => setShowDeleteConfirm(false)}>
+      {showDeleteConfirm && (() => {
+        const targetName = (conversations.find(c => c.id === (deleteTargetId ?? selectedId)) ?? selectedConvo)?.name;
+        return (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => { setShowDeleteConfirm(false); setDeleteTargetId(null); }}>
           <div className="bg-card rounded-2xl shadow-xl w-full max-w-sm p-6" onClick={e => e.stopPropagation()}>
             <div className="flex items-center gap-3 mb-3">
               <div className="h-10 w-10 rounded-full bg-rose-100 dark:bg-rose-950/40 flex items-center justify-center shrink-0">
@@ -1418,7 +1556,7 @@ export default function Messages() {
               </div>
               <div>
                 <h2 className="text-base font-bold text-foreground">Delete chat?</h2>
-                <p className="text-xs text-muted-foreground">With {selectedConvo?.name}</p>
+                <p className="text-xs text-muted-foreground">With {targetName}</p>
               </div>
             </div>
             <p className="text-sm text-muted-foreground mb-5">
@@ -1426,7 +1564,7 @@ export default function Messages() {
             </p>
             <div className="flex gap-2">
               <button
-                onClick={() => setShowDeleteConfirm(false)}
+                onClick={() => { setShowDeleteConfirm(false); setDeleteTargetId(null); }}
                 className="flex-1 h-9 rounded-lg border border-border text-sm font-medium text-muted-foreground hover:bg-muted transition-colors"
               >
                 Cancel
@@ -1443,7 +1581,8 @@ export default function Messages() {
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* Lightbox */}
       {mediaPreview && (

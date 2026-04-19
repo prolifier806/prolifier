@@ -18,3 +18,11 @@ export const getMessages = (chatId: string, cursor?: string) =>
 
 export const hideConversation = (chatId: string) =>
   apiPost(`/api/messages/${chatId}/hide`);
+
+export const toggleDmReaction = (messageId: string, emoji: string) =>
+  apiPost<{ action: "added" | "removed" }>(`/api/messages/${messageId}/reactions`, { emoji });
+
+export const getDmMessageReactions = (messageIds: string[]) =>
+  apiGet<Record<string, Record<string, { count: number; userIds: string[] }>>>(
+    `/api/messages/reactions?messageIds=${messageIds.join(",")}`
+  );

@@ -92,6 +92,74 @@ export async function getMessages(req: AuthRequest, res: Response): Promise<void
   res.json({ success: true, data });
 }
 
+/** POST /api/messages/:messageId/reactions — toggle a reaction on a DM */
+export async function toggleDmReaction(req: AuthRequest, res: Response): Promise<void> {
+  const { messageId } = req.params;
+  const userId = req.user.id;
+  const { emoji } = req.body as { emoji: string };
+
+  if (!emoji || emoji.length > 8) {
+    res.status(400).json({ success: false, error: "Invalid emoji" });
+    return;
+  }
+
+  // Verify user is party to this message
+  const { data: msg } = await supabaseAdmin
+    .from("messages")
+    .select("sender_id, receiver_id")
+    .eq("id", messageId)
+    .single();
+
+  if (!msg || (msg.sender_id !== userId && msg.receiver_id !== userId)) {
+    res.status(403).json({ success: false, error: "Not authorized" });
+    return;
+  }
+
+  const { data: existing } = await supabaseAdmin
+    .from("dm_message_reactions")
+    .select("id")
+    .eq("message_id", messageId)
+    .eq("user_id", userId)
+    .eq("emoji", emoji)
+    .maybeSingle();
+
+  const action: "added" | "removed" = existing ? "removed" : "added";
+
+  if (existing) {
+    await supabaseAdmin.from("dm_message_reactions").delete().eq("id", existing.id);
+  } else {
+    const { error } = await supabaseAdmin
+      .from("dm_message_reactions")
+      .insert({ message_id: messageId, user_id: userId, emoji });
+    if (error) { res.status(500).json({ success: false, error: error.message }); return; }
+  }
+
+  res.json({ success: true, data: { action } });
+}
+
+/** GET /api/messages/reactions?messageIds=id1,id2 — fetch reactions for multiple DMs */
+export async function getDmReactions(req: AuthRequest, res: Response): Promise<void> {
+  const ids = ((req.query.messageIds as string) ?? "").split(",").filter(Boolean).slice(0, 100);
+  if (ids.length === 0) { res.json({ success: true, data: {} }); return; }
+
+  const { data, error } = await supabaseAdmin
+    .from("dm_message_reactions")
+    .select("message_id, user_id, emoji")
+    .in("message_id", ids);
+
+  if (error) { res.status(500).json({ success: false, error: error.message }); return; }
+
+  const result: Record<string, Record<string, { count: number; userIds: string[] }>> = {};
+  for (const row of (data ?? [])) {
+    if (!result[row.message_id]) result[row.message_id] = {};
+    if (!result[row.message_id][row.emoji]) result[row.message_id][row.emoji] = { count: 0, userIds: [] };
+    result[row.message_id][row.emoji].count++;
+    result[row.message_id][row.emoji].userIds.push(row.user_id);
+  }
+
+  res.json({ success: true, data: result });
+}
+
 export async function hideConversation(req: AuthRequest, res: Response): Promise<void> {
   const userId = req.user.id;
   const { chatId } = req.params;
