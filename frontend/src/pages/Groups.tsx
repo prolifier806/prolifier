@@ -1978,12 +1978,8 @@ export default function Groups() {
       openGroup(data);
     } catch (err: any) {
       if (import.meta.env.DEV) console.error(err);
-      const msg = err?.message || "";
-      if (msg.toLowerCase().includes("10") || msg.toLowerCase().includes("limit") || msg.toLowerCase().includes("own")) {
-        toast({ title: "Community limit reached", description: "You can only own 10 communities. Delete one to create a new one.", variant: "destructive" });
-      } else {
-        toast({ title: "Failed to create community", variant: "destructive" });
-      }
+      const msg: string = err?.message || "";
+      toast({ title: msg || "Failed to create community", variant: "destructive" });
     } finally {
       setCreating(false);
     }
