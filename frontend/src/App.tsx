@@ -102,11 +102,12 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
 }
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { session, loading, user } = useUser();
+  const { session, loading, user, profileComplete } = useUser();
   if (loading || (session && !user.id)) return <PageLoader />;
   if (!session) return <Navigate to="/" replace />;
   if (user.deletedAt) return <Navigate to="/recover" replace />;
   if (user.accountStatus === "banned") return <SuspendedScreen />;
+  if (!profileComplete) return <Navigate to="/setup" replace />;
   return <>{children}</>;
 }
 

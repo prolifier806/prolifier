@@ -890,10 +890,11 @@ const CommentItem = memo(function CommentItem({ c, isReply, isEditing, editText,
 });
 
 // ── Comment Sheet ──────────────────────────────────────────────────────────
-function CommentSheet({ post, currentUserId, isLoading, onClose, onAddComment, onDeleteComment, onEditComment, onReportComment }: {
+function CommentSheet({ post, currentUserId, isLoading, connectedUserIds, onClose, onAddComment, onDeleteComment, onEditComment, onReportComment }: {
   post: Post;
   currentUserId: string;
   isLoading?: boolean;
+  connectedUserIds?: Set<string>;
   onClose: () => void;
   onAddComment: (postId: string, text: string, parentId?: string | null) => void;
   onDeleteComment: (commentId: string, postId: string) => void;
@@ -912,15 +913,16 @@ function CommentSheet({ post, currentUserId, isLoading, onClose, onAddComment, o
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [lightboxSrc, setLightboxSrc] = useState<string|null>(null);
 
-  // Deduplicated pool of comment authors (excludes self) — filtered locally, no API call
+  // Deduplicated pool of connected comment authors (excludes self) — filtered locally, no API call
   const commenters = useMemo(() => {
     const seen = new Set<string>();
     return post.comments.filter(c => {
       if (seen.has(c.user_id) || c.user_id === currentUserId) return false;
+      if (connectedUserIds && connectedUserIds.size > 0 && !connectedUserIds.has(c.user_id)) return false;
       seen.add(c.user_id);
       return true;
     });
-  }, [post.comments, currentUserId]);
+  }, [post.comments, currentUserId, connectedUserIds]);
   // Stable ref so submitEdit callback never needs to change
   const editStateRef = useRef({ editingId: null as string | null, editText: "" });
   editStateRef.current = { editingId, editText };
@@ -1842,7 +1844,9 @@ export default function Feed() {
   useEffect(() => {
     if (!user.id) return;
     apiGet<any[]>("/api/connections")
-      .then(data => setConnectedUserIds(new Set((data || []).map((c: any) => c.id))))
+      .then(data => setConnectedUserIds(new Set((data || []).map((c: any) =>
+        c.requester_id === user.id ? c.receiver_id : c.requester_id
+      ))))
       .catch(() => {});
   }, [user.id]);
 
@@ -2820,7 +2824,7 @@ export default function Feed() {
         </Tabs>
       </div>
 
-      {commentingPost && <CommentSheet post={commentingPost} currentUserId={user.id} isLoading={commentsLoading} onClose={() => setCommentingPost(null)} onAddComment={handleAddComment} onDeleteComment={handleDeleteComment} onEditComment={handleEditComment} onReportComment={handleReportComment}/>}
+      {commentingPost && <CommentSheet post={commentingPost} currentUserId={user.id} isLoading={commentsLoading} connectedUserIds={connectedUserIds} onClose={() => setCommentingPost(null)} onAddComment={handleAddComment} onDeleteComment={handleDeleteComment} onEditComment={handleEditComment} onReportComment={handleReportComment}/>}
       {editingPost && <EditPostDialog post={editingPost} open={!!editingPost} onClose={() => setEditingPost(null)} onSave={handleEditPost} userId={user.id}/>}
       {editingCollab && <EditCollabDialog collab={editingCollab} open={!!editingCollab} onClose={() => setEditingCollab(null)} onSave={handleEditCollab}/>}
       {shareTarget && <ShareDialog onClose={() => setShareTarget(null)} link={shareLink} content={shareTarget.content}/>}
