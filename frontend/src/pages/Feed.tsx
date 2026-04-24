@@ -906,12 +906,21 @@ function CommentSheet({ post, currentUserId, isLoading, onClose, onAddComment, o
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
   const [replyingTo, setReplyingTo] = useState<{ id: string; author: string; username?: string } | null>(null);
-  const [mentionSuggestions, setMentionSuggestions] = useState<{ id: string; name: string; username: string | null; avatar: string; color: string; avatar_url: string | null }[]>([]);
+  const [mentionSuggestions, setMentionSuggestions] = useState<Comment[]>([]);
   const [mentionStart, setMentionStart] = useState(-1);
+  const [mentionIndex, setMentionIndex] = useState(0);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [lightboxSrc, setLightboxSrc] = useState<string|null>(null);
-  const mentionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const mentionAbortRef = useRef<AbortController | null>(null);
+
+  // Deduplicated pool of comment authors (excludes self) — filtered locally, no API call
+  const commenters = useMemo(() => {
+    const seen = new Set<string>();
+    return post.comments.filter(c => {
+      if (seen.has(c.user_id) || c.user_id === currentUserId) return false;
+      seen.add(c.user_id);
+      return true;
+    });
+  }, [post.comments, currentUserId]);
   // Stable ref so submitEdit callback never needs to change
   const editStateRef = useRef({ editingId: null as string | null, editText: "" });
   editStateRef.current = { editingId, editText };
@@ -930,38 +939,29 @@ function CommentSheet({ post, currentUserId, isLoading, onClose, onAddComment, o
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
     setText(val);
-    // Use e.target.selectionStart (reliable — read directly from the event's DOM node)
-    // inputRef.current.selectionStart is stale in React controlled inputs during onChange
     const cursor = e.target.selectionStart ?? val.length;
     const before = val.slice(0, cursor);
-    // Match @username (word chars only — usernames have no spaces)
-    const atMatch = before.match(/@(\w+)$/);
+    // \w* (not \w+) so bare @ immediately shows all commenters
+    const atMatch = before.match(/@(\w*)$/);
     if (atMatch) {
-      const query = atMatch[1];
+      const q = atMatch[1].toLowerCase();
       setMentionStart(cursor - atMatch[0].length);
-      // Cancel previous pending search and fire new one after 250ms
-      if (mentionTimerRef.current) clearTimeout(mentionTimerRef.current);
-      mentionAbortRef.current?.abort();
-      mentionTimerRef.current = setTimeout(() => {
-        const controller = new AbortController();
-        mentionAbortRef.current = controller;
-        searchUsers(query)
-          .then(data => { if (!controller.signal.aborted) setMentionSuggestions((data as any) || []); })
-          .catch(() => {});
-      }, 250);
+      setMentionIndex(0);
+      setMentionSuggestions(
+        q ? commenters.filter(c =>
+          c.author.toLowerCase().includes(q) || (c.username ?? "").toLowerCase().includes(q)
+        ) : commenters
+      );
     } else {
-      if (mentionTimerRef.current) clearTimeout(mentionTimerRef.current);
-      mentionAbortRef.current?.abort();
       setMentionSuggestions([]);
       setMentionStart(-1);
     }
   };
 
-  const selectMention = (profile: { name: string; username: string | null }) => {
-    const handle = profile.username || profile.name;
-    const cursor = inputRef.current?.selectionStart ?? text.length;
+  const selectMention = (c: Comment) => {
+    const handle = c.username || c.author;
     const before = text.slice(0, mentionStart);
-    const after = text.slice(cursor);
+    const after = text.slice(inputRef.current?.selectionStart ?? text.length);
     const newText = `${before}@${handle} ${after}`;
     setText(newText);
     setMentionSuggestions([]);
@@ -1071,13 +1071,13 @@ function CommentSheet({ post, currentUserId, isLoading, onClose, onAddComment, o
           )}
           {mentionSuggestions.length > 0 && (
             <div className="mb-2 bg-card border border-border rounded-lg shadow-lg overflow-hidden">
-              {mentionSuggestions.map(p => (
-                <button key={p.id} type="button" onMouseDown={() => selectMention(p)}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-secondary transition-colors">
-                  <Avatar initials={p.avatar || p.name?.slice(0,2).toUpperCase()} color={p.color || "bg-primary"} url={p.avatar_url || undefined} size="sm" />
+              {mentionSuggestions.map((c, idx) => (
+                <button key={c.id} type="button" onMouseDown={() => selectMention(c)}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm transition-colors ${idx === mentionIndex ? "bg-secondary" : "hover:bg-secondary"}`}>
+                  <Avatar initials={c.avatar || c.author?.slice(0,2).toUpperCase()} color={c.color || "bg-primary"} url={c.avatarUrl || undefined} size="sm" />
                   <div className="flex flex-col items-start min-w-0">
-                    <span className="font-medium text-foreground leading-tight">{p.name}</span>
-                    {p.username && <span className="text-xs text-muted-foreground leading-tight">@{p.username}</span>}
+                    <span className="font-medium text-foreground leading-tight">{c.author}</span>
+                    {c.username && <span className="text-xs text-muted-foreground leading-tight">@{c.username}</span>}
                   </div>
                 </button>
               ))}
@@ -1089,7 +1089,15 @@ function CommentSheet({ post, currentUserId, isLoading, onClose, onAddComment, o
               <Textarea ref={inputRef} value={text} onChange={handleTextChange}
                 placeholder={replyingTo ? `Reply to @${replyingTo.username || replyingTo.author}…` : "Write a comment…"} rows={1}
                 className="resize-none text-sm min-h-[38px] max-h-[100px] py-2"
-                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); } }} />
+                onKeyDown={(e) => {
+                  if (mentionSuggestions.length > 0) {
+                    if (e.key === "ArrowDown") { e.preventDefault(); setMentionIndex(i => Math.min(i + 1, mentionSuggestions.length - 1)); return; }
+                    if (e.key === "ArrowUp") { e.preventDefault(); setMentionIndex(i => Math.max(i - 1, 0)); return; }
+                    if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); selectMention(mentionSuggestions[mentionIndex]); return; }
+                    if (e.key === "Escape") { setMentionSuggestions([]); setMentionStart(-1); return; }
+                  }
+                  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); }
+                }} />
               <button onClick={submit} disabled={!text.trim()}
                 className="h-9 w-9 rounded-lg bg-primary text-primary-foreground flex items-center justify-center hover:opacity-90 transition-opacity disabled:opacity-40 shrink-0">
                 <Send className="h-3.5 w-3.5" />
