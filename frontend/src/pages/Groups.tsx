@@ -757,7 +757,7 @@ export default function Groups() {
     if (!user.id) return;
     setLoadingGroups(true);
     try {
-      // Fetch groups first — this must succeed
+      // Fetch groups first — show list immediately, rest loads in background
       const { data: groupsData, error: groupsErr } = await (supabase as any)
         .from("groups")
         .select("*")
@@ -766,6 +766,8 @@ export default function Groups() {
         .limit(300);
       if (groupsErr) throw groupsErr;
       setGroups(groupsData || []);
+      // Unblock the UI — memberships, unread, mentions load in background
+      setLoadingGroups(false);
 
       // Fetch memberships and pending join requests in parallel
       try {
