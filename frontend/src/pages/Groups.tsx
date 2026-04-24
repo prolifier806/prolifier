@@ -3085,7 +3085,7 @@ export default function Groups() {
         {reactionPickerMsgId !== null && <div className="fixed inset-0 z-40" onClick={() => setReactionPickerMsgId(null)} />}
         {showShare && <ShareLinkModal group={activeGroup} onClose={() => setShowShare(false)} />}
 
-        <div className="flex h-[calc(100vh-4rem)] md:h-screen max-w-3xl mx-auto flex-col relative">
+        <div className="flex h-[calc(100vh-4rem)] md:h-screen max-w-3xl mx-auto flex-col relative animate-in slide-in-from-right duration-200">
           {/* Header */}
           <div className="px-4 py-3 border-b border-border flex items-center gap-3 shrink-0 bg-card/80 backdrop-blur-sm">
             <button onClick={() => {
@@ -3700,7 +3700,14 @@ export default function Groups() {
               className="h-9 w-9 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors">
               <RefreshCw className={`h-4 w-4 ${loadingGroups ? "animate-spin" : ""}`} />
             </button>
-            <Button size="sm" className="gap-1.5" onClick={() => setView("create")}>
+            <Button size="sm" className="gap-1.5" onClick={() => {
+              const ownedCount = groups.filter(g => g.owner_id === user.id).length;
+              if (ownedCount >= 10) {
+                toast({ title: "Community limit reached", description: "You can only own 10 communities. Delete one to create a new one.", variant: "destructive" });
+                return;
+              }
+              setView("create");
+            }}>
               <Plus className="h-4 w-4" /> Create Community
             </Button>
           </div>

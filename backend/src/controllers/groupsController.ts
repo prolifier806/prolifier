@@ -311,6 +311,16 @@ export async function createGroup(req: AuthRequest, res: Response): Promise<void
   const userId = req.user.id;
   const body = req.body as z.infer<typeof createGroupSchema>;
 
+  const { count, error: countErr } = await supabaseAdmin
+    .from("groups")
+    .select("id", { count: "exact", head: true })
+    .eq("owner_id", userId);
+  if (countErr) { res.status(500).json({ success: false, error: countErr.message }); return; }
+  if ((count ?? 0) >= 10) {
+    res.status(400).json({ success: false, error: "You can only own 10 communities. Delete one to create a new one." });
+    return;
+  }
+
   if (body.description || body.bio) {
     const mod = checkFields({ description: body.description ?? "", bio: body.bio ?? "" });
     if (!mod.allowed) { res.status(422).json({ success: false, error: "Content violates guidelines" }); return; }

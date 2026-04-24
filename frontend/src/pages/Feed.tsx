@@ -16,7 +16,7 @@ import {
   Heart, MessageCircle, MapPin, Search, Plus, Send, MoreHorizontal,
   Trash2, Edit3, Bookmark, Share2, Flag, EyeOff, Handshake,
   X, Check, BookmarkCheck, ImageIcon, Link2, Video as VideoIcon, ZoomIn,
-  SlidersHorizontal, ChevronLeft, ChevronRight,
+  SlidersHorizontal, ChevronLeft, ChevronRight, Loader2,
 } from "lucide-react";
 import Layout from "@/components/Layout";
 import { toast } from "@/hooks/use-toast";
@@ -890,9 +890,10 @@ const CommentItem = memo(function CommentItem({ c, isReply, isEditing, editText,
 });
 
 // ── Comment Sheet ──────────────────────────────────────────────────────────
-function CommentSheet({ post, currentUserId, onClose, onAddComment, onDeleteComment, onEditComment, onReportComment }: {
+function CommentSheet({ post, currentUserId, isLoading, onClose, onAddComment, onDeleteComment, onEditComment, onReportComment }: {
   post: Post;
   currentUserId: string;
+  isLoading?: boolean;
   onClose: () => void;
   onAddComment: (postId: string, text: string, parentId?: string | null) => void;
   onDeleteComment: (commentId: string, postId: string) => void;
@@ -1010,7 +1011,12 @@ function CommentSheet({ post, currentUserId, onClose, onAddComment, onDeleteComm
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
       <div className="relative z-10 w-full max-w-lg bg-background rounded-t-2xl sm:rounded-2xl shadow-2xl border border-border flex flex-col max-h-[80vh] animate-in slide-in-from-bottom-4 duration-200">
         <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
-          <h3 className="font-semibold text-foreground">Comments · {post.commentCount}</h3>
+          <h3 className="font-semibold text-foreground flex items-center gap-2">
+            Comments
+            {isLoading
+              ? <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+              : <span className="text-muted-foreground font-normal">· {post.comments.length}</span>}
+          </h3>
           <button onClick={onClose} className="h-7 w-7 rounded-full bg-muted flex items-center justify-center hover:bg-secondary transition-colors">
             <X className="h-4 w-4 text-muted-foreground" />
           </button>
@@ -1028,7 +1034,9 @@ function CommentSheet({ post, currentUserId, onClose, onAddComment, onDeleteComm
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
           {post.comments.length === 0 && (
             <div className="text-center py-8">
-              <p className="text-sm text-muted-foreground">No comments yet. Be the first!</p>
+              {isLoading
+                ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground mx-auto" />
+                : <p className="text-sm text-muted-foreground">No comments yet. Be the first!</p>}
             </div>
           )}
           {topLevel.map(c => (
@@ -1628,6 +1636,7 @@ export default function Feed() {
   const [likedPosts, setLikedPosts] = useState<Set<string>>(new Set());
   const [savedPosts, setSavedPosts] = useState<Set<string>>(new Set());
   const [commentingPost, setCommentingPost] = useState<Post|null>(null);
+  const [commentsLoading, setCommentsLoading] = useState(false);
   const [editingPost, setEditingPost] = useState<Post|null>(null);
   const [shareTarget, setShareTarget] = useState<{type:"post"|"collab";id:string;content?:{text:string;authorName:string;type:"post"|"collab";postId?:string;imageUrl?:string;collabTitle?:string}}|null>(null);
   const [reportTarget, setReportTarget] = useState<{type:"post"|"collab"|"comment";id:string}|null>(null);
@@ -1995,38 +2004,39 @@ export default function Feed() {
     }
   }, [savedPosts, user.id]);
 
-  // OPT: lazy comment loading — only fetch comments when the sheet is opened
+  // OPT: lazy comment loading — open sheet immediately, fetch comments in background
   const handleOpenComments = useCallback(async (post: Post) => {
     // Block check — don't allow commenting on posts from blocked/blocking users
     if (blockedUserIds.has(post.user_id)) return;
-    // If comments already loaded, open immediately
-    if (post.comments.length > 0) {
-      setCommentingPost(post);
-      return;
+    // Open sheet instantly so user sees it right away
+    setCommentingPost(post);
+    // If comments already loaded, nothing more to do
+    if (post.comments.length > 0) return;
+    setCommentsLoading(true);
+    try {
+      const commentsData = await getComments(post.id).catch(() => [] as any[]);
+      const loadedComments: Comment[] = (commentsData || []).map((c: any) => ({
+        id: c.id,
+        user_id: c.user_id || c.userId,
+        author: c.profiles?.name || c.author || "Unknown",
+        username: c.profiles?.username || c.username || undefined,
+        avatar: c.profiles?.avatar || c.avatar || "?",
+        avatarUrl: c.profiles?.avatar_url || c.avatarUrl || undefined,
+        color: c.profiles?.color || c.color || "bg-primary",
+        text: c.text,
+        time: c.time || timeAgo(c.created_at),
+        parentId: c.parent_id || c.parentId || null,
+        role: c.profiles?.role || c.role || "user",
+      }));
+      // Filter out comments from blocked users (both directions)
+      const visibleComments = loadedComments.filter(c => !blockedUserIds.has(c.user_id));
+      // Patch the post in state — use loaded count as authoritative (DB comment_count is often stale)
+      const updatedPost = { ...post, comments: visibleComments, commentCount: visibleComments.length };
+      setPosts(p => p.map(x => x.id === post.id ? updatedPost : x));
+      setCommentingPost(prev => prev?.id === post.id ? updatedPost : prev);
+    } finally {
+      setCommentsLoading(false);
     }
-    // Fetch comments just for this post on demand
-    const commentsData = await getComments(post.id).catch(() => [] as any[]);
-
-    const loadedComments: Comment[] = (commentsData || []).map((c: any) => ({
-      id: c.id,
-      user_id: c.user_id || c.userId,
-      author: c.profiles?.name || c.author || "Unknown",
-      username: c.profiles?.username || c.username || undefined,
-      avatar: c.profiles?.avatar || c.avatar || "?",
-      avatarUrl: c.profiles?.avatar_url || c.avatarUrl || undefined,
-      color: c.profiles?.color || c.color || "bg-primary",
-      text: c.text,
-      time: c.time || timeAgo(c.created_at),
-      parentId: c.parent_id || c.parentId || null,
-      role: c.profiles?.role || c.role || "user",
-    }));
-
-    // Filter out comments from blocked users (both directions)
-    const visibleComments = loadedComments.filter(c => !blockedUserIds.has(c.user_id));
-    // Patch the post in state — use loaded count as authoritative (DB comment_count is often stale)
-    const updatedPost = { ...post, comments: visibleComments, commentCount: visibleComments.length };
-    setPosts(p => p.map(x => x.id === post.id ? updatedPost : x));
-    setCommentingPost(updatedPost);
   }, [blockedUserIds]);
 
   const handleAddComment = useCallback(async (postId: string, text: string, parentId?: string | null) => {
@@ -2787,7 +2797,7 @@ export default function Feed() {
         </Tabs>
       </div>
 
-      {commentingPost && <CommentSheet post={commentingPost} currentUserId={user.id} onClose={() => setCommentingPost(null)} onAddComment={handleAddComment} onDeleteComment={handleDeleteComment} onEditComment={handleEditComment} onReportComment={handleReportComment}/>}
+      {commentingPost && <CommentSheet post={commentingPost} currentUserId={user.id} isLoading={commentsLoading} onClose={() => setCommentingPost(null)} onAddComment={handleAddComment} onDeleteComment={handleDeleteComment} onEditComment={handleEditComment} onReportComment={handleReportComment}/>}
       {editingPost && <EditPostDialog post={editingPost} open={!!editingPost} onClose={() => setEditingPost(null)} onSave={handleEditPost} userId={user.id}/>}
       {editingCollab && <EditCollabDialog collab={editingCollab} open={!!editingCollab} onClose={() => setEditingCollab(null)} onSave={handleEditCollab}/>}
       {shareTarget && <ShareDialog onClose={() => setShareTarget(null)} link={shareLink} content={shareTarget.content}/>}
