@@ -1750,6 +1750,26 @@ export default function Feed() {
   // With it, the last known feed is shown immediately — always shown regardless of age,
   // fresh API response replaces it. TTL only controls skipping the API call.
   const FEED_CACHE_KEY = `prolifier:feed:${user.id}`;
+  const LIKED_CACHE_KEY = `prolifier:liked:${user.id}`;
+
+  // Persist liked IDs to a lightweight separate cache so they survive page reloads
+  // without waiting for the full feed API response.
+  const persistLiked = useCallback((liked: Set<string>) => {
+    try { localStorage.setItem(LIKED_CACHE_KEY, JSON.stringify([...liked])); } catch {}
+  }, [LIKED_CACHE_KEY]);
+
+  // Also patch the feed cache so the isLiked flag is correct on next cold load.
+  const patchFeedCacheLike = useCallback((postId: string, isLiked: boolean) => {
+    try {
+      const raw = localStorage.getItem(FEED_CACHE_KEY);
+      if (!raw) return;
+      const cached = JSON.parse(raw);
+      cached.posts = (cached.posts || []).map((p: any) =>
+        p.id === postId ? { ...p, isLiked } : p
+      );
+      localStorage.setItem(FEED_CACHE_KEY, JSON.stringify(cached));
+    } catch {}
+  }, [FEED_CACHE_KEY]);
 
 
   const applyFeedData = useCallback((rawPosts: any[], rawCollabs: any[]) => {
@@ -1788,7 +1808,14 @@ export default function Feed() {
     }));
     setPosts(mappedPosts);
     setCollabs(mappedCollabs);
-    setLikedPosts(new Set((rawPosts || []).filter((p: any) => p.isLiked).map((p: any) => p.id)));
+    // Merge API liked state with local cache — local cache wins for any post the
+    // user has liked/unliked since the last feed write (avoids 1-2s flicker).
+    const apiLiked = new Set<string>((rawPosts || []).filter((p: any) => p.isLiked).map((p: any) => p.id));
+    try {
+      const raw = localStorage.getItem(LIKED_CACHE_KEY);
+      if (raw) JSON.parse(raw).forEach((id: string) => apiLiked.add(id));
+    } catch {}
+    setLikedPosts(apiLiked);
     setSavedPosts(new Set((rawPosts || []).filter((p: any) => p.isSaved).map((p: any) => p.id)));
     setSavedCollabs(new Set((rawCollabs || []).filter((c: any) => c.isSaved).map((c: any) => c.id)));
     setInterestedCollabs(new Set((rawCollabs || []).filter((c: any) => c.isInterested).map((c: any) => c.id)));
@@ -1834,6 +1861,15 @@ export default function Feed() {
       toast({ title: "Failed to load feed", description: err.message, variant: "destructive" });
       setLoading(false);
     }
+  }, [user.id]);
+
+  // Load liked IDs from cache instantly on mount — shows hearts before API responds
+  useEffect(() => {
+    if (!user.id) return;
+    try {
+      const raw = localStorage.getItem(LIKED_CACHE_KEY);
+      if (raw) setLikedPosts(new Set(JSON.parse(raw)));
+    } catch {}
   }, [user.id]);
 
   useEffect(() => {
@@ -1981,9 +2017,10 @@ export default function Feed() {
     const post = posts.find(p => p.id === id);
     if (post && blockedUserIds.has(post.user_id)) return;
     const was = likedPosts.has(id);
-    // Optimistic update — instant feedback
-    setLikedPosts(p => { const n = new Set(p); was ? n.delete(id) : n.add(id); return n; });
+    // Optimistic update — instant feedback + persist to cache immediately
+    setLikedPosts(p => { const n = new Set(p); was ? n.delete(id) : n.add(id); persistLiked(n); return n; });
     setPosts(p => p.map(x => x.id === id ? { ...x, likes: was ? x.likes - 1 : x.likes + 1 } : x));
+    patchFeedCacheLike(id, !was);
 
     try {
       if (was) {
@@ -2003,9 +2040,10 @@ export default function Feed() {
         }
       }
     } catch {
-      // Revert optimistic update on failure
-      setLikedPosts(p => { const n = new Set(p); was ? n.add(id) : n.delete(id); return n; });
+      // Revert optimistic update and caches on failure
+      setLikedPosts(p => { const n = new Set(p); was ? n.add(id) : n.delete(id); persistLiked(n); return n; });
       setPosts(p => p.map(x => x.id === id ? { ...x, likes: was ? x.likes + 1 : x.likes - 1 } : x));
+      patchFeedCacheLike(id, was);
     }
 
   }, [likedPosts, posts, user.id, user.name]);
