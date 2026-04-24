@@ -400,11 +400,7 @@ export async function likePost(req: AuthRequest, res: Response): Promise<void> {
   }
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
 
-  // Increment likes counter (fire-and-forget, non-blocking)
-  supabaseAdmin.from("posts").select("likes").eq("id", id).single().then(({ data }) => {
-    supabaseAdmin.from("posts").update({ likes: (data?.likes ?? 0) + 1 }).eq("id", id);
-  });
-
+  // posts.likes is updated atomically by the on_post_like DB trigger — no manual update needed.
   res.json({ success: true, data: null });
 }
 
@@ -420,11 +416,7 @@ export async function unlikePost(req: AuthRequest, res: Response): Promise<void>
 
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
 
-  // Decrement likes counter (fire-and-forget, non-blocking)
-  supabaseAdmin.from("posts").select("likes").eq("id", id).single().then(({ data }) => {
-    supabaseAdmin.from("posts").update({ likes: Math.max(0, (data?.likes ?? 1) - 1) }).eq("id", id);
-  });
-
+  // posts.likes is decremented atomically by the on_post_like DB trigger — no manual update needed.
   res.json({ success: true, data: null });
 }
 
