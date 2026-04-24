@@ -2014,23 +2014,38 @@ export default function Feed() {
     if (post.comments.length > 0) return;
     setCommentsLoading(true);
     try {
-      const commentsData = await getComments(post.id).catch(() => [] as any[]);
-      const loadedComments: Comment[] = (commentsData || []).map((c: any) => ({
-        id: c.id,
-        user_id: c.user_id || c.userId,
-        author: c.profiles?.name || c.author || "Unknown",
-        username: c.profiles?.username || c.username || undefined,
-        avatar: c.profiles?.avatar || c.avatar || "?",
-        avatarUrl: c.profiles?.avatar_url || c.avatarUrl || undefined,
-        color: c.profiles?.color || c.color || "bg-primary",
-        text: c.text,
-        time: c.time || timeAgo(c.created_at),
-        parentId: c.parent_id || c.parentId || null,
-        role: c.profiles?.role || c.role || "user",
-      }));
+      // Two parallel queries: comments + profiles — faster than a joined select
+      const { data: commentsData } = await (supabase as any)
+        .from("comments")
+        .select("id, user_id, parent_id, text, created_at")
+        .eq("post_id", post.id)
+        .order("created_at", { ascending: true });
+      const rows = commentsData || [];
+      const userIds = [...new Set(rows.map((c: any) => c.user_id))] as string[];
+      const { data: profilesData } = userIds.length > 0
+        ? await (supabase as any).from("profiles").select("id, name, username, avatar, color, avatar_url, role").in("id", userIds)
+        : { data: [] };
+      const profileMap: Record<string, any> = {};
+      (profilesData || []).forEach((p: any) => { profileMap[p.id] = p; });
+      const loadedComments: Comment[] = rows.map((c: any) => {
+        const p = profileMap[c.user_id] || {};
+        return {
+          id: c.id,
+          user_id: c.user_id,
+          author: p.name || "Unknown",
+          username: p.username || undefined,
+          avatar: p.avatar || "?",
+          avatarUrl: p.avatar_url || undefined,
+          color: p.color || "bg-primary",
+          text: c.text,
+          time: timeAgo(c.created_at),
+          parentId: c.parent_id || null,
+          role: p.role || "user",
+        };
+      });
       // Filter out comments from blocked users (both directions)
       const visibleComments = loadedComments.filter(c => !blockedUserIds.has(c.user_id));
-      // Patch the post in state — use loaded count as authoritative (DB comment_count is often stale)
+      // Use real fetched count — comment_count column is often stale/wrong
       const updatedPost = { ...post, comments: visibleComments, commentCount: visibleComments.length };
       setPosts(p => p.map(x => x.id === post.id ? updatedPost : x));
       setCommentingPost(prev => prev?.id === post.id ? updatedPost : prev);

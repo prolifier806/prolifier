@@ -475,7 +475,7 @@ export async function addComment(req: AuthRequest, res: Response): Promise<void>
     return;
   }
 
-  const { data: post } = await supabaseAdmin.from("posts").select("user_id").eq("id", postId).single();
+  const { data: post } = await supabaseAdmin.from("posts").select("user_id, comment_count").eq("id", postId).single();
   if (!post) { res.status(404).json({ success: false, error: "Post not found" }); return; }
 
   const { data, error } = await supabaseAdmin
@@ -485,6 +485,11 @@ export async function addComment(req: AuthRequest, res: Response): Promise<void>
     .single();
 
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
+
+  // Keep comment_count in sync
+  await supabaseAdmin.from("posts")
+    .update({ comment_count: (post.comment_count ?? 0) + 1 })
+    .eq("id", postId);
 
   if (mod.severity === "flag" && data) {
     recordModerationFlag({
@@ -517,7 +522,7 @@ export async function deleteComment(req: AuthRequest, res: Response): Promise<vo
   const isAdmin = ["admin", "moderator"].includes(req.user.role ?? "");
 
   const { data: comment } = await supabaseAdmin
-    .from("comments").select("user_id").eq("id", commentId).single();
+    .from("comments").select("user_id, post_id").eq("id", commentId).single();
 
   if (!comment) { res.status(404).json({ success: false, error: "Comment not found" }); return; }
   if (comment.user_id !== userId && !isAdmin) {
@@ -530,6 +535,17 @@ export async function deleteComment(req: AuthRequest, res: Response): Promise<vo
     .eq("id", commentId);
 
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
+
+  // Keep comment_count in sync — decrement, floor at 0
+  if (comment.post_id) {
+    const { data: post } = await supabaseAdmin.from("posts").select("comment_count").eq("id", comment.post_id).single();
+    if (post) {
+      await supabaseAdmin.from("posts")
+        .update({ comment_count: Math.max(0, (post.comment_count ?? 1) - 1) })
+        .eq("id", comment.post_id);
+    }
+  }
+
   res.json({ success: true, data: null });
 }
 
