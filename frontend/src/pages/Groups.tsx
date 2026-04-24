@@ -1959,6 +1959,11 @@ export default function Groups() {
   // ── Create group ─────────────────────────────────────────────────────────
   const createGroup = async () => {
     if (!newName.trim() || creating) return;
+    const ownedCount = groups.filter(g => g.owner_id === user.id).length;
+    if (ownedCount >= 10) {
+      toast({ title: "Max limit is 10 communities", description: "Delete one of your communities to create a new one.", variant: "destructive" });
+      return;
+    }
     setCreating(true);
     try {
       const data = await apiCreateGroup({
