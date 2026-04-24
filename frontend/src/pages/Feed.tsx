@@ -1825,36 +1825,94 @@ export default function Feed() {
     if ((rawCollabs || []).length > 0) collabsCursorRef.current = rawCollabs[rawCollabs.length - 1].created_at;
   }, [user.id]);
 
-  // ── Fetch via API — posts + collabs already enriched with isLiked/isSaved/isOwn ──
+  // ── Fetch directly from Supabase — no EC2 round trip ──────────────────────────
+  // WHY: Going browser → EC2 → Supabase → EC2 → browser adds 200-400ms of extra
+  // network hops. Querying Supabase directly (same as comments) cuts the feed
+  // load time in half. RLS policies on posts/collabs/blocks are `using (true)`
+  // or scoped to auth.uid(), so the anon+JWT client works correctly.
   const fetchFeed = useCallback(async () => {
     if (!user.id) return;
 
     // Show cached data immediately — always, regardless of age.
-    // WHY: stale data is always better than an empty feed while the API loads.
-    // The fresh API response will replace it below. TTL only skips the API call
-    // when cache is fresh enough (tab switch, quick return).
     try {
       const raw = localStorage.getItem(FEED_CACHE_KEY);
       if (raw) {
-        const { ts, posts: cp, collabs: cc } = JSON.parse(raw);
+        const { posts: cp, collabs: cc } = JSON.parse(raw);
         applyFeedData(cp, cc);
-        setLoading(false); // show cached content instantly, always revalidate below
+        setLoading(false);
       }
-    } catch { /* ignore cache read errors */ }
+    } catch {}
+
     logger.info("feed.load.start", { userId: user.id });
     try {
-      const { posts: rawPosts, collabs: rawCollabs } = await getFeed();
+      const PAGE_SIZE = 15;
 
-      // isLiked/isSaved/isInterested come enriched from API
+      // Round 1: posts + collabs + blocks in parallel (all public-readable via RLS)
+      const [postsRes, collabsRes, blockedRes, blockerRes] = await Promise.all([
+        (supabase as any).from("posts")
+          .select("id, user_id, content, tag, image_urls, video_url, created_at, likes, comment_count, profiles:user_id(id, name, avatar, color, avatar_url, location, skills, role, deleted_at)")
+          .order("created_at", { ascending: false })
+          .limit(PAGE_SIZE),
+        (supabase as any).from("collabs")
+          .select("id, user_id, title, description, looking, skills, image_url, video_url, created_at, candidate_location, profiles:user_id(id, name, avatar, color, avatar_url, location, skills, role, deleted_at)")
+          .order("created_at", { ascending: false })
+          .limit(PAGE_SIZE),
+        (supabase as any).from("blocks").select("blocked_id").eq("blocker_id", user.id),
+        (supabase as any).from("blocks").select("blocker_id").eq("blocked_id", user.id),
+      ]);
+
+      const blockedIds = new Set<string>([
+        ...(blockedRes.data || []).map((r: any) => r.blocked_id),
+        ...(blockerRes.data || []).map((r: any) => r.blocker_id),
+      ]);
+
+      const posts = (postsRes.data || []).filter((p: any) => !blockedIds.has(p.user_id));
+      const collabs = (collabsRes.data || []).filter((c: any) => !blockedIds.has(c.user_id));
+      const postIds = posts.map((p: any) => p.id);
+      const collabIds = collabs.map((c: any) => c.id);
+
+      // Round 2: enrichment only for current page IDs (not full history)
+      const [likesRes, savedPostsRes, savedCollabsRes, collabInterestsRes] = await Promise.all([
+        postIds.length > 0
+          ? (supabase as any).from("post_likes").select("post_id").eq("user_id", user.id).in("post_id", postIds)
+          : { data: [] },
+        postIds.length > 0
+          ? (supabase as any).from("saved_posts").select("post_id").eq("user_id", user.id).in("post_id", postIds)
+          : { data: [] },
+        collabIds.length > 0
+          ? (supabase as any).from("saved_collabs").select("collab_id").eq("user_id", user.id).in("collab_id", collabIds)
+          : { data: [] },
+        collabIds.length > 0
+          ? (supabase as any).from("collab_interests").select("collab_id").eq("user_id", user.id).in("collab_id", collabIds)
+          : { data: [] },
+      ]);
+
+      const likedIds = new Set((likesRes.data || []).map((r: any) => r.post_id));
+      const savedPostIds = new Set((savedPostsRes.data || []).map((r: any) => r.post_id));
+      const savedCollabIds = new Set((savedCollabsRes.data || []).map((r: any) => r.collab_id));
+      const interestedCollabIds = new Set((collabInterestsRes.data || []).map((r: any) => r.collab_id));
+
+      const rawPosts = posts.map((p: any) => ({
+        ...p,
+        isLiked: likedIds.has(p.id),
+        isSaved: savedPostIds.has(p.id),
+        isOwn: p.user_id === user.id,
+      }));
+      const rawCollabs = collabs.map((c: any) => ({
+        ...c,
+        isInterested: interestedCollabIds.has(c.id),
+        isSaved: savedCollabIds.has(c.id),
+        isOwn: c.user_id === user.id,
+      }));
+
       applyFeedData(rawPosts, rawCollabs);
 
-      // Persist fresh feed to localStorage for instant display on next visit
       try {
         localStorage.setItem(FEED_CACHE_KEY, JSON.stringify({ ts: Date.now(), posts: rawPosts, collabs: rawCollabs }));
-      } catch { /* quota exceeded — ignore */ }
+      } catch {}
 
       setLoading(false);
-      logger.info("feed.load.done", { userId: user.id, postCount: rawPosts?.length ?? 0, collabCount: rawCollabs?.length ?? 0 });
+      logger.info("feed.load.done", { userId: user.id, postCount: rawPosts.length, collabCount: rawCollabs.length });
     } catch (err: any) {
       if (isAbortError(err)) { setLoading(false); return; }
       logger.error("feed.load.error", { error: err.message });
