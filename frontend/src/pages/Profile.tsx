@@ -7,9 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   MapPin, Github, Globe, Twitter, Edit, Check, X, Handshake, Camera,
-  Eye, EyeOff, Shield, Lock, Heart, MessageCircle,
-  ChevronRight, ArrowLeft, Bookmark, Sun, Moon, Users, HelpCircle,
-  Mail, FileText, UserX, MoreHorizontal, Edit3, Trash2, AtSign, Loader2,
+  Heart, MessageCircle, ChevronRight, ArrowLeft, Bookmark, Users,
+  MoreHorizontal, Edit3, Trash2, AtSign, Loader2,
 } from "lucide-react";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
@@ -19,12 +18,11 @@ import {
 } from "@/components/ui/dialog";
 import Layout from "@/components/Layout";
 import { toast } from "@/hooks/use-toast";
-import { useTheme } from "@/context/ThemeContext";
 import { useUser } from "@/context/UserContext";
 import { supabase } from "@/lib/supabase";
 import { isAbortError } from "@/api/client";
 import { uploadAvatar, removeAvatar } from "@/api/uploads";
-import { deleteMyAccount, unblockUser, checkUsername, setUsername as apiSetUsername } from "@/api/users";
+import { checkUsername, setUsername as apiSetUsername } from "@/api/users";
 import { updatePost, deletePost } from "@/api/posts";
 import { getConnections } from "@/api/connections";
 import { SKILL_CATEGORIES } from "@/lib/skills";
@@ -94,14 +92,6 @@ We may update this Privacy Policy from time to time. We will notify you of signi
 9. Contact
 For privacy-related questions or concerns, please contact us at prolifiersupport@gmail.com`;
 
-const DELETE_REASONS = [
-  "I'm not getting value from Prolifier",
-  "I found a better platform",
-  "Privacy concerns",
-  "Too many notifications",
-  "Prefer not to say",
-];
-
 const TAG_COLORS: Record<string, string> = {
   Launch: "bg-emerald-100 text-emerald-700",
   Progress: "bg-sky-100 text-sky-700",
@@ -124,17 +114,15 @@ function timeAgo(date: string) {
   return `${days}d ago`;
 }
 
-type BlockedUser = { id: string; name: string; avatar: string; color: string; avatarUrl?: string };
 type Connection  = { id: string; name: string; avatar: string; color: string; avatarUrl?: string; location?: string };
 type PostItem    = { id: string; tag: string; content: string; image?: string; video?: string; time: string; likes: number; commentCount: number; created_at: string; };
 type CollabItem  = { id: string; title: string; looking: string; description: string; skills: string[] };
 type SavedPost   = { id: string; tag: string; content: string; time: string; likes: number };
-type ViewType    = null | "connections" | "posts" | "saved" | "blocked" | "terms" | "settings";
+type ViewType    = null | "connections" | "posts" | "saved" | "terms";
 
 export default function Profile() {
   const navigate = useNavigate();
-  const { theme, toggleTheme } = useTheme();
-  const { user, updateUser, signOut } = useUser();
+  const { user, updateUser } = useUser();
 
   const USERNAME_RE = /^[a-z0-9_]{3,20}$/;
 
@@ -195,44 +183,13 @@ export default function Profile() {
   const [userCollabs, setUserCollabs] = useState<CollabItem[]>([]);
   const [savedPosts, setSavedPosts]   = useState<SavedPost[]>([]);
   const [postsTab, setPostsTab]       = useState<"posts" | "collabs">("posts");
-  const [blockedList, setBlockedList] = useState<BlockedUser[]>([]);
   const [editingPost, setEditingPost] = useState<PostItem | null>(null);
   const [editContent, setEditContent] = useState("");
   const [editTag, setEditTag] = useState("");
   const [deletePostId, setDeletePostId] = useState<string | null>(null);
 
-  // Password
-  const [showChangePw, setShowChangePw]     = useState(false);
-  const [currentPw, setCurrentPw]           = useState("");
-  const [newPw, setNewPw]                   = useState("");
-  const [confirmPw, setConfirmPw]           = useState("");
-  const [showCurrentPw, setShowCurrentPw]   = useState(false);
-  const [showNewPw, setShowNewPw]           = useState(false);
-  const [pwLoading, setPwLoading]           = useState(false);
-
-  // Delete
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [deleteReason, setDeleteReason]       = useState("");
-  const [deleteConfirm, setDeleteConfirm]     = useState("");
-  const [deleteLoading, setDeleteLoading]     = useState(false);
 
   const initials = user.name.split(" ").filter(Boolean).map(w => w[0]).join("").slice(0, 2).toUpperCase() || "?";
-  const loadBlockedFromDB = async (): Promise<BlockedUser[]> => {
-    if (!user.id) return [];
-    try {
-      const { data } = await (supabase as any)
-        .from("blocks")
-        .select("blocked_id, profiles!blocks_blocked_id_fkey(id, name, avatar, color, avatar_url)")
-        .eq("blocker_id", user.id);
-      return (data || []).map((row: any) => ({
-        id: row.profiles.id,
-        name: row.profiles.name,
-        avatar: row.profiles.avatar,
-        color: row.profiles.color,
-        avatarUrl: row.profiles.avatar_url || undefined,
-      }));
-    } catch { return []; }
-  };
 
   // Load analytics (Connections count both sides, Posts, Saved)
   const loadAnalytics = useCallback(async () => {
@@ -280,14 +237,7 @@ export default function Profile() {
 
   const openView = async (v: ViewType) => {
     setView(v);
-    if (v === "blocked") {
-      setViewLoading(true);
-      setBlockedList(await loadBlockedFromDB());
-      setViewLoading(false);
-      return;
-    }
     if (v === "terms") return;
-    if (v === "settings") return;
 
     if (v === "connections") {
       setViewLoading(true);
@@ -456,47 +406,6 @@ export default function Profile() {
     toast({ title: "Profile photo removed" });
   };
 
-  const handleChangePw = async () => {
-    if (!currentPw) { toast({ title: "Enter your current password", variant: "destructive" }); return; }
-    if (newPw.length < 6) { toast({ title: "New password must be at least 6 characters", variant: "destructive" }); return; }
-    if (newPw !== confirmPw) { toast({ title: "Passwords don't match", variant: "destructive" }); return; }
-    setPwLoading(true);
-    try {
-      const { error: signInError } = await supabase.auth.signInWithPassword({ email: user.email, password: currentPw });
-      if (signInError) { toast({ title: "Current password is incorrect", variant: "destructive" }); setPwLoading(false); return; }
-      const { error } = await supabase.auth.updateUser({ password: newPw });
-      if (error) { toast({ title: "Failed to update password", description: error.message, variant: "destructive" }); setPwLoading(false); return; }
-      setShowChangePw(false);
-      setCurrentPw(""); setNewPw(""); setConfirmPw("");
-      toast({ title: "Password updated successfully! 🔒" });
-    } catch {
-      toast({ title: "Something went wrong", variant: "destructive" });
-    }
-    setPwLoading(false);
-  };
-
-  const handleForgotPassword = () => navigate("/forgot-password");
-
-  const handleDeleteAccount = async () => {
-    if (deleteConfirm !== "delete" || !deleteReason) return;
-    setDeleteLoading(true);
-    try {
-      await deleteMyAccount();
-      toast({ title: "Account scheduled for deletion", description: "You have 7 days to recover it by logging back in." });
-      await signOut();
-      navigate("/");
-    } catch (err: any) {
-      if (!isAbortError(err)) toast({ title: "Failed to delete account", description: err.message, variant: "destructive" });
-      setDeleteLoading(false);
-    }
-  };
-
-  const handleUnblock = async (userId: string) => {
-    setBlockedList(prev => prev.filter(u => u.id !== userId));
-    await unblockUser(userId);
-    toast({ title: "User unblocked" });
-  };
-
   const handleEditPostSave = async () => {
     if (!editingPost || !editContent.trim()) return;
     await updatePost(editingPost.id, { content: editContent.trim(), tag: editTag });
@@ -519,65 +428,6 @@ export default function Profile() {
   const locationSuggestions = locationQuery.length >= 1
     ? LOCATIONS.filter(l => l.toLowerCase().startsWith(locationQuery.toLowerCase())).slice(0, 6)
     : [];
-
-  // ── Delete modal ──────────────────────────────────────────────────────────
-  if (showDeleteModal) {
-    return (
-      <Layout>
-        <div className="max-w-lg mx-auto px-4 py-10">
-          <button onClick={() => { setShowDeleteModal(false); setDeleteReason(""); setDeleteConfirm(""); }}
-            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-6">
-            <ArrowLeft className="h-4 w-4" /> Back to Profile
-          </button>
-          <div className="rounded-xl border border-destructive/30 bg-card p-6 space-y-5">
-            <div>
-              <h2 className="text-lg font-bold text-foreground">Delete your account</h2>
-              <p className="text-sm text-muted-foreground mt-1">
-                Your account will be scheduled for deletion. You can recover it within 7 days by logging back in. After that, all your data will be permanently deleted.
-              </p>
-            </div>
-            <div>
-              <p className="text-sm font-medium text-foreground mb-2.5">Why are you leaving?</p>
-              <div className="space-y-2">
-                {DELETE_REASONS.map(r => (
-                  <button key={r} onClick={() => setDeleteReason(r)}
-                    className={`w-full text-left px-4 py-2.5 rounded-lg border text-sm transition-colors ${
-                      deleteReason === r
-                        ? "border-destructive bg-destructive/5 text-foreground"
-                        : "border-border text-muted-foreground hover:border-destructive/40 hover:text-foreground"
-                    }`}>
-                    <span className={`inline-block h-3.5 w-3.5 rounded-full border mr-2.5 align-middle transition-colors ${
-                      deleteReason === r ? "bg-destructive border-destructive" : "border-muted-foreground"
-                    }`}/>
-                    {r}
-                  </button>
-                ))}
-              </div>
-            </div>
-            {deleteReason && (
-              <div>
-                <label className="text-sm font-medium text-foreground block mb-1.5">
-                  Type <span className="font-mono bg-muted px-1 rounded text-xs">delete</span> to confirm
-                </label>
-                <Input value={deleteConfirm} onChange={e => setDeleteConfirm(e.target.value)} placeholder="delete" className="h-10 font-mono" />
-              </div>
-            )}
-            <div className="flex gap-3 pt-1">
-              <Button variant="outline" className="flex-1"
-                onClick={() => { setShowDeleteModal(false); setDeleteReason(""); setDeleteConfirm(""); }}>
-                Cancel
-              </Button>
-              <Button variant="destructive" className="flex-1"
-                disabled={deleteConfirm !== "delete" || !deleteReason || deleteLoading}
-                onClick={handleDeleteAccount}>
-                {deleteLoading ? "Deleting…" : "Delete account"}
-              </Button>
-            </div>
-          </div>
-        </div>
-      </Layout>
-    );
-  }
 
   // ── Connections view ──────────────────────────────────────────────────────
   if (view === "connections") {
@@ -801,45 +651,6 @@ export default function Profile() {
     );
   }
 
-  // ── Blocked users view ────────────────────────────────────────────────────
-  if (view === "blocked") {
-    return (
-      <Layout>
-        <div className="max-w-2xl mx-auto px-4 py-6">
-          <button onClick={() => setView(null)}
-            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-5">
-            <ArrowLeft className="h-4 w-4" /> Back to Profile
-          </button>
-          <h1 className="text-xl font-bold text-foreground mb-1">Blocked Users</h1>
-          <p className="text-sm text-muted-foreground mb-4">Blocked users cannot see your profile or contact you.</p>
-          {blockedList.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground">
-              <UserX className="h-10 w-10 mx-auto mb-3 opacity-30" />
-              <p className="text-sm">No blocked users.</p>
-            </div>
-          ) : (
-            <div className="rounded-xl border border-border bg-card overflow-hidden divide-y divide-border">
-              {blockedList.map(u => (
-                <div key={u.id} className="flex items-center gap-3 px-4 py-3.5">
-                  <div className={`h-10 w-10 rounded-xl ${u.avatarUrl ? "" : u.color} flex items-center justify-center text-white font-bold text-sm shrink-0 overflow-hidden`}>
-                    {u.avatarUrl
-                      ? <img src={u.avatarUrl} alt={u.avatar} className="w-full h-full object-cover" />
-                      : u.avatar}
-                  </div>
-                  <p className="flex-1 text-sm font-semibold text-foreground min-w-0 truncate">{u.name}</p>
-                  <Button size="sm" variant="outline" className="h-8 text-xs shrink-0"
-                    onClick={() => handleUnblock(u.id)}>
-                    Unblock
-                  </Button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </Layout>
-    );
-  }
-
   // ── Terms & Privacy view ──────────────────────────────────────────────────
   if (view === "terms") {
     return (
@@ -854,191 +665,6 @@ export default function Profile() {
             <pre className="text-sm text-foreground leading-relaxed whitespace-pre-wrap font-sans">
               {TERMS_AND_PRIVACY}
             </pre>
-          </div>
-        </div>
-      </Layout>
-    );
-  }
-
-  // ── Settings view ─────────────────────────────────────────────────────────
-  if (view === "settings") {
-    return (
-      <Layout>
-        <div className="max-w-2xl mx-auto px-4 py-6 space-y-4">
-          <button onClick={() => setView(null)}
-            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
-            <ArrowLeft className="h-4 w-4" /> Back to Profile
-          </button>
-          <h1 className="text-xl font-bold text-foreground">Settings</h1>
-
-          {/* Preferences */}
-          <div className="rounded-xl border border-border bg-card overflow-hidden">
-            <div className="px-5 py-4 border-b border-border flex items-center gap-2">
-              <Sun className="h-4 w-4 text-primary" />
-              <h2 className="text-sm font-semibold text-foreground">Preferences</h2>
-            </div>
-            <div className="divide-y divide-border">
-              <div className="flex items-center justify-between px-5 py-4">
-                <div>
-                  <p className="text-sm font-medium text-foreground">Appearance</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">{theme === "dark" ? "Dark mode is on" : "Light mode is on"}</p>
-                </div>
-                <button
-                  onClick={() => { toggleTheme(); toast({ title: theme === "dark" ? "Switched to light mode" : "Switched to dark mode" }); }}
-                  className="flex items-center gap-2 h-9 px-3 rounded-lg border border-border bg-secondary text-sm font-medium text-foreground hover:bg-muted transition-colors">
-                  {theme === "dark" ? <><Sun className="h-4 w-4" /> Light</> : <><Moon className="h-4 w-4" /> Dark</>}
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Privacy & Safety */}
-          <div className="rounded-xl border border-border bg-card overflow-hidden">
-            <div className="px-5 py-4 border-b border-border flex items-center gap-2">
-              <Shield className="h-4 w-4 text-primary" />
-              <h2 className="text-sm font-semibold text-foreground">Privacy & Safety</h2>
-            </div>
-            <div className="divide-y divide-border">
-              <button onClick={() => openView("blocked")}
-                className="w-full flex items-center justify-between px-5 py-4 hover:bg-muted transition-colors group">
-                <div className="flex items-center gap-3">
-                  <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0">
-                    <UserX className="h-4 w-4 text-muted-foreground" />
-                  </div>
-                  <div className="text-left">
-                    <p className="text-sm font-medium text-foreground">Blocked Users</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">Manage users you've blocked</p>
-                  </div>
-                </div>
-                <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
-              </button>
-            </div>
-          </div>
-
-          {/* Account */}
-          <div className="rounded-xl border border-border bg-card overflow-hidden">
-            <div className="px-5 py-4 border-b border-border flex items-center gap-2">
-              <Lock className="h-4 w-4 text-primary" />
-              <h2 className="text-sm font-semibold text-foreground">Account</h2>
-            </div>
-            <div className="px-5 py-4 space-y-3">
-              {/* Account status badge */}
-              <div className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-secondary/50 border border-border">
-                <div>
-                  <p className="text-xs text-muted-foreground">Account Status</p>
-                  <p className="text-sm font-medium text-foreground capitalize">{user.accountStatus}</p>
-                </div>
-                <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${user.accountStatus === "banned" ? "bg-destructive" : "bg-emerald-500"}`} />
-              </div>
-              {user.email && (
-                <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-secondary/50 border border-border">
-                  <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                    <span className="text-xs font-bold text-primary">{user.email[0].toUpperCase()}</span>
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-xs text-muted-foreground">Connected as</p>
-                    <p className="text-sm font-medium text-foreground truncate">{user.email}</p>
-                  </div>
-                </div>
-              )}
-              <Button size="sm" variant="outline" className="gap-1.5 h-9 w-full justify-start text-sm font-normal"
-                onClick={() => setShowChangePw(v => !v)}>
-                <Lock className="h-4 w-4 text-muted-foreground" /> Change password
-              </Button>
-              {showChangePw && (
-                <div className="rounded-xl border border-border bg-background p-4 space-y-3">
-                  <div className="relative">
-                    <label className="text-xs font-medium text-muted-foreground block mb-1">Current password</label>
-                    <input type={showCurrentPw ? "text" : "password"} value={currentPw} onChange={e => setCurrentPw(e.target.value)}
-                      placeholder="Enter current password"
-                      className="w-full h-9 rounded-lg border border-border bg-card px-3 pr-9 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-primary" />
-                    <button type="button" onClick={() => setShowCurrentPw(v => !v)}
-                      className="absolute right-3 top-7 text-muted-foreground hover:text-foreground">
-                      {showCurrentPw ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                    </button>
-                  </div>
-                  <div className="relative">
-                    <label className="text-xs font-medium text-muted-foreground block mb-1">New password</label>
-                    <input type={showNewPw ? "text" : "password"} value={newPw} onChange={e => setNewPw(e.target.value)}
-                      placeholder="Min. 6 characters"
-                      className="w-full h-9 rounded-lg border border-border bg-card px-3 pr-9 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-primary" />
-                    <button type="button" onClick={() => setShowNewPw(v => !v)}
-                      className="absolute right-3 top-7 text-muted-foreground hover:text-foreground">
-                      {showNewPw ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                    </button>
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-muted-foreground block mb-1">Confirm new password</label>
-                    <input type="password" value={confirmPw} onChange={e => setConfirmPw(e.target.value)}
-                      placeholder="Repeat new password"
-                      className="w-full h-9 rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-primary" />
-                  </div>
-                  <div className="flex gap-2 pt-1">
-                    <Button size="sm" className="flex-1 h-8 text-xs" onClick={handleChangePw} disabled={pwLoading}>
-                      {pwLoading ? "Updating…" : "Update password"}
-                    </Button>
-                    <Button size="sm" variant="outline" className="flex-1 h-8 text-xs"
-                      onClick={() => { setShowChangePw(false); setCurrentPw(""); setNewPw(""); setConfirmPw(""); }}>
-                      Cancel
-                    </Button>
-                  </div>
-                  <button onClick={handleForgotPassword}
-                    className="w-full text-center text-xs text-primary hover:underline">
-                    Forgot password
-                  </button>
-                </div>
-              )}
-              <Button size="sm" variant="outline"
-                onClick={async () => { await signOut(); navigate("/"); }}
-                className="gap-1.5 h-9 w-full justify-start text-sm font-normal">
-                <ArrowLeft className="h-4 w-4" /> Sign out
-              </Button>
-              <Button size="sm" variant="outline"
-                onClick={() => setShowDeleteModal(true)}
-                className="gap-1.5 h-9 w-full justify-start text-sm font-normal text-destructive border-destructive/30 hover:bg-destructive/5 hover:border-destructive/60">
-                <X className="h-4 w-4" /> Delete account
-              </Button>
-            </div>
-          </div>
-
-          {/* Help & Support */}
-          <div className="rounded-xl border border-border bg-card overflow-hidden">
-            <div className="px-5 py-4 border-b border-border flex items-center gap-2">
-              <HelpCircle className="h-4 w-4 text-primary" />
-              <h2 className="text-sm font-semibold text-foreground">Help & Support</h2>
-            </div>
-            <div className="divide-y divide-border">
-              <div className="flex items-center justify-between px-5 py-4">
-                <div className="flex items-center gap-3">
-                  <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0">
-                    <Mail className="h-4 w-4 text-muted-foreground" />
-                  </div>
-                  <div className="text-left">
-                    <p className="text-sm font-medium text-foreground">Contact Us</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">prolifiersupport@gmail.com</p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => { navigator.clipboard.writeText("prolifiersupport@gmail.com"); toast({ title: "Email copied!" }); }}
-                  className="flex items-center gap-1.5 text-xs font-medium text-primary border border-primary/30 bg-primary/5 hover:bg-primary/10 px-3 py-1.5 rounded-lg transition-colors">
-                  Copy
-                </button>
-              </div>
-              <button
-                onClick={() => openView("terms")}
-                className="w-full flex items-center justify-between px-5 py-4 hover:bg-muted transition-colors group">
-                <div className="flex items-center gap-3">
-                  <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0">
-                    <FileText className="h-4 w-4 text-muted-foreground" />
-                  </div>
-                  <div className="text-left">
-                    <p className="text-sm font-medium text-foreground">Terms & Privacy Policy</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">Read our terms and privacy policy</p>
-                  </div>
-                </div>
-                <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
-              </button>
-            </div>
           </div>
         </div>
       </Layout>
@@ -1350,18 +976,6 @@ export default function Profile() {
             ))}
           </div>
         </div>
-
-        {/* Settings entry */}
-        <button onClick={() => openView("settings")}
-          className="w-full flex items-center justify-between px-5 py-4 rounded-xl border border-border bg-card hover:bg-muted transition-colors group">
-          <div className="flex items-center gap-3">
-            <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-              <Shield className="h-4 w-4 text-primary" />
-            </div>
-            <p className="text-sm font-semibold text-foreground">Settings</p>
-          </div>
-          <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
-        </button>
 
       </div>
     </Layout>

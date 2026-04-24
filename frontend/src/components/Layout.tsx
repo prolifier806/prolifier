@@ -2,7 +2,7 @@ import { ReactNode, useEffect, useState, useRef } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useTheme } from "@/context/ThemeContext";
 import { useUser } from "@/context/UserContext";
-import { Home, Search, MessageCircle, Users, Bell, Leaf, Sun, Moon, MessageSquarePlus, Lock, Lightbulb, X } from "lucide-react";
+import { Home, Search, MessageCircle, Users, Bell, Settings, Leaf, Sun, Moon, MessageSquarePlus, Lock, Lightbulb, X } from "lucide-react";
 // Lock is used in the ComingSoonModal animated icon
 import { supabase } from "@/lib/supabase";
 
@@ -85,6 +85,7 @@ const NAV_PATHS = [
   { to: "/messages",      icon: MessageCircle, label: "Messages"      },
   { to: "/groups",        icon: Users,         label: "Communities"   },
   { to: "/notifications", icon: Bell,          label: "Notifications" },
+  { to: "/settings",      icon: Settings,      label: "Settings"      },
 ];
 
 
