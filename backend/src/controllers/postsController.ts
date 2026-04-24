@@ -400,20 +400,10 @@ export async function likePost(req: AuthRequest, res: Response): Promise<void> {
   }
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
 
-  // Create notification for post owner (not self-like)
-  if (post.user_id !== userId) {
-    try {
-      await supabaseAdmin.from("notifications").insert({
-        user_id: post.user_id,
-        type: "like",
-        text: "liked your post",
-        action: `/feed?post=${id}`,
-        read: false,
-      });
-    } catch (notifErr) {
-      console.warn("[posts] Failed to create like notification:", notifErr);
-    }
-  }
+  // Increment likes counter (fire-and-forget, non-blocking)
+  supabaseAdmin.from("posts").select("likes").eq("id", id).single().then(({ data }) => {
+    supabaseAdmin.from("posts").update({ likes: (data?.likes ?? 0) + 1 }).eq("id", id);
+  });
 
   res.json({ success: true, data: null });
 }
@@ -429,6 +419,12 @@ export async function unlikePost(req: AuthRequest, res: Response): Promise<void>
     .eq("post_id", id);
 
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
+
+  // Decrement likes counter (fire-and-forget, non-blocking)
+  supabaseAdmin.from("posts").select("likes").eq("id", id).single().then(({ data }) => {
+    supabaseAdmin.from("posts").update({ likes: Math.max(0, (data?.likes ?? 1) - 1) }).eq("id", id);
+  });
+
   res.json({ success: true, data: null });
 }
 

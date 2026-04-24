@@ -1985,21 +1985,27 @@ export default function Feed() {
     setLikedPosts(p => { const n = new Set(p); was ? n.delete(id) : n.add(id); return n; });
     setPosts(p => p.map(x => x.id === id ? { ...x, likes: was ? x.likes - 1 : x.likes + 1 } : x));
 
-    if (was) {
-      await unlikePost(id).catch(() => {});
-    } else {
-      await likePost(id).catch(() => {});
-      const post = posts.find(p => p.id === id);
-      if (post && post.user_id !== user.id) {
-        createNotification({
-          userId: post.user_id,
-          type: "like",
-          text: `${user.name} liked your post`,
-          subtext: post.content?.slice(0, 60) || undefined,
-          action: "feed",
-          actorId: user.id,
-        });
+    try {
+      if (was) {
+        await unlikePost(id);
+      } else {
+        await likePost(id);
+        const post = posts.find(p => p.id === id);
+        if (post && post.user_id !== user.id) {
+          createNotification({
+            userId: post.user_id,
+            type: "like",
+            text: `${user.name} liked your post`,
+            subtext: post.content?.slice(0, 60) || undefined,
+            action: "feed",
+            actorId: user.id,
+          });
+        }
       }
+    } catch {
+      // Revert optimistic update on failure
+      setLikedPosts(p => { const n = new Set(p); was ? n.add(id) : n.delete(id); return n; });
+      setPosts(p => p.map(x => x.id === id ? { ...x, likes: was ? x.likes + 1 : x.likes - 1 } : x));
     }
 
   }, [likedPosts, posts, user.id, user.name]);
@@ -2027,11 +2033,12 @@ export default function Feed() {
     setCommentsLoading(true);
     try {
       // Two parallel queries: comments + profiles — faster than a joined select
-      const { data: commentsData } = await (supabase as any)
+      const { data: commentsData, error: commentsError } = await (supabase as any)
         .from("comments")
         .select("id, user_id, parent_id, text, created_at")
         .eq("post_id", post.id)
         .order("created_at", { ascending: true });
+      if (commentsError) throw new Error(commentsError.message);
       const rows = commentsData || [];
       const userIds = [...new Set(rows.map((c: any) => c.user_id))] as string[];
       const { data: profilesData } = userIds.length > 0
@@ -2061,6 +2068,9 @@ export default function Feed() {
       const updatedPost = { ...post, comments: visibleComments, commentCount: visibleComments.length };
       setPosts(p => p.map(x => x.id === post.id ? updatedPost : x));
       setCommentingPost(prev => prev?.id === post.id ? updatedPost : prev);
+    } catch {
+      toast({ title: "Couldn't load comments. Tap to retry.", variant: "destructive" });
+      setCommentingPost(null);
     } finally {
       setCommentsLoading(false);
     }
