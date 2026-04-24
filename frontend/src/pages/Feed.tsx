@@ -1439,16 +1439,6 @@ const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, highligh
 });
 
 // ── Match label helper ─────────────────────────────────────────────────────
-function getCollabMatch(collab: Collab, userSkills: string[]): "strong" | "good" | "low" {
-  if (userSkills.length === 0) return "low";
-  const usl = userSkills.map(s => s.toLowerCase());
-  const roleWords = collab.looking.toLowerCase().split(/[\s,/-]+/).filter(w => w.length > 3);
-  const roleMatch = roleWords.some(w => usl.some(s => s.includes(w) || w.includes(s)));
-  const tagMatch = collab.skills.some(s => usl.some(us => us.includes(s.toLowerCase()) || s.toLowerCase().includes(us)));
-  if (roleMatch && tagMatch) return "strong";
-  if (roleMatch || tagMatch) return "good";
-  return "low";
-}
 
 // ── Collab Card ────────────────────────────────────────────────────────────
 // OPT: same memo treatment as PostCard
@@ -1635,8 +1625,6 @@ export default function Feed() {
   const [postSearch, setPostSearch] = useState("");
   const [activeFilter, setActiveFilter] = useState("All");
   const [activePostTag, setActivePostTag] = useState("All");
-  const [collabSort, setCollabSort] = useState<"relevant" | "newest">("relevant");
-  const [postSort, setPostSort] = useState<"relevant" | "newest">("relevant");
   const [connectedUserIds, setConnectedUserIds] = useState<Set<string>>(new Set());
 
   const [highlightedPostId, setHighlightedPostId] = useState<string|null>(null);
@@ -2580,23 +2568,8 @@ export default function Feed() {
       const matchSearch = !q || p.author.toLowerCase().includes(q) || p.content.toLowerCase().includes(q) || p.tag.toLowerCase().includes(q);
       return matchTag && matchSearch;
     });
-    if (postSort === "newest") {
-      return [...base].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-    }
-    // Relevant: connections first, then freshness + mild engagement boost
-    return [...base].sort((a, b) => {
-      const now = Date.now();
-      const scorePost = (p: typeof base[0]) => {
-        const ageMs = now - new Date(p.createdAt).getTime();
-        const ageDays = ageMs / (1000 * 60 * 60 * 24);
-        const freshness = Math.max(0, 100 - ageDays * 14);
-        const connBoost = connectedUserIds.has(p.user_id) ? 200 : 0;
-        const engagement = Math.min(p.likes + p.commentCount, 20) * 2;
-        return connBoost + freshness + engagement;
-      };
-      return scorePost(b) - scorePost(a);
-    });
-  }, [posts, activePostTag, postSearch, blockedUserIds, postSort, connectedUserIds]);
+    return [...base].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }, [posts, activePostTag, postSearch, blockedUserIds]);
 
   const filteredCollabs = useMemo(() => {
     const base = collabs.filter(c => {
@@ -2610,19 +2583,8 @@ export default function Feed() {
           : c.skills.some(s => s.toLowerCase().includes(activeFilter.toLowerCase())) || c.looking.toLowerCase().includes(activeFilter.toLowerCase());
       return ms && mf;
     });
-    if (collabSort === "newest") {
-      return [...base].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-    }
-    // Relevant: Strong match first, then Good, then Low, newest-first within each group
-    const matchRank = { strong: 0, good: 1, low: 2 };
-    const userSkills = user.skills || [];
-    return [...base].sort((a, b) => {
-      const ma = getCollabMatch(a, userSkills);
-      const mb = getCollabMatch(b, userSkills);
-      if (matchRank[ma] !== matchRank[mb]) return matchRank[ma] - matchRank[mb];
-      return b.createdAt.localeCompare(a.createdAt);
-    });
-  }, [collabs, search, activeFilter, blockedUserIds, collabSort, user.skills]);
+    return [...base].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }, [collabs, search, activeFilter, blockedUserIds]);
 
   return (
     <Layout>
@@ -2719,18 +2681,6 @@ export default function Feed() {
                   ))}
                 </DropdownMenuContent>
               </DropdownMenu>
-            </div>
-
-            {/* Post sort toggle */}
-            <div className="flex gap-1 p-0.5 rounded-lg bg-muted w-fit">
-              <button
-                onClick={() => setPostSort("relevant")}
-                className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${postSort === "relevant" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-              >Relevant</button>
-              <button
-                onClick={() => setPostSort("newest")}
-                className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${postSort === "newest" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-              >Newest</button>
             </div>
 
             {loading ? <FeedSkeleton /> : filteredPosts.length === 0 ? (
@@ -2887,19 +2837,7 @@ export default function Feed() {
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
-            <div className="flex items-center justify-between">
-              <p className="text-xs text-muted-foreground">{filteredCollabs.length} collab{filteredCollabs.length!==1?"s":""}</p>
-              <div className="flex gap-1 p-0.5 rounded-lg bg-muted">
-                <button
-                  onClick={() => setCollabSort("relevant")}
-                  className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${collabSort === "relevant" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-                >Relevant</button>
-                <button
-                  onClick={() => setCollabSort("newest")}
-                  className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${collabSort === "newest" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-                >Newest</button>
-              </div>
-            </div>
+            <p className="text-xs text-muted-foreground">{filteredCollabs.length} collab{filteredCollabs.length!==1?"s":""}</p>
             {filteredCollabs.length === 0 ? (
               <div className="text-center py-14 text-muted-foreground">
                 <p className="text-sm font-medium mb-1">No collaborations found</p>
@@ -2910,7 +2848,7 @@ export default function Feed() {
                 {filteredCollabs.map(c => (
                   <CollabCard key={c.id} collab={c} interestedSet={interestedCollabs} savedCollabs={savedCollabs}
                     highlighted={highlightedCollabId === c.id}
-                    matchLabel={collabSort === "relevant" ? getCollabMatch(c, user.skills || []) : undefined}
+                    matchLabel={undefined}
                     onInterest={handleInterest} onMessage={() => navigate("/messages")}
                     onSave={handleSaveCollab} onDelete={handleDeleteCollab} onEdit={setEditingCollab}
                     onHide={handleHideCollab}
