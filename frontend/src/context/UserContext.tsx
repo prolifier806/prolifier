@@ -9,6 +9,7 @@ import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import { logger } from "@/lib/logger";
 import { setOnSuspended } from "@/api/client";
+import { trackLogin } from "@/api/loginHistory";
 
 export type CurrentUser = {
   id: string;
@@ -281,6 +282,12 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
       if (!userId) { setLoading(false); return; }
 
+      // Track login once per browser session (sessionStorage clears on tab close)
+      if (!sessionStorage.getItem("prolifier_login_tracked")) {
+        sessionStorage.setItem("prolifier_login_tracked", "1");
+        trackLogin().catch(() => {});
+      }
+
       // Load blocked IDs from storage (sync — no DB call)
       setBlockedIds(loadBlockedIdsFromStorage(userId));
 
@@ -509,6 +516,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(async () => {
     if (authUser) localStorage.removeItem(cacheKey(authUser.id));
+    sessionStorage.removeItem("prolifier_login_tracked");
     await supabase.auth.signOut();
     setUser(DEFAULT_USER);
     setSession(null);
