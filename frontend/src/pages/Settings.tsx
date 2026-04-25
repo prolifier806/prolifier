@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import {
   Sun, Moon, Shield, Lock, UserX, ChevronRight, ArrowLeft,
   Eye, EyeOff, X, Mail, Heart, MessageCircle,
-  Bell, Monitor, LogOut, Globe,
+  Bell, Monitor, LogOut, Globe, HelpCircle, FileText, Smartphone,
 } from "lucide-react";
 import Layout from "@/components/Layout";
 import { toast } from "@/hooks/use-toast";
@@ -15,6 +15,7 @@ import { useUser } from "@/context/UserContext";
 import { supabase } from "@/lib/supabase";
 import { deleteMyAccount, unblockUser } from "@/api/users";
 import { isAbortError } from "@/api/client";
+import { TERMS_AND_PRIVACY } from "@/pages/Profile";
 
 const PREFS_KEY = "notif_prefs";
 const PREFS_DEFAULT = {
@@ -38,6 +39,31 @@ const DELETE_REASONS = [
 ];
 
 type BlockedUser = { id: string; name: string; avatar: string; color: string; avatarUrl?: string };
+
+type SessionInfo = {
+  signedInAt: string;
+  browser: string;
+  platform: string;
+};
+
+function detectBrowser(): string {
+  const ua = navigator.userAgent;
+  if (ua.includes("Chrome") && !ua.includes("Edg")) return "Chrome";
+  if (ua.includes("Safari") && !ua.includes("Chrome")) return "Safari";
+  if (ua.includes("Firefox")) return "Firefox";
+  if (ua.includes("Edg")) return "Edge";
+  return "Browser";
+}
+
+function detectPlatform(): string {
+  const ua = navigator.userAgent;
+  if (/iPhone|iPad|iPod/.test(ua)) return "iOS";
+  if (/Android/.test(ua)) return "Android";
+  if (/Mac/.test(ua)) return "macOS";
+  if (/Win/.test(ua)) return "Windows";
+  if (/Linux/.test(ua)) return "Linux";
+  return "Unknown";
+}
 
 export default function Settings() {
   const { theme, toggleTheme } = useTheme();
@@ -77,19 +103,38 @@ export default function Settings() {
     if (!user.id) return;
     setBlockedLoading(true);
     try {
-      const { data } = await (supabase as any)
+      // Step 1: get blocked IDs
+      const { data: blockRows, error: blockErr } = await (supabase as any)
         .from("blocks")
-        .select("blocked_id, profiles!blocks_blocked_id_fkey(id, name, avatar, color, avatar_url)")
+        .select("blocked_id")
         .eq("blocker_id", user.id);
-      setBlockedList((data || []).map((row: any) => ({
-        id: row.profiles.id,
-        name: row.profiles.name,
-        avatar: row.profiles.avatar,
-        color: row.profiles.color,
-        avatarUrl: row.profiles.avatar_url || undefined,
+      if (blockErr) throw blockErr;
+      const ids: string[] = (blockRows || []).map((r: any) => r.blocked_id);
+      if (ids.length === 0) { setBlockedList([]); return; }
+      // Step 2: fetch profiles
+      const { data: profiles, error: profErr } = await (supabase as any)
+        .from("profiles")
+        .select("id, name, avatar, color, avatar_url")
+        .in("id", ids);
+      if (profErr) throw profErr;
+      setBlockedList((profiles || []).map((p: any) => ({
+        id: p.id,
+        name: p.name || "Unknown",
+        avatar: p.avatar || "?",
+        color: p.color || "bg-primary",
+        avatarUrl: p.avatar_url || undefined,
       })));
-    } catch { /* ignore */ } finally { setBlockedLoading(false); }
+    } catch {
+      toast({ title: "Failed to load blocked users", variant: "destructive" });
+    } finally {
+      setBlockedLoading(false);
+    }
   };
+
+  useEffect(() => {
+    if (showBlocked) loadBlocked();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showBlocked]);
 
   const handleUnblock = async (userId: string) => {
     setBlockedList(prev => prev.filter(u => u.id !== userId));
@@ -127,8 +172,20 @@ export default function Settings() {
 
   // Login activity
   const [showLoginActivity, setShowLoginActivity] = useState(false);
+  const [sessionInfo, setSessionInfo] = useState<SessionInfo | null>(null);
   const [loggingOutOthers, setLoggingOutOthers] = useState(false);
-  const [loggingOutAll, setLoggingOutAll] = useState(false);
+
+  useEffect(() => {
+    if (!showLoginActivity) return;
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session) return;
+      setSessionInfo({
+        signedInAt: session.user.last_sign_in_at || session.user.created_at,
+        browser: detectBrowser(),
+        platform: detectPlatform(),
+      });
+    });
+  }, [showLoginActivity]);
 
   const handleSignOutOthers = async () => {
     setLoggingOutOthers(true);
@@ -139,17 +196,6 @@ export default function Settings() {
     } catch {
       toast({ title: "Failed to sign out other devices", variant: "destructive" });
     } finally { setLoggingOutOthers(false); }
-  };
-
-  const handleSignOutAll = async () => {
-    setLoggingOutAll(true);
-    try {
-      await supabase.auth.signOut({ scope: "global" });
-      navigate("/");
-    } catch {
-      toast({ title: "Failed to sign out", variant: "destructive" });
-      setLoggingOutAll(false);
-    }
   };
 
   // Delete account
@@ -172,6 +218,9 @@ export default function Settings() {
     }
   };
 
+  // Terms sub-view
+  const [showTerms, setShowTerms] = useState(false);
+
   // ── Blocked Users sub-view ────────────────────────────────────────────────
   if (showBlocked) {
     return (
@@ -181,9 +230,12 @@ export default function Settings() {
             className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-5">
             <ArrowLeft className="h-4 w-4" /> Back to Settings
           </button>
-          <h1 className="text-xl font-bold text-foreground mb-4">Blocked Users</h1>
+          <h1 className="text-xl font-bold text-foreground mb-1">Blocked Users</h1>
+          <p className="text-sm text-muted-foreground mb-4">Blocked users cannot see your profile or contact you.</p>
           {blockedLoading ? (
-            <div className="text-center py-10 text-sm text-muted-foreground">Loading…</div>
+            <div className="flex items-center justify-center py-12">
+              <div className="h-6 w-6 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+            </div>
           ) : blockedList.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
               <UserX className="h-10 w-10 mx-auto mb-3 opacity-30" />
@@ -207,6 +259,26 @@ export default function Settings() {
               ))}
             </div>
           )}
+        </div>
+      </Layout>
+    );
+  }
+
+  // ── Terms sub-view ────────────────────────────────────────────────────────
+  if (showTerms) {
+    return (
+      <Layout>
+        <div className="max-w-2xl mx-auto px-4 py-6">
+          <button onClick={() => setShowTerms(false)}
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-5">
+            <ArrowLeft className="h-4 w-4" /> Back to Settings
+          </button>
+          <h1 className="text-xl font-bold text-foreground mb-4">Terms & Privacy Policy</h1>
+          <div className="rounded-xl border border-border bg-card p-5">
+            <pre className="text-sm text-foreground leading-relaxed whitespace-pre-wrap font-sans">
+              {TERMS_AND_PRIVACY}
+            </pre>
+          </div>
         </div>
       </Layout>
     );
@@ -333,7 +405,7 @@ export default function Settings() {
             <h2 className="text-sm font-semibold text-foreground">Privacy & Safety</h2>
           </div>
           <div className="divide-y divide-border">
-            <button onClick={() => { setShowBlocked(true); loadBlocked(); }}
+            <button onClick={() => setShowBlocked(true)}
               className="w-full flex items-center justify-between px-5 py-4 hover:bg-muted transition-colors group">
               <div className="flex items-center gap-3">
                 <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0">
@@ -477,6 +549,45 @@ export default function Settings() {
           </div>
         </div>
 
+        {/* Help & Support */}
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          <div className="px-5 py-4 border-b border-border flex items-center gap-2">
+            <HelpCircle className="h-4 w-4 text-primary" />
+            <h2 className="text-sm font-semibold text-foreground">Help & Support</h2>
+          </div>
+          <div className="divide-y divide-border">
+            <div className="flex items-center justify-between px-5 py-4">
+              <div className="flex items-center gap-3">
+                <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0">
+                  <Mail className="h-4 w-4 text-muted-foreground" />
+                </div>
+                <div className="text-left">
+                  <p className="text-sm font-medium text-foreground">Contact Us</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">prolifiersupport@gmail.com</p>
+                </div>
+              </div>
+              <button
+                onClick={() => { navigator.clipboard.writeText("prolifiersupport@gmail.com"); toast({ title: "Email copied!" }); }}
+                className="flex items-center gap-1.5 text-xs font-medium text-primary border border-primary/30 bg-primary/5 hover:bg-primary/10 px-3 py-1.5 rounded-lg transition-colors">
+                Copy
+              </button>
+            </div>
+            <button onClick={() => setShowTerms(true)}
+              className="w-full flex items-center justify-between px-5 py-4 hover:bg-muted transition-colors group">
+              <div className="flex items-center gap-3">
+                <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0">
+                  <FileText className="h-4 w-4 text-muted-foreground" />
+                </div>
+                <div className="text-left">
+                  <p className="text-sm font-medium text-foreground">Terms & Privacy Policy</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Read our terms and privacy policy</p>
+                </div>
+              </div>
+              <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+            </button>
+          </div>
+        </div>
+
         {/* Log Out */}
         <Button variant="outline" className="w-full gap-2 h-11 text-sm font-medium"
           onClick={async () => { await signOut(); navigate("/"); }}>
@@ -495,31 +606,44 @@ export default function Settings() {
               <X className="h-4 w-4" />
             </button>
             <h2 className="text-lg font-bold text-foreground mb-1">Login Activity</h2>
-            <p className="text-xs text-muted-foreground mb-5">Manage where you're signed in</p>
+            <p className="text-xs text-muted-foreground mb-4">Active sessions on your account</p>
 
-            <div className="rounded-xl border border-primary/30 bg-primary/5 px-4 py-3.5 mb-4 flex items-center gap-3">
-              <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                <Monitor className="h-4 w-4 text-primary" />
+            {/* Current session */}
+            <div className="rounded-xl border border-primary/30 bg-primary/5 px-4 py-3.5 mb-4">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                  <Smartphone className="h-4 w-4 text-primary" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-semibold text-foreground">This device</p>
+                    <span className="text-xs text-primary font-medium px-2 py-0.5 rounded-full bg-primary/10">Active now</span>
+                  </div>
+                  {sessionInfo ? (
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {sessionInfo.browser} · {sessionInfo.platform}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground mt-0.5">Loading…</p>
+                  )}
+                </div>
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-foreground">This device</p>
-                <p className="text-xs text-muted-foreground mt-0.5">Current session</p>
-              </div>
-              <span className="text-xs text-primary font-medium px-2 py-0.5 rounded-full bg-primary/10">Active</span>
+              {sessionInfo && (
+                <p className="text-xs text-muted-foreground ml-12">
+                  Signed in {new Date(sessionInfo.signedInAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+                </p>
+              )}
             </div>
 
-            <div className="space-y-2">
-              <Button variant="outline" className="w-full h-10 text-sm gap-2"
-                disabled={loggingOutOthers} onClick={handleSignOutOthers}>
-                <LogOut className="h-4 w-4" />
-                {loggingOutOthers ? "Signing out…" : "Sign out other devices"}
-              </Button>
-              <Button variant="outline" className="w-full h-10 text-sm gap-2 text-destructive border-destructive/30 hover:bg-destructive/5"
-                disabled={loggingOutAll} onClick={handleSignOutAll}>
-                <LogOut className="h-4 w-4" />
-                {loggingOutAll ? "Signing out…" : "Sign out all devices"}
-              </Button>
-            </div>
+            <p className="text-xs text-muted-foreground mb-3 text-center">
+              If you don't recognise a session, sign out all other devices below.
+            </p>
+
+            <Button variant="outline" className="w-full h-10 text-sm gap-2"
+              disabled={loggingOutOthers} onClick={handleSignOutOthers}>
+              <LogOut className="h-4 w-4" />
+              {loggingOutOthers ? "Signing out…" : "Sign out other devices"}
+            </Button>
           </div>
         </div>
       )}

@@ -54,6 +54,28 @@ function fmtTime(iso: string) {
   return new Date(iso).toLocaleDateString();
 }
 
+const PREFS_KEY = "notif_prefs";
+const PREFS_DEFAULT = {
+  matches: true, messages: true, collabs: true,
+  likes: false, comments: true, groups: true,
+  trending: false, weekly: true,
+};
+
+function getPrefs() {
+  try {
+    const saved = localStorage.getItem(PREFS_KEY);
+    return saved ? { ...PREFS_DEFAULT, ...JSON.parse(saved) } : PREFS_DEFAULT;
+  } catch { return PREFS_DEFAULT; }
+}
+
+function isAllowed(type: string): boolean {
+  const p = getPrefs();
+  if (type === "like")    return p.likes;
+  if (type === "comment") return p.comments;
+  if (type === "message") return p.messages;
+  return true;
+}
+
 // ── Exported helper — re-export from api layer for backwards compatibility ─
 export { apiCreateNotification as createNotification };
 
@@ -71,7 +93,7 @@ export default function Notifications() {
     setLoading(true);
     try {
       const items: Notif[] = await getNotifications();
-      setNotifs(items.map(n => ({ ...n, read: true })));
+      setNotifs(items.filter(n => isAllowed(n.type)).map(n => ({ ...n, read: true })));
     } catch (err) {
       if (import.meta.env.DEV) console.error("fetchNotifs:", err);
     } finally {
@@ -95,7 +117,8 @@ export default function Notifications() {
         event: "INSERT", schema: "public", table: "notifications",
         filter: `user_id=eq.${user.id}`,
       }, (payload) => {
-        if (payload.new.type === "message" || payload.new.type === "match") return;
+        if (payload.new.type === "match") return;
+        if (!isAllowed(payload.new.type)) return;
         // Mark read immediately since user is already on the page
         const notif = { ...(payload.new as Notif), read: true };
         setNotifs(prev => [notif, ...prev]);
