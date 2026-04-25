@@ -9,6 +9,7 @@ import { X, Plus, Camera, MapPin, AtSign, Check, Loader2 } from "lucide-react";
 import { useUser } from "@/context/UserContext";
 import { toast } from "@/hooks/use-toast";
 import { uploadAvatar, removeAvatar } from "@/api/uploads";
+import CropModal from "@/components/CropModal";
 import { checkUsername, setUsername as apiSetUsername } from "@/api/users";
 import { SKILL_CATEGORIES } from "@/lib/skills";
 import { LOCATIONS } from "@/lib/locations";
@@ -57,6 +58,7 @@ export default function ProfileSetup() {
   const [customSkillInput, setCustomSkillInput] = useState("");
   const [avatarUrl, setAvatarUrl] = useState(user.avatarUrl || "");
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [cropSrc, setCropSrc] = useState<string | null>(null);
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const [locationSuggestions, setLocationSuggestions] = useState<string[]>([]);
   const [showLocationDrop, setShowLocationDrop] = useState(false);
@@ -91,7 +93,7 @@ export default function ProfileSetup() {
 
   const ALLOWED_AVATAR_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 
-  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = "";
@@ -99,13 +101,19 @@ export default function ProfileSetup() {
       toast({ title: "Unsupported format", description: "Please upload a JPG, PNG, WebP, or GIF image.", variant: "destructive" });
       return;
     }
+    setCropSrc(URL.createObjectURL(file));
+  };
+
+  const handleCropSave = async (croppedFile: File) => {
     setUploadingAvatar(true);
     try {
-      const url = await uploadAvatar(file);
+      const url = await uploadAvatar(croppedFile);
       setAvatarUrl(url + "?t=" + Date.now());
     } catch (err: any) {
       toast({ title: "Upload failed", description: err.message, variant: "destructive" });
     } finally {
+      if (cropSrc) URL.revokeObjectURL(cropSrc);
+      setCropSrc(null);
       setUploadingAvatar(false);
     }
   };
@@ -421,6 +429,15 @@ export default function ProfileSetup() {
   ];
 
   return (
+    <>
+    {cropSrc && (
+      <CropModal
+        imageSrc={cropSrc}
+        saving={uploadingAvatar}
+        onCancel={() => { URL.revokeObjectURL(cropSrc); setCropSrc(null); }}
+        onSave={handleCropSave}
+      />
+    )}
     <div className="min-h-screen flex flex-col items-center justify-center bg-background px-6 py-12">
       <div className="w-full max-w-md">
         <h1 className="text-2xl font-bold text-center mb-1">Set up your profile</h1>
@@ -472,5 +489,6 @@ export default function ProfileSetup() {
         )}
       </div>
     </div>
+    </>
   );
 }

@@ -17,6 +17,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
 import Layout from "@/components/Layout";
+import CropModal from "@/components/CropModal";
 import { toast } from "@/hooks/use-toast";
 import { useUser } from "@/context/UserContext";
 import { supabase } from "@/lib/supabase";
@@ -168,8 +169,9 @@ export default function Profile() {
 
   // Avatar
   const avatarRef = useRef<HTMLInputElement>(null);
-  const [avatarUrl, setAvatarUrl]         = useState<string | null>(user.avatarUrl || null);
+  const [avatarUrl, setAvatarUrl]           = useState<string | null>(user.avatarUrl || null);
   const [avatarUploading, setAvatarUploading] = useState(false);
+  const [cropSrc, setCropSrc]               = useState<string | null>(null);
   useEffect(() => { if (user.avatarUrl) setAvatarUrl(user.avatarUrl); }, [user.avatarUrl]);
 
   // Analytics counts
@@ -375,7 +377,7 @@ export default function Profile() {
 
   const ALLOWED_AVATAR_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 
-  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = "";
@@ -383,9 +385,13 @@ export default function Profile() {
       toast({ title: "Unsupported format", description: "Please upload a JPG, PNG, WebP, or GIF image.", variant: "destructive" });
       return;
     }
+    setCropSrc(URL.createObjectURL(file));
+  };
+
+  const handleCropSave = async (croppedFile: File) => {
     setAvatarUploading(true);
     try {
-      const rawUrl = await uploadAvatar(file);
+      const rawUrl = await uploadAvatar(croppedFile);
       const url = rawUrl + "?t=" + Date.now();
       setAvatarUrl(url);
       await updateUser({ avatarUrl: url });
@@ -393,6 +399,8 @@ export default function Profile() {
     } catch (err: any) {
       if (!isAbortError(err)) toast({ title: "Upload failed", description: err.message, variant: "destructive" });
     } finally {
+      if (cropSrc) URL.revokeObjectURL(cropSrc);
+      setCropSrc(null);
       setAvatarUploading(false);
     }
   };
@@ -674,6 +682,14 @@ export default function Profile() {
   // ── Main profile view ─────────────────────────────────────────────────────
   return (
     <Layout>
+      {cropSrc && (
+        <CropModal
+          imageSrc={cropSrc}
+          saving={avatarUploading}
+          onCancel={() => { URL.revokeObjectURL(cropSrc); setCropSrc(null); }}
+          onSave={handleCropSave}
+        />
+      )}
       <div className="max-w-2xl mx-auto px-4 py-6 space-y-4">
 
         {/* Profile card */}
