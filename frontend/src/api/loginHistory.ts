@@ -23,6 +23,7 @@ export interface LoginEntry {
   created_at: string;
 }
 
-export const trackLogin    = (): Promise<void>           => apiPost("/api/login-history/track");
-export const getDevices    = (): Promise<DeviceEntry[]>  => apiGet("/api/login-history/devices");
-export const getLoginHistory = (): Promise<LoginEntry[]> => apiGet("/api/login-history/history");
+export const trackLogin      = (): Promise<void>           => apiPost("/api/login-history/track");
+export const getDevices      = (): Promise<DeviceEntry[]>  => apiGet("/api/login-history/devices");
+export const getLoginHistory = (): Promise<LoginEntry[]>   => apiGet("/api/login-history/history");
+export const signOutOthers   = (socketId: string): Promise<void> => apiPost("/api/login-history/sign-out-others", { socketId });

@@ -10,6 +10,7 @@ import { supabase } from "@/lib/supabase";
 import { logger } from "@/lib/logger";
 import { setOnSuspended } from "@/api/client";
 import { trackLogin } from "@/api/loginHistory";
+import { getSharedSocket } from "@/lib/socket";
 
 export type CurrentUser = {
   id: string;
@@ -431,6 +432,24 @@ export function UserProvider({ children }: { children: ReactNode }) {
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [authUser?.id]);
+
+  // Listen for force:logout pushed by another session via Socket.IO
+  useEffect(() => {
+    if (!session?.access_token) return;
+    const socket = getSharedSocket(session.access_token);
+    const handler = () => {
+      supabase.auth.signOut().then(() => {
+        setUser(DEFAULT_USER);
+        setSession(null);
+        setAuthUser(null);
+        setBlockedIds(new Set());
+        sessionStorage.removeItem("prolifier_login_tracked");
+        window.location.href = "/";
+      });
+    };
+    socket.on("force:logout" as any, handler);
+    return () => { socket.off("force:logout" as any, handler); };
+  }, [session?.access_token]);
 
   const updateUser = useCallback(async (patch: Partial<CurrentUser>) => {
     if (!authUser) return;

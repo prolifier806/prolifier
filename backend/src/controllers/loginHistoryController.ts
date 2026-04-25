@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import crypto from "crypto";
 import { UAParser } from "ua-parser-js";
 import { supabaseAdmin } from "../lib/supabase";
-import { emitToUser } from "../lib/socketServer";
+import { emitToUser, emitToUserExcept } from "../lib/socketServer";
 import type { AuthRequest } from "../middleware/requireAuth";
 
 // Private IPs — skip GeoIP lookup for these
@@ -142,4 +142,20 @@ export async function getLoginHistory(req: AuthRequest, res: Response): Promise<
 
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
   res.json({ success: true, data: data ?? [] });
+}
+
+// ── POST /api/login-history/sign-out-others ───────────────────────────────────
+// Invalidates all other Supabase sessions then pushes force:logout via Socket.IO
+// so other open tabs/devices sign out immediately without waiting for token expiry.
+export async function signOutOthers(req: AuthRequest, res: Response): Promise<void> {
+  const userId   = req.user.id;
+  const socketId: string = (req.body as any)?.socketId ?? "";
+
+  // Revoke all other Supabase sessions for this user (keeps current token valid)
+  await supabaseAdmin.auth.admin.signOut(userId, "others");
+
+  // Push real-time logout to every other open socket for this user
+  emitToUserExcept(userId, socketId, "force:logout", undefined);
+
+  res.json({ success: true, data: null });
 }

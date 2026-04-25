@@ -104,6 +104,9 @@ export interface ServerToClientEvents {
   // ── Login activity ──────────────────────────────────────────────────────
   /** A new login was detected for this user (pushed to all their open sessions) */
   "login:new": (event: LoginEvent) => void;
+
+  /** Another session requested sign-out — this device must log out immediately */
+  "force:logout": () => void;
 }
 
 // ── Shared data shapes ────────────────────────────────────────────────────────

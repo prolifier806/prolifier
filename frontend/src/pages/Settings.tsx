@@ -15,7 +15,7 @@ import { useTheme } from "@/context/ThemeContext";
 import { useUser } from "@/context/UserContext";
 import { supabase } from "@/lib/supabase";
 import { getSharedSocket } from "@/lib/socket";
-import { getDevices, getLoginHistory } from "@/api/loginHistory";
+import { getDevices, getLoginHistory, signOutOthers } from "@/api/loginHistory";
 import type { DeviceEntry, LoginEntry } from "@/api/loginHistory";
 import { deleteMyAccount, unblockUser } from "@/api/users";
 import { isAbortError } from "@/api/client";
@@ -206,7 +206,9 @@ export default function Settings() {
   const handleSignOutOthers = async () => {
     setLoggingOutOthers(true);
     try {
-      await supabase.auth.signOut({ scope: "others" });
+      const { data: { session: s } } = await supabase.auth.getSession();
+      const socketId = s ? getSharedSocket(s.access_token).id ?? "" : "";
+      await signOutOthers(socketId);
       toast({ title: "Signed out from all other devices" });
       setShowLoginActivity(false);
     } catch {

@@ -92,6 +92,10 @@ export function emitToUser(userId: string, event: keyof ServerToClientEvents, pa
   _io?.to(`user:${userId}`).emit(event as any, payload);
 }
 
+export function emitToUserExcept(userId: string, exceptSocketId: string, event: keyof ServerToClientEvents, payload: any) {
+  _io?.to(`user:${userId}`).except(exceptSocketId).emit(event as any, payload);
+}
+
 // ── Main init ─────────────────────────────────────────────────────────────────
 
 export function initSocketServer(httpServer: HttpServer, allowedOrigins: Set<string>) {
