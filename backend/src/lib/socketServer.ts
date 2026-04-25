@@ -88,6 +88,10 @@ export function broadcastFromDb(groupId: string, event: keyof ServerToClientEven
   _io?.to(`group:${groupId}`).emit(event as any, payload);
 }
 
+export function emitToUser(userId: string, event: keyof ServerToClientEvents, payload: any) {
+  _io?.to(`user:${userId}`).emit(event as any, payload);
+}
+
 // ── Main init ─────────────────────────────────────────────────────────────────
 
 export function initSocketServer(httpServer: HttpServer, allowedOrigins: Set<string>) {
@@ -116,6 +120,9 @@ export function initSocketServer(httpServer: HttpServer, allowedOrigins: Set<str
   io.on("connection", (rawSocket) => {
     const socket = rawSocket as AppSocket;
     const { userId, name, color, avatarUrl, role } = socket.data;
+
+    // Auto-join personal room so server can push user-specific events (login alerts etc.)
+    socket.join(`user:${userId}`);
 
     // ── group:join ─────────────────────────────────────────────────────────
     socket.on("group:join", (groupId) => {

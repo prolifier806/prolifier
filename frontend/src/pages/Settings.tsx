@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
@@ -7,12 +7,16 @@ import {
   Sun, Moon, Shield, Lock, UserX, ChevronRight, ArrowLeft,
   Eye, EyeOff, X, Mail, Heart, MessageCircle,
   Bell, Monitor, LogOut, Globe, HelpCircle, FileText, Smartphone,
+  MapPin, RefreshCw,
 } from "lucide-react";
 import Layout from "@/components/Layout";
 import { toast } from "@/hooks/use-toast";
 import { useTheme } from "@/context/ThemeContext";
 import { useUser } from "@/context/UserContext";
 import { supabase } from "@/lib/supabase";
+import { getSharedSocket } from "@/lib/socket";
+import { getDevices, getLoginHistory } from "@/api/loginHistory";
+import type { DeviceEntry, LoginEntry } from "@/api/loginHistory";
 import { deleteMyAccount, unblockUser } from "@/api/users";
 import { isAbortError } from "@/api/client";
 import { TERMS_AND_PRIVACY } from "@/pages/Profile";
@@ -40,29 +44,18 @@ const DELETE_REASONS = [
 
 type BlockedUser = { id: string; name: string; avatar: string; color: string; avatarUrl?: string };
 
-type SessionInfo = {
-  signedInAt: string;
-  browser: string;
-  platform: string;
-};
-
-function detectBrowser(): string {
-  const ua = navigator.userAgent;
-  if (ua.includes("Chrome") && !ua.includes("Edg")) return "Chrome";
-  if (ua.includes("Safari") && !ua.includes("Chrome")) return "Safari";
-  if (ua.includes("Firefox")) return "Firefox";
-  if (ua.includes("Edg")) return "Edge";
-  return "Browser";
-}
-
-function detectPlatform(): string {
-  const ua = navigator.userAgent;
-  if (/iPhone|iPad|iPod/.test(ua)) return "iOS";
-  if (/Android/.test(ua)) return "Android";
-  if (/Mac/.test(ua)) return "macOS";
-  if (/Win/.test(ua)) return "Windows";
-  if (/Linux/.test(ua)) return "Linux";
-  return "Unknown";
+function fmtLoginTime(iso: string): string {
+  const d = new Date(iso);
+  const now = Date.now();
+  const diff = now - d.getTime();
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 1) return "Just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `${days}d ago`;
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
 export default function Settings() {
@@ -172,20 +165,43 @@ export default function Settings() {
 
   // Login activity
   const [showLoginActivity, setShowLoginActivity] = useState(false);
-  const [sessionInfo, setSessionInfo] = useState<SessionInfo | null>(null);
+  const [loginHistory, setLoginHistory] = useState<LoginEntry[]>([]);
+  const [devices, setDevices] = useState<DeviceEntry[]>([]);
+  const [activityLoading, setActivityLoading] = useState(false);
   const [loggingOutOthers, setLoggingOutOthers] = useState(false);
+  const [currentDeviceHash, setCurrentDeviceHash] = useState<string | null>(null);
+
+  const loadActivity = useCallback(async () => {
+    setActivityLoading(true);
+    try {
+      const [hist, devs] = await Promise.all([getLoginHistory(), getDevices()]);
+      setLoginHistory(hist);
+      setDevices(devs);
+      // Most recent login = current session's device hash
+      if (hist.length > 0) setCurrentDeviceHash(hist[0].device_hash);
+    } catch { /* ignore */ } finally { setActivityLoading(false); }
+  }, []);
 
   useEffect(() => {
     if (!showLoginActivity) return;
+    loadActivity();
+  }, [showLoginActivity, loadActivity]);
+
+  // Realtime: new login pushed via Socket.IO
+  useEffect(() => {
+    if (!showLoginActivity || !user.id) return;
+    let cleanup = () => {};
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!session) return;
-      setSessionInfo({
-        signedInAt: session.user.last_sign_in_at || session.user.created_at,
-        browser: detectBrowser(),
-        platform: detectPlatform(),
-      });
+      const socket = getSharedSocket(session.access_token);
+      const handler = (event: LoginEntry) => {
+        setLoginHistory(prev => [event as any, ...prev].slice(0, 50));
+      };
+      socket.on("login:new" as any, handler);
+      cleanup = () => socket.off("login:new" as any, handler);
     });
-  }, [showLoginActivity]);
+    return () => cleanup();
+  }, [showLoginActivity, user.id]);
 
   const handleSignOutOthers = async () => {
     setLoggingOutOthers(true);
@@ -597,53 +613,109 @@ export default function Settings() {
 
       {/* Login Activity Modal */}
       {showLoginActivity && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
           onClick={() => setShowLoginActivity(false)}>
-          <div className="relative bg-card border border-border rounded-2xl shadow-2xl p-6 max-w-sm w-full mx-4 animate-in zoom-in-95 duration-300"
+          <div className="relative bg-card border border-border rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md mx-0 sm:mx-4 max-h-[85vh] flex flex-col animate-in slide-in-from-bottom-4 sm:zoom-in-95 duration-300"
             onClick={e => e.stopPropagation()}>
-            <button onClick={() => setShowLoginActivity(false)}
-              className="absolute top-4 right-4 h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground hover:bg-secondary transition-colors">
-              <X className="h-4 w-4" />
-            </button>
-            <h2 className="text-lg font-bold text-foreground mb-1">Login Activity</h2>
-            <p className="text-xs text-muted-foreground mb-4">Active sessions on your account</p>
 
-            {/* Current session */}
-            <div className="rounded-xl border border-primary/30 bg-primary/5 px-4 py-3.5 mb-4">
-              <div className="flex items-center gap-3 mb-2">
-                <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                  <Smartphone className="h-4 w-4 text-primary" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-semibold text-foreground">This device</p>
-                    <span className="text-xs text-primary font-medium px-2 py-0.5 rounded-full bg-primary/10">Active now</span>
-                  </div>
-                  {sessionInfo ? (
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {sessionInfo.browser} · {sessionInfo.platform}
-                    </p>
-                  ) : (
-                    <p className="text-xs text-muted-foreground mt-0.5">Loading…</p>
-                  )}
-                </div>
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
+              <div>
+                <h2 className="text-base font-bold text-foreground">Login Activity</h2>
+                <p className="text-xs text-muted-foreground mt-0.5">Recent sign-ins to your account</p>
               </div>
-              {sessionInfo && (
-                <p className="text-xs text-muted-foreground ml-12">
-                  Signed in {new Date(sessionInfo.signedInAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
-                </p>
+              <div className="flex items-center gap-1">
+                <button onClick={loadActivity}
+                  className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground hover:bg-secondary transition-colors">
+                  <RefreshCw className={`h-3.5 w-3.5 ${activityLoading ? "animate-spin" : ""}`} />
+                </button>
+                <button onClick={() => setShowLoginActivity(false)}
+                  className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground hover:bg-secondary transition-colors">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Body */}
+            <div className="overflow-y-auto flex-1 px-4 py-3 space-y-2">
+              {activityLoading ? (
+                <div className="flex items-center justify-center py-10">
+                  <div className="h-6 w-6 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+                </div>
+              ) : loginHistory.length === 0 ? (
+                <div className="text-center py-10 text-muted-foreground">
+                  <Monitor className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                  <p className="text-sm">No login history yet.</p>
+                  <p className="text-xs mt-1">Sign in activity will appear here.</p>
+                </div>
+              ) : (
+                loginHistory.map((entry, idx) => {
+                  const isCurrent = idx === 0 || entry.device_hash === currentDeviceHash;
+                  const isMobile  = entry.device_type === "mobile" || entry.device_type === "tablet";
+                  const location  = [entry.city, entry.country].filter(Boolean).join(", ");
+                  const when      = fmtLoginTime(entry.created_at);
+                  return (
+                    <div key={entry.id}
+                      className={`flex items-start gap-3 px-3 py-3 rounded-xl border transition-colors ${
+                        isCurrent
+                          ? "border-primary/30 bg-primary/5"
+                          : entry.is_new_device
+                            ? "border-amber-500/30 bg-amber-500/5"
+                            : "border-border bg-card"
+                      }`}>
+                      <div className={`h-9 w-9 rounded-full flex items-center justify-center shrink-0 ${
+                        isCurrent ? "bg-primary/10" : "bg-muted"
+                      }`}>
+                        {isMobile
+                          ? <Smartphone className={`h-4 w-4 ${isCurrent ? "text-primary" : "text-muted-foreground"}`} />
+                          : <Monitor    className={`h-4 w-4 ${isCurrent ? "text-primary" : "text-muted-foreground"}`} />
+                        }
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-sm font-medium text-foreground">
+                            {entry.browser} on {entry.os}
+                          </p>
+                          {isCurrent && (
+                            <span className="text-[10px] font-semibold text-primary bg-primary/10 px-2 py-0.5 rounded-full">
+                              This device
+                            </span>
+                          )}
+                          {entry.is_new_device && !isCurrent && (
+                            <span className="text-[10px] font-semibold text-amber-600 bg-amber-500/10 px-2 py-0.5 rounded-full">
+                              New device
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+                          {location && (
+                            <span className="text-xs text-muted-foreground flex items-center gap-0.5">
+                              <MapPin className="h-3 w-3" />{location}
+                            </span>
+                          )}
+                          <span className="text-xs text-muted-foreground">{when}</span>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground/60 mt-0.5 font-mono">
+                          {entry.ip_address !== "unknown" ? entry.ip_address : ""}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })
               )}
             </div>
 
-            <p className="text-xs text-muted-foreground mb-3 text-center">
-              If you don't recognise a session, sign out all other devices below.
-            </p>
-
-            <Button variant="outline" className="w-full h-10 text-sm gap-2"
-              disabled={loggingOutOthers} onClick={handleSignOutOthers}>
-              <LogOut className="h-4 w-4" />
-              {loggingOutOthers ? "Signing out…" : "Sign out other devices"}
-            </Button>
+            {/* Footer */}
+            <div className="px-4 py-3 border-t border-border shrink-0">
+              <p className="text-xs text-muted-foreground text-center mb-3">
+                Don't recognise a sign-in? Sign out all other devices immediately.
+              </p>
+              <Button variant="outline" className="w-full h-10 text-sm gap-2"
+                disabled={loggingOutOthers} onClick={handleSignOutOthers}>
+                <LogOut className="h-4 w-4" />
+                {loggingOutOthers ? "Signing out…" : "Sign out other devices"}
+              </Button>
+            </div>
           </div>
         </div>
       )}

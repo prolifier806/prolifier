@@ -19,6 +19,7 @@ import adminRouter from "./routes/admin";
 import groupsRouter from "./routes/groups";
 import searchRouter from "./routes/search";
 import usernameRouter from "./routes/username";
+import loginHistoryRouter from "./routes/loginHistory";
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -116,6 +117,7 @@ app.use("/api/admin", adminRouter);
 app.use("/api/groups", groupsRouter);
 app.use("/api/search", searchRouter);
 app.use("/api/username", usernameRouter);
+app.use("/api/login-history", loginHistoryRouter);
 
 // ── 404 catch-all ────────────────────────────────────────────────────────────
 app.use((req, res) => {

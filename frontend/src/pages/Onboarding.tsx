@@ -7,6 +7,7 @@ import { useTheme } from "@/context/ThemeContext";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/lib/supabase";
 import { TERMS_AND_PRIVACY } from "@/pages/Profile";
+import { trackLogin } from "@/api/loginHistory";
 import onboarding1 from "@/assets/onboarding-1.png";
 import onboarding2 from "@/assets/onboarding-2.png";
 import onboarding3 from "@/assets/onboarding-3.png";
@@ -121,6 +122,7 @@ export default function Onboarding() {
 
         setFailedAttempts(0);
         toast({ title: "Welcome back!" });
+        trackLogin().catch(() => {}); // fire-and-forget; never block sign-in
         navigate("/");
       }
     } catch (err: any) {

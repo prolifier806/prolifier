@@ -100,6 +100,10 @@ export interface ServerToClientEvents {
 
   /** Server error */
   "error": (message: string) => void;
+
+  // ── Login activity ──────────────────────────────────────────────────────
+  /** A new login was detected for this user (pushed to all their open sessions) */
+  "login:new": (event: LoginEvent) => void;
 }
 
 // ── Shared data shapes ────────────────────────────────────────────────────────
@@ -150,6 +154,19 @@ export interface DmSendPayload {
   mediaType: string | null;
   replyToId: string | null;
   replyToText: string | null;
+}
+
+export interface LoginEvent {
+  id: string;
+  browser: string;
+  os: string;
+  deviceType: string;
+  deviceHash: string;
+  country: string | null;
+  city: string | null;
+  ipAddress: string;
+  createdAt: string;
+  isNewDevice: boolean;
 }
 
 export interface WsDmMessage {
