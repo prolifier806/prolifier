@@ -44,6 +44,7 @@ import { searchUsers } from "@/api/users";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 type Comment = { id: string; user_id: string; author: string; username?: string; avatar: string; avatarUrl?: string; color: string; text: string; time: string; parentId?: string | null; role?: string; };
+type MentionUser = { id: string; name: string; username?: string; color: string; avatarUrl?: string };
 type Post = {
   id: string; user_id: string; author: string; avatar: string; avatarUrl?: string; avatarColor: string; location: string;
   authorSkills?: string[]; authorDeleted?: boolean; authorRole?: string;
@@ -907,22 +908,34 @@ function CommentSheet({ post, currentUserId, isLoading, connectedUserIds, onClos
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
   const [replyingTo, setReplyingTo] = useState<{ id: string; author: string; username?: string } | null>(null);
-  const [mentionSuggestions, setMentionSuggestions] = useState<Comment[]>([]);
+  const [mentionSuggestions, setMentionSuggestions] = useState<MentionUser[]>([]);
   const [mentionStart, setMentionStart] = useState(-1);
   const [mentionIndex, setMentionIndex] = useState(0);
+  const [mentionPool, setMentionPool] = useState<MentionUser[]>([]);
+  const poolFetchedRef = useRef(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [lightboxSrc, setLightboxSrc] = useState<string|null>(null);
 
-  // Deduplicated pool of connected comment authors (excludes self) — filtered locally, no API call
-  const commenters = useMemo(() => {
-    const seen = new Set<string>();
-    return post.comments.filter(c => {
-      if (seen.has(c.user_id) || c.user_id === currentUserId) return false;
-      if (connectedUserIds && connectedUserIds.size > 0 && !connectedUserIds.has(c.user_id)) return false;
-      seen.add(c.user_id);
-      return true;
-    });
-  }, [post.comments, currentUserId, connectedUserIds]);
+  // Fetch profiles of all connected users once — same approach as Groups member list
+  useEffect(() => {
+    if (poolFetchedRef.current || !connectedUserIds || connectedUserIds.size === 0) return;
+    poolFetchedRef.current = true;
+    const ids = Array.from(connectedUserIds).filter(id => id !== currentUserId);
+    if (ids.length === 0) return;
+    (supabase as any)
+      .from("profiles")
+      .select("id, name, username, color, avatar_url")
+      .in("id", ids)
+      .then(({ data }: any) => {
+        if (data) setMentionPool(data.map((p: any) => ({
+          id: p.id,
+          name: p.name || "Unknown",
+          username: p.username || undefined,
+          color: p.color || "bg-primary",
+          avatarUrl: p.avatar_url || undefined,
+        })));
+      });
+  }, [connectedUserIds, currentUserId]);
   // Stable ref so submitEdit callback never needs to change
   const editStateRef = useRef({ editingId: null as string | null, editText: "" });
   editStateRef.current = { editingId, editText };
@@ -950,9 +963,12 @@ function CommentSheet({ post, currentUserId, isLoading, connectedUserIds, onClos
       setMentionStart(cursor - atMatch[0].length);
       setMentionIndex(0);
       setMentionSuggestions(
-        q ? commenters.filter(c =>
-          c.author.toLowerCase().includes(q) || (c.username ?? "").toLowerCase().includes(q)
-        ) : commenters
+        (q
+          ? mentionPool.filter(m =>
+              m.name.toLowerCase().includes(q) || (m.username ?? "").toLowerCase().includes(q)
+            )
+          : mentionPool
+        ).slice(0, 6)
       );
     } else {
       setMentionSuggestions([]);
@@ -960,8 +976,8 @@ function CommentSheet({ post, currentUserId, isLoading, connectedUserIds, onClos
     }
   };
 
-  const selectMention = (c: Comment) => {
-    const handle = c.username || c.author;
+  const selectMention = (c: MentionUser) => {
+    const handle = c.username || c.name;
     const before = text.slice(0, mentionStart);
     const after = text.slice(inputRef.current?.selectionStart ?? text.length);
     const newText = `${before}@${handle} ${after}`;
@@ -1073,13 +1089,13 @@ function CommentSheet({ post, currentUserId, isLoading, connectedUserIds, onClos
           )}
           {mentionSuggestions.length > 0 && (
             <div className="mb-2 bg-card border border-border rounded-lg shadow-lg overflow-hidden">
-              {mentionSuggestions.map((c, idx) => (
-                <button key={c.id} type="button" onMouseDown={() => selectMention(c)}
+              {mentionSuggestions.map((m, idx) => (
+                <button key={m.id} type="button" onMouseDown={() => selectMention(m)}
                   className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm transition-colors ${idx === mentionIndex ? "bg-secondary" : "hover:bg-secondary"}`}>
-                  <Avatar initials={c.avatar || c.author?.slice(0,2).toUpperCase()} color={c.color || "bg-primary"} url={c.avatarUrl || undefined} size="sm" />
+                  <Avatar initials={m.name.slice(0, 2).toUpperCase()} color={m.color} url={m.avatarUrl} size="sm" />
                   <div className="flex flex-col items-start min-w-0">
-                    <span className="font-medium text-foreground leading-tight">{c.author}</span>
-                    {c.username && <span className="text-xs text-muted-foreground leading-tight">@{c.username}</span>}
+                    <span className="font-medium text-foreground leading-tight">{m.name}</span>
+                    {m.username && <span className="text-xs text-muted-foreground leading-tight">@{m.username}</span>}
                   </div>
                 </button>
               ))}
