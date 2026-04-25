@@ -1,12 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Sun, Moon, Shield, Lock, UserX, ChevronRight, ArrowLeft,
-  Eye, EyeOff, X, Mail, Heart, MessageCircle,
-  Bell, Monitor, LogOut, Globe, HelpCircle, FileText, Smartphone,
+  Eye, EyeOff, X, Mail, Monitor, LogOut, HelpCircle, FileText, Smartphone,
   MapPin, RefreshCw,
 } from "lucide-react";
 import Layout from "@/components/Layout";
@@ -21,18 +19,7 @@ import { deleteMyAccount, unblockUser } from "@/api/users";
 import { isAbortError } from "@/api/client";
 import { TERMS_AND_PRIVACY } from "@/pages/Profile";
 
-const PREFS_KEY = "notif_prefs";
-const PREFS_DEFAULT = {
-  matches: true, messages: true, collabs: true,
-  likes: false, comments: true, groups: true,
-  trending: false, weekly: true,
-};
 
-const PRIVACY_KEY = "privacy_prefs";
-const PRIVACY_DEFAULT = {
-  whoCanMessage: "anyone" as "anyone" | "connected",
-  whoCanSeePost: "anyone" as "anyone" | "connected",
-};
 
 const DELETE_REASONS = [
   "I'm not getting value from Prolifier",
@@ -62,30 +49,6 @@ export default function Settings() {
   const { theme, toggleTheme } = useTheme();
   const { user, signOut } = useUser();
   const navigate = useNavigate();
-
-  // Notification prefs
-  const [prefs, setPrefs] = useState(() => {
-    try {
-      const saved = localStorage.getItem(PREFS_KEY);
-      return saved ? { ...PREFS_DEFAULT, ...JSON.parse(saved) } : PREFS_DEFAULT;
-    } catch { return PREFS_DEFAULT; }
-  });
-
-  useEffect(() => {
-    localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
-  }, [prefs]);
-
-  // Privacy prefs
-  const [privacy, setPrivacy] = useState(() => {
-    try {
-      const saved = localStorage.getItem(PRIVACY_KEY);
-      return saved ? { ...PRIVACY_DEFAULT, ...JSON.parse(saved) } : PRIVACY_DEFAULT;
-    } catch { return PRIVACY_DEFAULT; }
-  });
-
-  useEffect(() => {
-    localStorage.setItem(PRIVACY_KEY, JSON.stringify(privacy));
-  }, [privacy]);
 
   // Blocked users
   const [blockedList, setBlockedList] = useState<BlockedUser[]>([]);
@@ -393,34 +356,6 @@ export default function Settings() {
           </div>
         </div>
 
-        {/* Notifications */}
-        <div className="rounded-xl border border-border bg-card overflow-hidden">
-          <div className="px-5 py-4 border-b border-border flex items-center gap-2">
-            <Bell className="h-4 w-4 text-primary" />
-            <h2 className="text-sm font-semibold text-foreground">Notifications</h2>
-          </div>
-          <div className="divide-y divide-border">
-            {([
-              { key: "likes",    label: "Likes",    desc: "When someone likes your posts",       icon: Heart },
-              { key: "comments", label: "Comments", desc: "When someone comments on your posts", icon: MessageCircle },
-              { key: "messages", label: "Messages", desc: "New message notifications",           icon: MessageCircle },
-            ] as const).map(({ key, label, desc, icon: Icon }) => (
-              <div key={key} className="flex items-center justify-between px-5 py-4">
-                <div className="flex items-center gap-3">
-                  <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0">
-                    <Icon className="h-4 w-4 text-muted-foreground" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-foreground">{label}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">{desc}</p>
-                  </div>
-                </div>
-                <Switch checked={prefs[key]} onCheckedChange={v => setPrefs(p => ({ ...p, [key]: v }))} />
-              </div>
-            ))}
-          </div>
-        </div>
-
         {/* Privacy & Safety */}
         <div className="rounded-xl border border-border bg-card overflow-hidden">
           <div className="px-5 py-4 border-b border-border flex items-center gap-2">
@@ -442,53 +377,6 @@ export default function Settings() {
               <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
             </button>
 
-            <div className="px-5 py-4">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0">
-                  <MessageCircle className="h-4 w-4 text-muted-foreground" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-foreground">Who can message me</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">Control who can send you messages</p>
-                </div>
-              </div>
-              <div className="flex gap-2 ml-11">
-                {(["anyone", "connected"] as const).map(opt => (
-                  <button key={opt} onClick={() => setPrivacy(p => ({ ...p, whoCanMessage: opt }))}
-                    className={`flex-1 h-8 rounded-lg text-xs font-medium border transition-colors ${
-                      privacy.whoCanMessage === opt
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "bg-secondary text-muted-foreground border-border hover:text-foreground"
-                    }`}>
-                    {opt === "anyone" ? "Anyone" : "Connected only"}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="px-5 py-4">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0">
-                  <Globe className="h-4 w-4 text-muted-foreground" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-foreground">Who can see my posts</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">Control who can view your posts</p>
-                </div>
-              </div>
-              <div className="flex gap-2 ml-11">
-                {(["anyone", "connected"] as const).map(opt => (
-                  <button key={opt} onClick={() => setPrivacy(p => ({ ...p, whoCanSeePost: opt }))}
-                    className={`flex-1 h-8 rounded-lg text-xs font-medium border transition-colors ${
-                      privacy.whoCanSeePost === opt
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "bg-secondary text-muted-foreground border-border hover:text-foreground"
-                    }`}>
-                    {opt === "anyone" ? "Anyone" : "Connected only"}
-                  </button>
-                ))}
-              </div>
-            </div>
           </div>
         </div>
 
