@@ -205,15 +205,20 @@ export default function Settings() {
 
   const handleSignOutOthers = async () => {
     setLoggingOutOthers(true);
+    // Guard so the force:logout Socket.IO event is ignored on this device
+    sessionStorage.setItem("prolifier_signing_out_others", "1");
     try {
       const { data: { session: s } } = await supabase.auth.getSession();
-      const socketId = s ? getSharedSocket(s.access_token).id ?? "" : "";
+      const socketId = s ? (getSharedSocket(s.access_token).id ?? "") : "";
       await signOutOthers(socketId);
       toast({ title: "Signed out from all other devices" });
       setShowLoginActivity(false);
     } catch {
       toast({ title: "Failed to sign out other devices", variant: "destructive" });
-    } finally { setLoggingOutOthers(false); }
+    } finally {
+      sessionStorage.removeItem("prolifier_signing_out_others");
+      setLoggingOutOthers(false);
+    }
   };
 
   // Delete account

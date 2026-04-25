@@ -122,7 +122,8 @@ export default function Onboarding() {
 
         setFailedAttempts(0);
         toast({ title: "Welcome back!" });
-        trackLogin().catch(() => {}); // fire-and-forget; never block sign-in
+        trackLogin().catch(() => {});
+        sessionStorage.setItem("prolifier_login_tracked", "1"); // prevent duplicate from UserContext
         navigate("/");
       }
     } catch (err: any) {

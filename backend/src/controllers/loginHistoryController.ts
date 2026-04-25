@@ -150,12 +150,20 @@ export async function getLoginHistory(req: AuthRequest, res: Response): Promise<
 export async function signOutOthers(req: AuthRequest, res: Response): Promise<void> {
   const userId   = req.user.id;
   const socketId: string = (req.body as any)?.socketId ?? "";
+  // admin.signOut takes the user's JWT, not their user ID
+  const jwt = (req.headers.authorization as string)?.replace(/^Bearer\s+/i, "") ?? "";
 
-  // Revoke all other Supabase sessions for this user (keeps current token valid)
-  await supabaseAdmin.auth.admin.signOut(userId, "others");
+  // Revoke other Supabase sessions server-side (scope "others" keeps the current token alive)
+  if (jwt) {
+    try { await supabaseAdmin.auth.admin.signOut(jwt, "others"); } catch { /* best-effort */ }
+  }
 
-  // Push real-time logout to every other open socket for this user
-  emitToUserExcept(userId, socketId, "force:logout", undefined);
+  // Push real-time logout to every other open socket for this user, excluding the caller
+  if (socketId) {
+    emitToUserExcept(userId, socketId, "force:logout", undefined);
+  } else {
+    emitToUser(userId, "force:logout", undefined);
+  }
 
   res.json({ success: true, data: null });
 }

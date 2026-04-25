@@ -438,6 +438,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
     if (!session?.access_token) return;
     const socket = getSharedSocket(session.access_token);
     const handler = () => {
+      // Ignore if this device was the one that initiated the sign-out
+      if (sessionStorage.getItem("prolifier_signing_out_others")) return;
       supabase.auth.signOut().then(() => {
         setUser(DEFAULT_USER);
         setSession(null);
