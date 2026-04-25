@@ -372,7 +372,7 @@ export default function Layout({ children }: { children: ReactNode }) {
 
         <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto">
           {NAV_PATHS.map(({ to, icon: Icon, label }) => {
-            const active = pathname.startsWith(to);
+            const active = to === "/feed" ? pathname === "/feed" : pathname.startsWith(to);
             const badge = getBadge(to);
             return (
               <Link
