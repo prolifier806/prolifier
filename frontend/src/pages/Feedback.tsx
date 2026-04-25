@@ -53,6 +53,13 @@ export default function Feedback() {
   const [history, setHistory]     = useState<FeedbackRow[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [showHistory, setShowHistory] = useState(false);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const toggleExpand = (id: string) => setExpandedIds(prev => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+  const TRUNCATE_CHARS = 300;
 
   useEffect(() => {
     if (!user.id) return;
@@ -266,7 +273,26 @@ export default function Feedback() {
                             </div>
                           </div>
                           <p className="text-xs text-muted-foreground mb-2">{cat?.label} · {timeAgo(fb.created_at)}</p>
-                          <p className="text-sm text-foreground leading-relaxed">{fb.message}</p>
+                          {(() => {
+                            const expanded = expandedIds.has(fb.id);
+                            const long = fb.message.length > TRUNCATE_CHARS;
+                            return (
+                              <>
+                                <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap break-words">
+                                  {long && !expanded ? fb.message.slice(0, TRUNCATE_CHARS) + "…" : fb.message}
+                                </p>
+                                {long && (
+                                  <button
+                                    onClick={() => toggleExpand(fb.id)}
+                                    className="mt-1.5 text-xs font-medium text-primary hover:underline flex items-center gap-0.5"
+                                  >
+                                    {expanded ? "Show less" : "Read more"}
+                                    <ChevronDown className={`h-3 w-3 transition-transform ${expanded ? "rotate-180" : ""}`} />
+                                  </button>
+                                )}
+                              </>
+                            );
+                          })()}
                         </div>
                       );
                     })}
