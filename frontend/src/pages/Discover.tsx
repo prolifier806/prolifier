@@ -574,9 +574,16 @@ export default function Discover() {
                               </span>
                             )}
                           </button>
-                          {p.username && (
-                            <p className="text-xs text-muted-foreground/70 leading-tight">@{p.username}</p>
-                          )}
+                          <div className="flex items-center justify-between gap-2">
+                            {p.username
+                              ? <p className="text-xs text-muted-foreground/70 leading-tight">@{p.username}</p>
+                              : <span />}
+                            {p.location && (
+                              <p className="text-xs text-muted-foreground flex items-center gap-1 shrink-0">
+                                <MapPin className="h-3 w-3 shrink-0" /> {p.location}
+                              </p>
+                            )}
+                          </div>
                           <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full border mt-1 ${
                             p.openToCollab
                               ? "bg-emerald-500 text-white border-emerald-500"
@@ -587,11 +594,6 @@ export default function Discover() {
                           </span>
                         </div>
                       </div>
-                      {p.location && (
-                        <p className="text-xs text-muted-foreground flex items-center gap-1 ml-auto shrink-0">
-                          <MapPin className="h-3 w-3 shrink-0" /> {p.location}
-                        </p>
-                      )}
 
                       <div className="flex-1">
                         {p.bio && <p className="text-sm text-foreground mb-2 leading-relaxed line-clamp-2">{p.bio}</p>}
@@ -705,20 +707,21 @@ export default function Discover() {
                     </button>
 
                     <div className="flex-1 min-w-0">
-                      <button
-                        onClick={() => navigate(`/profile/${r.requesterId}`)}
-                        className="font-semibold text-sm text-foreground hover:underline text-left"
-                      >
-                        {r.name}
-                      </button>
+                      <div className="flex items-center justify-between gap-2">
+                        <button
+                          onClick={() => navigate(`/profile/${r.requesterId}`)}
+                          className="font-semibold text-sm text-foreground hover:underline text-left"
+                        >
+                          {r.name}
+                        </button>
+                        {r.location && (
+                          <p className="text-xs text-muted-foreground flex items-center gap-1 shrink-0">
+                            <MapPin className="h-3 w-3 shrink-0" /> {r.location}
+                          </p>
+                        )}
+                      </div>
                       {r.bio && <p className="text-xs text-muted-foreground mt-1 line-clamp-1">{r.bio}</p>}
                     </div>
-
-                    {r.location && (
-                      <p className="text-xs text-muted-foreground flex items-center gap-1 shrink-0">
-                        <MapPin className="h-3 w-3 shrink-0" /> {r.location}
-                      </p>
-                    )}
 
                     <div className="flex flex-col gap-2 shrink-0">
                       <Button
