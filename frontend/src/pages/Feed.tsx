@@ -138,10 +138,18 @@ async function deleteFromStorage(_url: string) {}
 const videoMetaCache = new Map<string, { hls_url?: string; thumbnail_url?: string } | null>();
 
 // ── Smart Video — HLS-aware, falls back to native MP4 ────────────────────────
-function SmartVideo({ src, className, onClick }: { src: string; className?: string; onClick?: () => void }) {
+function SmartVideo({ src, className }: { src: string; className?: string }) {
   const [portrait, setPortrait] = useState(false);
   const [hlsSrc, setHlsSrc] = useState<string | null>(null);
   const [poster, setPoster] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  const handleFullscreen = () => {
+    const v = videoRef.current;
+    if (!v) return;
+    if (v.requestFullscreen) v.requestFullscreen();
+    else if ((v as any).webkitRequestFullscreen) (v as any).webkitRequestFullscreen();
+  };
 
   // Look up processed HLS from videos table (lazy, non-blocking)
   useEffect(() => {
@@ -167,22 +175,21 @@ function SmartVideo({ src, className, onClick }: { src: string; className?: stri
   if (hlsSrc) {
     return (
       <div className={portrait ? "flex justify-center" : ""}>
-        <div className={`relative ${onClick ? "group" : ""} ${portrait ? "inline-block" : "w-full"}`}>
+        <div className={`relative group ${portrait ? "inline-block" : "w-full"}`}>
           <VideoPlayer
             hlsSrc={hlsSrc}
             fallbackSrc={src}
             poster={poster}
             onPortrait={setPortrait}
+            videoRef={videoRef}
             className={`rounded-xl ${portrait ? "max-h-[70vh] w-auto max-w-full" : "w-full max-h-72"} ${className ?? ""}`}
           />
-          {onClick && (
-            <button
-              onClick={onClick}
-              className="absolute top-2 right-2 h-8 w-8 rounded-full bg-black/50 hover:bg-black/75 flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity z-10"
-            >
-              <Maximize2 className="h-4 w-4" />
-            </button>
-          )}
+          <button
+            onClick={handleFullscreen}
+            className="absolute top-2 right-2 h-8 w-8 rounded-full bg-black/50 hover:bg-black/75 flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity z-10"
+          >
+            <Maximize2 className="h-4 w-4" />
+          </button>
         </div>
       </div>
     );
@@ -190,8 +197,9 @@ function SmartVideo({ src, className, onClick }: { src: string; className?: stri
 
   return (
     <div className={portrait ? "flex justify-center" : ""}>
-      <div className={`relative ${onClick ? "group" : ""} ${portrait ? "inline-block" : "w-full"}`}>
+      <div className={`relative group ${portrait ? "inline-block" : "w-full"}`}>
         <video
+          ref={videoRef}
           src={src}
           poster={poster ?? undefined}
           controls
@@ -204,14 +212,12 @@ function SmartVideo({ src, className, onClick }: { src: string; className?: stri
             setPortrait(v.videoHeight > v.videoWidth);
           }}
         />
-        {onClick && (
-          <button
-            onClick={onClick}
-            className="absolute top-2 right-2 h-8 w-8 rounded-full bg-black/50 hover:bg-black/75 flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity z-10"
-          >
-            <Maximize2 className="h-4 w-4" />
-          </button>
-        )}
+        <button
+          onClick={handleFullscreen}
+          className="absolute top-2 right-2 h-8 w-8 rounded-full bg-black/50 hover:bg-black/75 flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity z-10"
+        >
+          <Maximize2 className="h-4 w-4" />
+        </button>
       </div>
     </div>
   );
@@ -1375,7 +1381,6 @@ const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, highligh
   const isSaved = savedPosts.has(post.id);
   const navigate = useNavigate();
   const [lightbox, setLightbox] = useState<{ images: string[]; index: number } | null>(null);
-  const [videoLightbox, setVideoLightbox] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
   const POST_PREVIEW_WORDS = 150;
   const postWords = post.content.split(/\s+/);
@@ -1460,7 +1465,7 @@ const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, highligh
             <ImageCarousel images={post.images} onClickIndex={i => setLightbox({ images: post.images, index: i })} />
           </div>
         )}
-        {post.video && <div className="px-5 pb-3"><SmartVideo src={post.video} onClick={() => setVideoLightbox(post.video!)} /></div>}
+        {post.video && <div className="px-5 pb-3"><SmartVideo src={post.video} /></div>}
         <div className="flex items-center gap-1 border-t border-border px-3 py-2">
           <button onClick={()=>onLike(post.id)} className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors ${isLiked?"text-rose-500 bg-rose-50":"text-muted-foreground hover:bg-muted"}`}>
             <Heart className={`h-4 w-4 ${isLiked?"fill-current":""}`}/> {post.likes}
@@ -1477,22 +1482,6 @@ const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, highligh
         </div>
       </div>
       {lightbox && <ImageLightbox images={lightbox.images} startIndex={lightbox.index} onClose={() => setLightbox(null)} />}
-      {videoLightbox && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 animate-in fade-in duration-150"
-          onClick={() => setVideoLightbox(null)}>
-          <button onClick={() => setVideoLightbox(null)}
-            className="absolute top-4 right-4 h-9 w-9 rounded-full bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition-colors z-10">
-            <X className="h-5 w-5" />
-          </button>
-          <video src={videoLightbox} controls autoPlay disablePictureInPicture
-            controlsList="nodownload nopictureinpicture noplaybackrate"
-            className="max-w-[95vw] max-h-[90vh] rounded-xl shadow-2xl" onClick={e => e.stopPropagation()} />
-          <button onClick={async e => { e.stopPropagation(); const blob = await fetch(videoLightbox!).then(r => r.blob()); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "video.mp4"; a.click(); URL.revokeObjectURL(a.href); }}
-            className="absolute top-4 right-16 h-9 w-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors z-10">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          </button>
-        </div>
-      )}
     </>
   );
 }, (prev, next) => {
@@ -1519,7 +1508,6 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
   const isSaved = savedCollabs.has(collab.id);
   const navigate = useNavigate();
   const [lightboxSrc, setLightboxSrc] = useState<string|null>(null);
-  const [videoLightboxSrc, setVideoLightboxSrc] = useState<string|null>(null);
   const [descExpanded, setDescExpanded] = useState(false);
   const DESC_PREVIEW = 100;
   const descLong = collab.description.length > DESC_PREVIEW;
@@ -1614,7 +1602,7 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
             )}
           </div>
           {collab.image && <SmartImage src={collab.image} alt="collab" onClick={() => setLightboxSrc(collab.image!)} />}
-          {collab.video && <SmartVideo src={collab.video} onClick={() => setVideoLightboxSrc(collab.video!)} />}
+          {collab.video && <SmartVideo src={collab.video} />}
           {collab.skills.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               {collab.skills.map((s)=><Badge key={s} variant="secondary" className="text-xs">{s}</Badge>)}
@@ -1643,23 +1631,6 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
         )}
       </div>
       {lightboxSrc && <ImageLightbox images={[lightboxSrc]} onClose={() => setLightboxSrc(null)} />}
-      {videoLightboxSrc && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 animate-in fade-in duration-150"
-          onClick={() => setVideoLightboxSrc(null)}>
-          <button onClick={() => setVideoLightboxSrc(null)}
-            className="absolute top-4 right-4 h-9 w-9 rounded-full bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition-colors z-10">
-            <X className="h-5 w-5" />
-          </button>
-          <video src={videoLightboxSrc} controls autoPlay disablePictureInPicture
-            controlsList="nodownload nopictureinpicture noplaybackrate"
-            className="max-w-[95vw] max-h-[90vh] rounded-xl shadow-2xl" onClick={e => e.stopPropagation()} />
-          <a href={videoLightboxSrc} download onClick={e => e.stopPropagation()}
-            className="absolute bottom-4 right-4 h-9 px-3 rounded-full bg-white/10 hover:bg-white/20 flex items-center gap-2 text-white text-xs transition-colors z-10">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            Save
-          </a>
-        </div>
-      )}
     </>
   );
 }, (prev, next) => {

@@ -11,7 +11,7 @@
  *   3. Direct MP4 fallback (when HLS not yet ready or processing failed)
  */
 
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 // ── Load hls.js from CDN once per page (idempotent) ──────────────────────────
 const HLS_CDN = "https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js";
@@ -49,6 +49,7 @@ interface VideoPlayerProps {
   className?: string;
   compact?: boolean;
   onPortrait?: (isPortrait: boolean) => void;
+  videoRef?: React.MutableRefObject<HTMLVideoElement | null>;
 }
 
 export default function VideoPlayer({
@@ -58,6 +59,7 @@ export default function VideoPlayer({
   className = "",
   compact = false,
   onPortrait,
+  videoRef: externalRef,
 }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<any>(null);
@@ -117,7 +119,7 @@ export default function VideoPlayer({
   return (
     <div className={`relative ${compact ? "rounded-2xl" : "rounded-xl"} overflow-hidden bg-black ${className}`}>
       <video
-        ref={videoRef}
+        ref={el => { (videoRef as any).current = el; if (externalRef) externalRef.current = el; }}
         poster={poster ?? undefined}
         controls
         playsInline

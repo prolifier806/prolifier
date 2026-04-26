@@ -2237,8 +2237,8 @@ export default function Groups() {
                       )}
                       {m.media_type === "video" && m.media_url && (
                         <div className="relative inline-block group/vid" style={{ maxWidth: "360px", width: "100%" }}>
-                          <video src={m.media_url} controls controlsList="nodownload noplaybackrate nopictureinpicture nofullscreen" disablePictureInPicture className="block w-full bg-black" />
-                          <button onClick={e => { const vid = e.currentTarget.closest(".group\\/vid")?.querySelector("video") as HTMLVideoElement | null; const startTime = vid?.currentTime ?? 0; vid?.pause(); setLightbox({ type: "video", url: m.media_url!, startTime }); }}
+                          <video src={m.media_url} controls controlsList="nodownload noplaybackrate nopictureinpicture" disablePictureInPicture className="block w-full bg-black" />
+                          <button onClick={e => { const vid = e.currentTarget.parentElement?.querySelector("video") as HTMLVideoElement | null; if (vid) { (vid.requestFullscreen?.() as any) ?? (vid as any).webkitRequestFullscreen?.(); } }}
                             className="absolute top-2 left-2 h-7 w-7 rounded-full bg-black/50 hover:bg-black/75 flex items-center justify-center text-white opacity-0 group-hover/vid:opacity-100 transition-opacity z-10"
                             title="Fullscreen">
                             <Maximize2 className="h-3.5 w-3.5" />
@@ -2416,8 +2416,8 @@ export default function Groups() {
                       )}
                       {m.media_type === "video" && m.media_url && (
                         <div className="relative inline-block group/vid" style={{ maxWidth: "360px", width: "100%" }}>
-                          <video src={m.media_url} controls controlsList="nodownload noplaybackrate nopictureinpicture nofullscreen" disablePictureInPicture className="block w-full bg-black" />
-                          <button onClick={e => { const vid = e.currentTarget.closest(".group\\/vid")?.querySelector("video") as HTMLVideoElement | null; const startTime = vid?.currentTime ?? 0; vid?.pause(); setLightbox({ type: "video", url: m.media_url!, startTime }); }}
+                          <video src={m.media_url} controls controlsList="nodownload noplaybackrate nopictureinpicture" disablePictureInPicture className="block w-full bg-black" />
+                          <button onClick={e => { const vid = e.currentTarget.parentElement?.querySelector("video") as HTMLVideoElement | null; if (vid) { (vid.requestFullscreen?.() as any) ?? (vid as any).webkitRequestFullscreen?.(); } }}
                             className="absolute top-2 left-2 h-7 w-7 rounded-full bg-black/50 hover:bg-black/75 flex items-center justify-center text-white opacity-0 group-hover/vid:opacity-100 transition-opacity z-10"
                             title="Fullscreen">
                             <Maximize2 className="h-3.5 w-3.5" />
@@ -3563,34 +3563,19 @@ export default function Groups() {
           />
         )}
 
-        {/* Lightbox */}
-        {lightbox && (
+        {/* Lightbox — images only; videos use native requestFullscreen */}
+        {lightbox && lightbox.type === "image" && (
           <div ref={lightboxRef} className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm"
             onClick={() => setLightbox(null)}>
             <button onClick={() => setLightbox(null)}
               className="absolute top-4 right-4 h-9 w-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors z-10">
               <X className="h-5 w-5" />
             </button>
-            {lightbox.type === "image" ? (
-              <>
-                <img src={lightbox.url} alt="full size" className="max-w-[95vw] max-h-[90vh] object-contain rounded-xl shadow-2xl" onClick={e => e.stopPropagation()} />
-                <a href={lightbox.url} download target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
-                  className="absolute bottom-4 right-4 h-9 px-3 rounded-full bg-white/10 hover:bg-white/20 flex items-center gap-2 text-white text-xs transition-colors">
-                  <Download className="h-4 w-4" /> Save
-                </a>
-              </>
-            ) : (
-              <>
-                <video src={lightbox.url} controls autoPlay disablePictureInPicture
-                  controlsList="nodownload nopictureinpicture noplaybackrate"
-                  onLoadedMetadata={e => { if (lightbox.startTime) (e.target as HTMLVideoElement).currentTime = lightbox.startTime; }}
-                  className="max-w-[95vw] max-h-[90vh] rounded-xl shadow-2xl" onClick={e => e.stopPropagation()} />
-                <button onClick={async e => { e.stopPropagation(); const blob = await fetch(lightbox!.url).then(r => r.blob()); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "video.mp4"; a.click(); URL.revokeObjectURL(a.href); }}
-                  className="absolute top-4 right-16 h-9 w-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors z-10">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                </button>
-              </>
-            )}
+            <img src={lightbox.url} alt="full size" className="max-w-[95vw] max-h-[90vh] object-contain rounded-xl shadow-2xl" onClick={e => e.stopPropagation()} />
+            <a href={lightbox.url} download target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
+              className="absolute bottom-4 right-4 h-9 px-3 rounded-full bg-white/10 hover:bg-white/20 flex items-center gap-2 text-white text-xs transition-colors">
+              <Download className="h-4 w-4" /> Save
+            </a>
           </div>
         )}
 
