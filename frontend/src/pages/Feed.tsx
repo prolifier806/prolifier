@@ -15,12 +15,13 @@ import {
 import {
   Heart, MessageCircle, MapPin, Search, Plus, Send, MoreHorizontal,
   Trash2, Edit3, Bookmark, Share2, Flag, EyeOff, Handshake,
-  X, Check, BookmarkCheck, ImageIcon, Link2, Video as VideoIcon, ZoomIn,
+  X, Check, BookmarkCheck, ImageIcon, Link2, Video as VideoIcon, ZoomIn, Maximize2,
   SlidersHorizontal, ChevronLeft, ChevronRight, Loader2,
 } from "lucide-react";
 import Layout from "@/components/Layout";
 import { toast } from "@/hooks/use-toast";
 import { useUser } from "@/context/UserContext";
+import { useUploadQueue } from "@/context/UploadQueueContext";
 import { supabase } from "@/lib/supabase";
 import { checkContent, parseModerationError } from "@/security/moderation";
 import { createNotification } from "@/api/notifications";
@@ -137,7 +138,7 @@ async function deleteFromStorage(_url: string) {}
 const videoMetaCache = new Map<string, { hls_url?: string; thumbnail_url?: string } | null>();
 
 // ── Smart Video — HLS-aware, falls back to native MP4 ────────────────────────
-function SmartVideo({ src, className }: { src: string; className?: string }) {
+function SmartVideo({ src, className, onClick }: { src: string; className?: string; onClick?: () => void }) {
   const [portrait, setPortrait] = useState(false);
   const [hlsSrc, setHlsSrc] = useState<string | null>(null);
   const [poster, setPoster] = useState<string | null>(null);
@@ -165,17 +166,27 @@ function SmartVideo({ src, className }: { src: string; className?: string }) {
 
   if (hlsSrc) {
     return (
-      <VideoPlayer
-        hlsSrc={hlsSrc}
-        fallbackSrc={src}
-        poster={poster}
-        className={`rounded-xl ${portrait ? "mx-auto max-h-[70vh] w-auto max-w-full" : "w-full max-h-72"} ${className ?? ""}`}
-      />
+      <div className={`relative ${onClick ? "group" : ""}`}>
+        <VideoPlayer
+          hlsSrc={hlsSrc}
+          fallbackSrc={src}
+          poster={poster}
+          className={`rounded-xl ${portrait ? "mx-auto max-h-[70vh] w-auto max-w-full" : "w-full max-h-72"} ${className ?? ""}`}
+        />
+        {onClick && (
+          <button
+            onClick={onClick}
+            className="absolute top-2 right-2 h-8 w-8 rounded-full bg-black/50 hover:bg-black/75 flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity z-10"
+          >
+            <Maximize2 className="h-4 w-4" />
+          </button>
+        )}
+      </div>
     );
   }
 
   return (
-    <div className={portrait ? "flex justify-center" : ""}>
+    <div className={`${portrait ? "flex justify-center" : ""} ${onClick ? "relative group" : ""}`}>
       <video
         src={src}
         poster={poster ?? undefined}
@@ -189,6 +200,14 @@ function SmartVideo({ src, className }: { src: string; className?: string }) {
           setPortrait(v.videoHeight > v.videoWidth);
         }}
       />
+      {onClick && (
+        <button
+          onClick={onClick}
+          className="absolute top-2 right-2 h-8 w-8 rounded-full bg-black/50 hover:bg-black/75 flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity z-10"
+        >
+          <Maximize2 className="h-4 w-4" />
+        </button>
+      )}
     </div>
   );
 }
@@ -443,7 +462,7 @@ function ImageCarousel({ images, onClickIndex }: { images: string[]; onClickInde
 }
 
 // ── Media Upload Bar ───────────────────────────────────────────────────────
-function MediaUploadBar({ images, onAddImage, onRemoveImage, onVideo, onUploadingChange, hasVideo, userId }: {
+function MediaUploadBar({ images, onAddImage, onRemoveImage, onVideo, onUploadingChange, hasVideo, userId, onImageFile, onVideoFile, deferred }: {
   images: string[];
   onAddImage: (url: string) => void;
   onRemoveImage: (i: number) => void;
@@ -451,6 +470,9 @@ function MediaUploadBar({ images, onAddImage, onRemoveImage, onVideo, onUploadin
   onUploadingChange?: (uploading: boolean) => void;
   hasVideo?: boolean;
   userId: string;
+  onImageFile?: (f: File) => void;
+  onVideoFile?: (f: File) => void;
+  deferred?: boolean;
 }) {
   const imgRef = useRef<HTMLInputElement>(null);
   const vidRef = useRef<HTMLInputElement>(null);
@@ -463,6 +485,15 @@ function MediaUploadBar({ images, onAddImage, onRemoveImage, onVideo, onUploadin
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = "";
+
+    if (deferred) {
+      // Instant preview — actual upload happens when user clicks Post
+      const blobUrl = URL.createObjectURL(file);
+      cb(blobUrl);
+      if (type === "image") onImageFile?.(file);
+      else onVideoFile?.(file);
+      return;
+    }
 
     setUploading(true);
     onUploadingChange?.(true);
@@ -482,7 +513,6 @@ function MediaUploadBar({ images, onAddImage, onRemoveImage, onVideo, onUploadin
       return;
     }
 
-    // Image upload via API — XHR with progress so user sees % instead of spinner
     try {
       setUploadLabel("Uploading…  0%");
       const result = await uploadPostImage(file, "feed", (pct) => setUploadLabel(`Uploading… ${pct}%`));
@@ -498,7 +528,6 @@ function MediaUploadBar({ images, onAddImage, onRemoveImage, onVideo, onUploadin
 
   return (
     <div className="space-y-2">
-      {/* Image previews grid — fixed 112px height per cell, no layout shift */}
       {images.length > 0 && (
         <div className={`grid gap-2 ${images.length === 1 ? "grid-cols-1" : "grid-cols-2"}`}>
           {images.map((url, i) => (
@@ -512,7 +541,6 @@ function MediaUploadBar({ images, onAddImage, onRemoveImage, onVideo, onUploadin
               </button>
             </div>
           ))}
-          {/* Add more slot — same fixed height */}
           {canAddMore && !hasVideo && (
             <button
               type="button"
@@ -527,7 +555,6 @@ function MediaUploadBar({ images, onAddImage, onRemoveImage, onVideo, onUploadin
           )}
         </div>
       )}
-      {/* Buttons row — shown when no images yet or always for video */}
       {images.length === 0 && (
         <div className="flex gap-2">
           <input ref={imgRef} type="file" accept="image/*" className="hidden" onChange={e => handleFile(e, onAddImage, "image")} />
@@ -542,7 +569,6 @@ function MediaUploadBar({ images, onAddImage, onRemoveImage, onVideo, onUploadin
           </button>
         </div>
       )}
-      {/* Hidden inputs when images exist */}
       {images.length > 0 && (
         <input ref={imgRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={e => handleFile(e, onAddImage, "image")} />
       )}
@@ -1342,6 +1368,7 @@ const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, highligh
   const isSaved = savedPosts.has(post.id);
   const navigate = useNavigate();
   const [lightbox, setLightbox] = useState<{ images: string[]; index: number } | null>(null);
+  const [videoLightbox, setVideoLightbox] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
   const POST_PREVIEW_WORDS = 150;
   const postWords = post.content.split(/\s+/);
@@ -1426,7 +1453,7 @@ const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, highligh
             <ImageCarousel images={post.images} onClickIndex={i => setLightbox({ images: post.images, index: i })} />
           </div>
         )}
-        {post.video && <div className="px-5 pb-3"><SmartVideo src={post.video} /></div>}
+        {post.video && <div className="px-5 pb-3"><SmartVideo src={post.video} onClick={() => setVideoLightbox(post.video!)} /></div>}
         <div className="flex items-center gap-1 border-t border-border px-3 py-2">
           <button onClick={()=>onLike(post.id)} className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors ${isLiked?"text-rose-500 bg-rose-50":"text-muted-foreground hover:bg-muted"}`}>
             <Heart className={`h-4 w-4 ${isLiked?"fill-current":""}`}/> {post.likes}
@@ -1443,6 +1470,22 @@ const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, highligh
         </div>
       </div>
       {lightbox && <ImageLightbox images={lightbox.images} startIndex={lightbox.index} onClose={() => setLightbox(null)} />}
+      {videoLightbox && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 animate-in fade-in duration-150"
+          onClick={() => setVideoLightbox(null)}>
+          <button onClick={() => setVideoLightbox(null)}
+            className="absolute top-4 right-4 h-9 w-9 rounded-full bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition-colors z-10">
+            <X className="h-5 w-5" />
+          </button>
+          <video src={videoLightbox} controls autoPlay disablePictureInPicture
+            controlsList="nodownload nopictureinpicture noplaybackrate"
+            className="max-w-[95vw] max-h-[90vh] rounded-xl shadow-2xl" onClick={e => e.stopPropagation()} />
+          <button onClick={async e => { e.stopPropagation(); const blob = await fetch(videoLightbox!).then(r => r.blob()); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "video.mp4"; a.click(); URL.revokeObjectURL(a.href); }}
+            className="absolute top-4 right-16 h-9 w-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors z-10">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          </button>
+        </div>
+      )}
     </>
   );
 }, (prev, next) => {
@@ -1469,6 +1512,7 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
   const isSaved = savedCollabs.has(collab.id);
   const navigate = useNavigate();
   const [lightboxSrc, setLightboxSrc] = useState<string|null>(null);
+  const [videoLightboxSrc, setVideoLightboxSrc] = useState<string|null>(null);
   const [descExpanded, setDescExpanded] = useState(false);
   const DESC_PREVIEW = 100;
   const descLong = collab.description.length > DESC_PREVIEW;
@@ -1503,7 +1547,9 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
             )}
             {!collab.authorDeleted && <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5"><MapPin className="h-3 w-3 shrink-0"/> {collab.location}</p>}
           </div>
-          <div className="flex items-start gap-1 shrink-0">
+          <div className="flex flex-col items-end gap-1 shrink-0">
+            <p className="text-xs text-muted-foreground">{timeAgo(collab.createdAt)}</p>
+            <div className="flex items-center gap-1">
             {matchLabel && !collab.isOwn && (
               matchLabel === "strong"
                 ? <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400 whitespace-nowrap">🔥 Strong Match</span>
@@ -1539,6 +1585,7 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
               )}
             </DropdownMenuContent>
           </DropdownMenu>
+            </div>
           </div>
         </div>
         <div className="px-5 pb-4 space-y-2">
@@ -1559,7 +1606,7 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
             )}
           </div>
           {collab.image && <SmartImage src={collab.image} alt="collab" onClick={() => setLightboxSrc(collab.image!)} />}
-          {collab.video && <SmartVideo src={collab.video} />}
+          {collab.video && <SmartVideo src={collab.video} onClick={() => setVideoLightboxSrc(collab.video!)} />}
           {collab.skills.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               {collab.skills.map((s)=><Badge key={s} variant="secondary" className="text-xs">{s}</Badge>)}
@@ -1588,6 +1635,23 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
         )}
       </div>
       {lightboxSrc && <ImageLightbox images={[lightboxSrc]} onClose={() => setLightboxSrc(null)} />}
+      {videoLightboxSrc && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 animate-in fade-in duration-150"
+          onClick={() => setVideoLightboxSrc(null)}>
+          <button onClick={() => setVideoLightboxSrc(null)}
+            className="absolute top-4 right-4 h-9 w-9 rounded-full bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition-colors z-10">
+            <X className="h-5 w-5" />
+          </button>
+          <video src={videoLightboxSrc} controls autoPlay disablePictureInPicture
+            controlsList="nodownload nopictureinpicture noplaybackrate"
+            className="max-w-[95vw] max-h-[90vh] rounded-xl shadow-2xl" onClick={e => e.stopPropagation()} />
+          <a href={videoLightboxSrc} download onClick={e => e.stopPropagation()}
+            className="absolute bottom-4 right-4 h-9 px-3 rounded-full bg-white/10 hover:bg-white/20 flex items-center gap-2 text-white text-xs transition-colors z-10">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Save
+          </a>
+        </div>
+      )}
     </>
   );
 }, (prev, next) => {
@@ -1675,7 +1739,9 @@ export default function Feed() {
   const [postDialog, setPostDialog] = useState({
     open: false, content: "", tag: "General",
     images: [] as string[],
+    imageFiles: [] as File[],
     video: undefined as string|undefined,
+    videoFile: undefined as File|undefined,
     uploading: false,
     publishing: false,
   });
@@ -2312,13 +2378,15 @@ export default function Feed() {
     toast({ title: "Post hidden", description: "You won't see posts like this." });
   }, []);
 
-  const handleCreatePost = useCallback(async () => {
+  const uploadQueue = useUploadQueue();
+
+  const handleCreatePost = useCallback(() => {
     if (!postDialog.content.trim() || postDialog.publishing) return;
     const pre = checkContent(postDialog.content);
     if (!pre.allowed) { toast({ title: pre.message!, variant: "destructive" }); return; }
 
-    // Capture dialog state before closing it
-    const { content, tag, images, video } = postDialog;
+    // Capture everything before closing
+    const { content, tag, images, imageFiles, video, videoFile } = postDialog;
     const tempId = `tmp-${Date.now()}`;
     const optimisticPost: Post = {
       id: tempId, user_id: user.id, author: user.name, avatar: user.avatar,
@@ -2329,65 +2397,100 @@ export default function Feed() {
       likes: 0, commentCount: 0, isOwn: true, comments: [],
     };
 
-    // Show immediately — close dialog and prepend post without waiting
+    // Show post immediately — user can navigate away freely
     setPosts(p => [optimisticPost, ...p]);
     setActiveTab("feed");
-    setPostDialog({ open: false, content: "", tag: "General", images: [], video: undefined, uploading: false, publishing: false });
+    setPostDialog({ open: false, content: "", tag: "General", images: [], imageFiles: [], video: undefined, videoFile: undefined, uploading: false, publishing: false });
 
-    try {
-      let data: any;
+    const jobId = uploadQueue.addJob("Post");
+
+    // Background upload + create — no await, survives navigation
+    (async () => {
       try {
-        data = await createPost({
-          content,
-          tag,
-          image_urls: images.length > 0 ? images : undefined,
-          video_url: video || undefined,
+        // Upload any images that are still blob URLs
+        const finalImages: string[] = [];
+        for (let i = 0; i < images.length; i++) {
+          if (images[i].startsWith("blob:") && imageFiles[i]) {
+            const { url } = await uploadPostImage(imageFiles[i], "feed", pct => {
+              uploadQueue.updateJob(jobId, { progress: Math.round((i / Math.max(images.length, 1)) * 70 + pct * 0.7 / Math.max(images.length, 1)) });
+            });
+            URL.revokeObjectURL(images[i]);
+            finalImages.push(url);
+          } else {
+            finalImages.push(images[i]);
+          }
+        }
+
+        // Upload video if it's still a blob URL
+        let finalVideo = video;
+        if (video?.startsWith("blob:") && videoFile) {
+          uploadQueue.updateJob(jobId, { status: "uploading", progress: 10 });
+          const result = await uploadVideo(videoFile, "feed", pct => {
+            uploadQueue.updateJob(jobId, { progress: Math.round(pct * 0.85) });
+          });
+          URL.revokeObjectURL(video);
+          finalVideo = result.fallbackUrl;
+        }
+
+        uploadQueue.updateJob(jobId, { progress: 90 });
+
+        const data = await createPost({
+          content, tag,
+          image_urls: finalImages.length > 0 ? finalImages : undefined,
+          video_url: finalVideo || undefined,
         });
+
+        const realPost: Post = {
+          id: data.id, user_id: user.id, author: user.name, avatar: user.avatar,
+          avatarUrl: user.avatarUrl || undefined, avatarColor: user.color,
+          location: user.location, authorSkills: user.skills?.slice(0, 3) || [],
+          authorDeleted: false, authorRole: user.role,
+          tag, time: "Just now", createdAt: data.created_at || new Date().toISOString(),
+          content, images: finalImages, video: finalVideo,
+          likes: 0, commentCount: 0, isOwn: true, comments: [],
+        };
+
+        setPosts(p => {
+          const updated = p.map(x => x.id === tempId ? realPost : x);
+          try {
+            const cached = localStorage.getItem(FEED_CACHE_KEY);
+            const existing = cached ? JSON.parse(cached) : { ts: Date.now(), posts: [], collabs: [] };
+            const rawEntry = { id: realPost.id, user_id: user.id, created_at: realPost.createdAt, content, tag, image_urls: finalImages, video_url: finalVideo, likes: 0, comment_count: 0, isOwn: true, isSaved: false, isLiked: false, profiles: { name: user.name, avatar: user.avatar, avatar_url: user.avatarUrl, color: user.color, location: user.location, skills: user.skills, role: user.role } };
+            existing.posts = [rawEntry, ...(existing.posts || []).filter((r: any) => r.id !== realPost.id)];
+            existing.ts = Date.now();
+            localStorage.setItem(FEED_CACHE_KEY, JSON.stringify(existing));
+          } catch { /* ignore */ }
+          return updated;
+        });
+
+        uploadQueue.updateJob(jobId, { status: "done", progress: 100 });
       } catch (err: any) {
-        // Revert the optimistic post on failure
         setPosts(p => p.filter(x => x.id !== tempId));
         const modMsg = parseModerationError(err);
+        uploadQueue.updateJob(jobId, {
+          status: "failed",
+          retryFn: () => {
+            // Reconstruct post data for retry
+            const retryPost: Post = { ...optimisticPost };
+            setPosts(p => [retryPost, ...p.filter(x => x.id !== tempId)]);
+            uploadQueue.updateJob(jobId, { status: "uploading", progress: 0 });
+            handleCreatePost();
+          },
+        });
         toast({ title: modMsg ?? "Failed to create post", variant: "destructive" });
-        return;
       }
-      // Replace the optimistic post with the real post from server response
-      const realPost: Post = {
-        id: data.id, user_id: user.id, author: user.name, avatar: user.avatar,
-        avatarUrl: user.avatarUrl || undefined, avatarColor: user.color,
-        location: user.location, authorSkills: user.skills?.slice(0, 3) || [],
-        authorDeleted: false, authorRole: user.role,
-        tag, time: "Just now", createdAt: data.created_at || new Date().toISOString(),
-        content, images, video,
-        likes: 0, commentCount: 0, isOwn: true, comments: [],
-      };
-      setPosts(p => {
-        const updated = p.map(x => x.id === tempId ? realPost : x);
-        // Persist to cache so the post survives a refresh
-        try {
-          const cached = localStorage.getItem(FEED_CACHE_KEY);
-          const existing = cached ? JSON.parse(cached) : { ts: Date.now(), posts: [], collabs: [] };
-          // Build a raw-shaped entry for the cache
-          const rawEntry = { id: realPost.id, user_id: user.id, created_at: realPost.createdAt, content, tag, image_urls: images, video_url: video, likes: 0, comment_count: 0, isOwn: true, isSaved: false, isLiked: false, profiles: { name: user.name, avatar: user.avatar, avatar_url: user.avatarUrl, color: user.color, location: user.location, skills: user.skills, role: user.role } };
-          existing.posts = [rawEntry, ...(existing.posts || []).filter((r: any) => r.id !== realPost.id)];
-          existing.ts = Date.now();
-          localStorage.setItem(FEED_CACHE_KEY, JSON.stringify(existing));
-        } catch { /* ignore */ }
-        return updated;
-      });
-      toast({ title: "Post published! 🎉" });
-    } finally {
-      setPostDialog(d => ({ ...d, publishing: false }));
-    }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [postDialog, user]);
 
-  const handleRemovePostImageAt = async (i: number) => {
+  const handleRemovePostImageAt = (i: number) => {
     const url = postDialog.images[i];
-    if (url) await deleteFromStorage(url);
-    setPostDialog(d => ({ ...d, images: d.images.filter((_, idx) => idx !== i) }));
+    if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
+    setPostDialog(d => ({ ...d, images: d.images.filter((_, idx) => idx !== i), imageFiles: d.imageFiles.filter((_, idx) => idx !== i) }));
   };
-  const handleRemovePostVideo = async () => {
-    if (postDialog.video) await deleteFromStorage(postDialog.video);
-    setPostDialog(d => ({ ...d, video: undefined }));
+  const handleRemovePostVideo = () => {
+    if (postDialog.video?.startsWith("blob:")) URL.revokeObjectURL(postDialog.video);
+    setPostDialog(d => ({ ...d, video: undefined, videoFile: undefined }));
   };
 
   // ── Collab Actions ────────────────────────────────────────────────────
@@ -2663,14 +2766,16 @@ export default function Feed() {
                       onUploadingChange={v => setPostDialog(d => ({ ...d, uploading: v }))}
                       hasVideo={!!postDialog.video}
                       userId={user.id}
+                      deferred
+                      onImageFile={f => setPostDialog(d => ({ ...d, imageFiles: [...d.imageFiles, f] }))}
+                      onVideoFile={f => setPostDialog(d => ({ ...d, videoFile: f }))}
                     />
                   )}
                 </div>
                 <DialogFooter>
-                  <Button onClick={handleCreatePost} disabled={!postDialog.content.trim() || postDialog.uploading || postDialog.publishing} className="gap-2">
-                    {postDialog.publishing
-                      ? <><div className="h-3.5 w-3.5 rounded-full border-2 border-primary-foreground border-t-transparent animate-spin" /> Publishing…</>
-                      : <><Send className="h-4 w-4"/> {postDialog.uploading ? "Uploading..." : "Publish"}</>}
+                  <Button onClick={handleCreatePost} disabled={!postDialog.content.trim()} className="gap-2">
+                    <><Send className="h-4 w-4"/> Publish</>
+
                   </Button>
                 </DialogFooter>
               </DialogContent>
@@ -2853,7 +2958,6 @@ export default function Feed() {
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
-            <p className="text-xs text-muted-foreground">{filteredCollabs.length} collab{filteredCollabs.length!==1?"s":""}</p>
             {filteredCollabs.length === 0 ? (
               <div className="text-center py-14 text-muted-foreground">
                 <p className="text-sm font-medium mb-1">No collaborations found</p>

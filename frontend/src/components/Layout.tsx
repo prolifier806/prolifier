@@ -4,6 +4,7 @@ import { useTheme } from "@/context/ThemeContext";
 import { useUser } from "@/context/UserContext";
 import { Home, Search, MessageCircle, Users, Bell, Settings, Leaf, Sun, Moon, MessageSquarePlus } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import UploadStatusBar from "@/components/UploadStatusBar";
 
 const NAV_PATHS = [
   { to: "/feed",          icon: Home,          label: "Feed"          },
@@ -359,6 +360,7 @@ export default function Layout({ children }: { children: ReactNode }) {
 
   return (
     <>
+    <UploadStatusBar />
     <div className="min-h-screen flex bg-background">
 
       {/* ── Desktop Sidebar ── */}

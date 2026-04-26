@@ -13,11 +13,12 @@ import {
   Crown, Image, Video, Paperclip,
   Link2, Copy, LogOut, Edit3, Trash2, UserX, MoreHorizontal,
   ShieldOff, RefreshCw, AtSign, ChevronsUp, UserPlus, Bell, SlidersHorizontal, Download, CornerUpLeft, Smile, Flag,
-  ChevronUp, ChevronDown,
+  ChevronUp, ChevronDown, Maximize2,
 } from "lucide-react";
 import Layout from "@/components/Layout";
 import { toast } from "@/hooks/use-toast";
 import { useUser } from "@/context/UserContext";
+import { useUploadQueue } from "@/context/UploadQueueContext";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { createNotification } from "@/api/notifications";
@@ -513,16 +514,10 @@ export default function Groups() {
   const [fileModal, setFileModal] = useState<{ file: File } | null>(null);
   const [vidCaption, setVidCaption] = useState("");
   const [vidQuality, setVidQuality] = useState<VidQuality>("medium");
-  const [vidUploading, setVidUploading] = useState(false);
-  const [vidUploadPct, setVidUploadPct] = useState(0);
-  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [lightbox, setLightbox] = useState<{ type: "image" | "video"; url: string } | null>(null);
   const [imgCaption, setImgCaption] = useState("");
   const [imgQuality, setImgQuality] = useState<ImgQuality>("720p");
-  const [imgUploading, setImgUploading] = useState(false);
-  const [imgUploadPct, setImgUploadPct] = useState(0);
   const [fileCaption, setFileCaption] = useState("");
-  const [fileUploading, setFileUploading] = useState(false);
-  const [fileUploadPct, setFileUploadPct] = useState(0);
 
   // @mention
   const [mentionQuery, setMentionQuery] = useState("");
@@ -1248,12 +1243,12 @@ export default function Groups() {
 
   // Lightbox fullscreen
   useEffect(() => {
-    if (lightboxUrl && lightboxRef.current) {
+    if (lightbox && lightboxRef.current) {
       lightboxRef.current.requestFullscreen?.().catch(() => {});
-    } else if (!lightboxUrl && document.fullscreenElement) {
+    } else if (!lightbox && document.fullscreenElement) {
       document.exitFullscreen?.().catch(() => {});
     }
-  }, [lightboxUrl]);
+  }, [lightbox]);
 
   useEffect(() => {
     if (editingMsgId) setTimeout(() => editRef.current?.focus(), 30);
@@ -1513,6 +1508,7 @@ export default function Groups() {
   };
 
   // ── File upload ──────────────────────────────────────────────────────────
+  const uploadQueue = useUploadQueue();
 
   // Resize image client-side before upload
   const resizeImage = (file: File, maxW: number, maxH: number): Promise<File> =>
@@ -1534,63 +1530,117 @@ export default function Groups() {
     });
 
   // Called when user confirms send in the image modal
-  const sendImageMsg = async () => {
+  const sendImageMsg = () => {
     if (!imgModal || !activeGroup) return;
-    setImgUploading(true);
-    setImgUploadPct(0);
-    try {
-      let fileToUpload = imgModal.file;
-      if (imgQuality === "480p")  fileToUpload = await resizeImage(imgModal.file, 854, 480);
-      if (imgQuality === "720p")  fileToUpload = await resizeImage(imgModal.file, 1280, 720);
-      const uploaded = await uploadPostImage(fileToUpload, "chat", pct => setImgUploadPct(pct));
-      sendMessage(imgCaption.trim() || undefined, uploaded.url, "image");
-      setImgModal(null);
-      setImgCaption("");
-      setImgQuality("720p");
-    } catch {
-      toast({ title: "Upload failed", variant: "destructive" });
-    } finally {
-      setImgUploading(false);
-      setImgUploadPct(0);
-    }
+    const { file, previewUrl } = imgModal;
+    const caption = imgCaption.trim();
+    const quality = imgQuality;
+    const groupId = activeGroup.id;
+    const groupName = activeGroup.name;
+    const clientId = uuidv4();
+    knownMsgIdsRef.current.add(clientId);
+
+    setMessages(prev => [...prev, {
+      id: clientId, group_id: groupId, user_id: user.id,
+      text: caption || null, media_url: previewUrl, media_type: "image",
+      created_at: new Date().toISOString(), edited: false, deleted: false,
+      unsent: false, removed_by_admin: false, is_system: false,
+      author_name: user.name, author_color: user.color,
+      author_avatar_url: user.avatarUrl || undefined, author_role: user.role,
+      reply_to_id: null, reply_to_text: null, reply_to_author: null,
+    }]);
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    setImgModal(null); setImgCaption(""); setImgQuality("720p");
+
+    const jobId = uploadQueue.addJob(`Image to ${groupName}`);
+    (async () => {
+      try {
+        let fileToUpload = file;
+        if (quality === "480p") fileToUpload = await resizeImage(file, 854, 480);
+        if (quality === "720p") fileToUpload = await resizeImage(file, 1280, 720);
+        const uploaded = await uploadPostImage(fileToUpload, "chat", pct => uploadQueue.updateJob(jobId, { progress: pct }));
+        URL.revokeObjectURL(previewUrl);
+        setMessages(prev => prev.map(m => m.id === clientId ? { ...m, media_url: uploaded.url } : m));
+        socketSend({ clientId, groupId, text: caption || null, mediaUrl: uploaded.url, mediaType: "image", replyToId: null });
+        uploadQueue.updateJob(jobId, { status: "done", progress: 100 });
+      } catch {
+        URL.revokeObjectURL(previewUrl);
+        setMessages(prev => prev.filter(m => m.id !== clientId));
+        uploadQueue.updateJob(jobId, { status: "failed" });
+      }
+    })();
   };
 
-  const sendVideoMsg = async () => {
+  const sendVideoMsg = () => {
     if (!vidModal || !activeGroup) return;
-    setVidUploading(true);
-    setVidUploadPct(0);
-    try {
-      const uploaded = await uploadVideo(vidModal.file, "chat", pct => setVidUploadPct(pct));
-      sendMessage(vidCaption.trim() || undefined, uploaded.fallbackUrl, "video");
-      setVidModal(null);
-      setVidCaption("");
-    } catch {
-      toast({ title: "Upload failed", variant: "destructive" });
-    } finally {
-      setVidUploading(false);
-      setVidUploadPct(0);
-    }
+    const { file, previewUrl } = vidModal;
+    const caption = vidCaption.trim();
+    const groupId = activeGroup.id;
+    const groupName = activeGroup.name;
+    const clientId = uuidv4();
+    knownMsgIdsRef.current.add(clientId);
+
+    setMessages(prev => [...prev, {
+      id: clientId, group_id: groupId, user_id: user.id,
+      text: caption || null, media_url: previewUrl, media_type: "video",
+      created_at: new Date().toISOString(), edited: false, deleted: false,
+      unsent: false, removed_by_admin: false, is_system: false,
+      author_name: user.name, author_color: user.color,
+      author_avatar_url: user.avatarUrl || undefined, author_role: user.role,
+      reply_to_id: null, reply_to_text: null, reply_to_author: null,
+    }]);
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    setVidModal(null); setVidCaption(""); setVidQuality("medium");
+
+    const jobId = uploadQueue.addJob(`Video to ${groupName}`);
+    (async () => {
+      try {
+        const uploaded = await uploadVideo(file, "chat", pct => uploadQueue.updateJob(jobId, { progress: pct }));
+        URL.revokeObjectURL(previewUrl);
+        setMessages(prev => prev.map(m => m.id === clientId ? { ...m, media_url: uploaded.fallbackUrl } : m));
+        socketSend({ clientId, groupId, text: caption || null, mediaUrl: uploaded.fallbackUrl, mediaType: "video", replyToId: null });
+        uploadQueue.updateJob(jobId, { status: "done", progress: 100 });
+      } catch {
+        URL.revokeObjectURL(previewUrl);
+        setMessages(prev => prev.filter(m => m.id !== clientId));
+        uploadQueue.updateJob(jobId, { status: "failed" });
+      }
+    })();
   };
 
-  const sendFileMsg = async () => {
+  const sendFileMsg = () => {
     if (!fileModal || !activeGroup) return;
-    setFileUploading(true);
-    setFileUploadPct(0);
-    try {
-      const uploaded = await uploadFile(fileModal.file, pct => setFileUploadPct(pct));
-      // Store as "filename\ndescription" — inbox splits on first \n
-      const payload = fileCaption.trim()
-        ? `${fileModal.file.name}\n${fileCaption.trim()}`
-        : fileModal.file.name;
-      sendMessage(payload, uploaded.url, "file");
-      setFileModal(null);
-      setFileCaption("");
-    } catch {
-      toast({ title: "Upload failed", variant: "destructive" });
-    } finally {
-      setFileUploading(false);
-      setFileUploadPct(0);
-    }
+    const { file } = fileModal;
+    const caption = fileCaption.trim();
+    const groupId = activeGroup.id;
+    const groupName = activeGroup.name;
+    const payload = caption ? `${file.name}\n${caption}` : file.name;
+    const clientId = uuidv4();
+    knownMsgIdsRef.current.add(clientId);
+
+    setFileModal(null); setFileCaption("");
+
+    const jobId = uploadQueue.addJob(`File to ${groupName}`);
+    (async () => {
+      try {
+        const uploaded = await uploadFile(file, pct => uploadQueue.updateJob(jobId, { progress: pct }));
+        // Add message only after upload — files have no blob preview URL
+        setMessages(prev => [...prev, {
+          id: clientId, group_id: groupId, user_id: user.id,
+          text: payload, media_url: uploaded.url, media_type: "file",
+          created_at: new Date().toISOString(), edited: false, deleted: false,
+          unsent: false, removed_by_admin: false, is_system: false,
+          author_name: user.name, author_color: user.color,
+          author_avatar_url: user.avatarUrl || undefined, author_role: user.role,
+          reply_to_id: null, reply_to_text: null, reply_to_author: null,
+        }]);
+        bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+        socketSend({ clientId, groupId, text: payload, mediaUrl: uploaded.url, mediaType: "file", replyToId: null });
+        uploadQueue.updateJob(jobId, { status: "done", progress: 100 });
+      } catch {
+        uploadQueue.updateJob(jobId, { status: "failed" });
+      }
+    })();
   };
 
   const handleFileInput = async (e: React.ChangeEvent<HTMLInputElement>, type: MediaType) => {
@@ -2145,7 +2195,7 @@ export default function Groups() {
                     <ImageMsg
                       url={m.media_url} text={m.text} isMe={true}
                       reply={m.reply_to_id ? { author: m.reply_to_author, text: m.reply_to_text } : null}
-                      onLightbox={() => setLightboxUrl(m.media_url!)}
+                      onLightbox={() => setLightbox({ type: "image", url: m.media_url! })}
                       renderCaption={t => renderTextWithLinks(t, members, true, (uid) => navigate(`/profile/${uid}`))}
                     />
                   ) : (
@@ -2160,12 +2210,17 @@ export default function Groups() {
                         </div>
                       )}
                       {m.media_type === "video" && m.media_url && (
-                        <div className="relative inline-block" style={{ maxWidth: "360px", width: "100%" }}>
+                        <div className="relative inline-block group/vid" style={{ maxWidth: "360px", width: "100%" }}>
                           <video src={m.media_url} controls controlsList="nodownload noplaybackrate nopictureinpicture nofullscreen" disablePictureInPicture className="block w-full bg-black" />
+                          <button onClick={() => setLightbox({ type: "video", url: m.media_url! })}
+                            className="absolute top-2 left-2 h-7 w-7 rounded-full bg-black/50 hover:bg-black/75 flex items-center justify-center text-white opacity-0 group-hover/vid:opacity-100 transition-opacity z-10"
+                            title="Fullscreen">
+                            <Maximize2 className="h-3.5 w-3.5" />
+                          </button>
                           <button onClick={async e => { e.stopPropagation(); const blob = await fetch(m.media_url!).then(r => r.blob()); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "video.mp4"; a.click(); URL.revokeObjectURL(a.href); }}
-                            className="absolute top-2 right-2 h-7 w-7 rounded-full bg-black/50 hover:bg-black/70 flex items-center justify-center transition-colors"
+                            className="absolute top-2 right-2 h-7 w-7 rounded-full bg-black/50 hover:bg-black/70 flex items-center justify-center transition-colors z-10 text-white opacity-0 group-hover/vid:opacity-100 transition-opacity"
                             title="Save video">
-                            <Download className="h-3.5 w-3.5 text-white" />
+                            <Download className="h-3.5 w-3.5" />
                           </button>
                         </div>
                       )}
@@ -2319,7 +2374,7 @@ export default function Groups() {
                     <ImageMsg
                       url={m.media_url} text={m.text} isMe={false}
                       reply={m.reply_to_id ? { author: m.reply_to_author, text: m.reply_to_text } : null}
-                      onLightbox={() => setLightboxUrl(m.media_url!)}
+                      onLightbox={() => setLightbox({ type: "image", url: m.media_url! })}
                       renderCaption={t => renderTextWithLinks(t, members, false, (uid) => navigate(`/profile/${uid}`))}
                     />
                   ) : (
@@ -2334,12 +2389,17 @@ export default function Groups() {
                         </div>
                       )}
                       {m.media_type === "video" && m.media_url && (
-                        <div className="relative inline-block" style={{ maxWidth: "360px", width: "100%" }}>
+                        <div className="relative inline-block group/vid" style={{ maxWidth: "360px", width: "100%" }}>
                           <video src={m.media_url} controls controlsList="nodownload noplaybackrate nopictureinpicture nofullscreen" disablePictureInPicture className="block w-full bg-black" />
+                          <button onClick={() => setLightbox({ type: "video", url: m.media_url! })}
+                            className="absolute top-2 left-2 h-7 w-7 rounded-full bg-black/50 hover:bg-black/75 flex items-center justify-center text-white opacity-0 group-hover/vid:opacity-100 transition-opacity z-10"
+                            title="Fullscreen">
+                            <Maximize2 className="h-3.5 w-3.5" />
+                          </button>
                           <button onClick={async e => { e.stopPropagation(); const blob = await fetch(m.media_url!).then(r => r.blob()); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "video.mp4"; a.click(); URL.revokeObjectURL(a.href); }}
-                            className="absolute top-2 right-2 h-7 w-7 rounded-full bg-black/50 hover:bg-black/70 flex items-center justify-center transition-colors"
+                            className="absolute top-2 right-2 h-7 w-7 rounded-full bg-black/50 hover:bg-black/70 flex items-center justify-center transition-colors z-10 text-white opacity-0 group-hover/vid:opacity-100 transition-opacity"
                             title="Save video">
-                            <Download className="h-3.5 w-3.5 text-white" />
+                            <Download className="h-3.5 w-3.5" />
                           </button>
                         </div>
                       )}
@@ -3478,18 +3538,32 @@ export default function Groups() {
         )}
 
         {/* Lightbox */}
-        {lightboxUrl && (
+        {lightbox && (
           <div ref={lightboxRef} className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm"
-            onClick={() => setLightboxUrl(null)}>
-            <button onClick={() => setLightboxUrl(null)}
+            onClick={() => setLightbox(null)}>
+            <button onClick={() => setLightbox(null)}
               className="absolute top-4 right-4 h-9 w-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors z-10">
               <X className="h-5 w-5" />
             </button>
-            <img src={lightboxUrl} alt="full size" className="max-w-[95vw] max-h-[90vh] object-contain rounded-xl shadow-2xl" onClick={e => e.stopPropagation()} />
-            <a href={lightboxUrl} download target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
-              className="absolute bottom-4 right-4 h-9 px-3 rounded-full bg-white/10 hover:bg-white/20 flex items-center gap-2 text-white text-xs transition-colors">
-              <Download className="h-4 w-4" /> Save
-            </a>
+            {lightbox.type === "image" ? (
+              <>
+                <img src={lightbox.url} alt="full size" className="max-w-[95vw] max-h-[90vh] object-contain rounded-xl shadow-2xl" onClick={e => e.stopPropagation()} />
+                <a href={lightbox.url} download target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
+                  className="absolute bottom-4 right-4 h-9 px-3 rounded-full bg-white/10 hover:bg-white/20 flex items-center gap-2 text-white text-xs transition-colors">
+                  <Download className="h-4 w-4" /> Save
+                </a>
+              </>
+            ) : (
+              <>
+                <video src={lightbox.url} controls autoPlay disablePictureInPicture
+                  controlsList="nodownload nopictureinpicture noplaybackrate"
+                  className="max-w-[95vw] max-h-[90vh] rounded-xl shadow-2xl" onClick={e => e.stopPropagation()} />
+                <button onClick={async e => { e.stopPropagation(); const blob = await fetch(lightbox!.url).then(r => r.blob()); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "video.mp4"; a.click(); URL.revokeObjectURL(a.href); }}
+                  className="absolute top-4 right-16 h-9 w-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors z-10">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                </button>
+              </>
+            )}
           </div>
         )}
 
@@ -3539,35 +3613,27 @@ export default function Groups() {
         {/* Image send modal */}
         {imgModal && (
           <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-4"
-            onClick={e => { if (e.target === e.currentTarget && !imgUploading) setImgModal(null); }}>
+            onClick={e => { if (e.target === e.currentTarget) setImgModal(null); }}>
             <div className="w-full max-w-sm bg-card border border-border rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
               <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-border">
                 <p className="font-semibold text-foreground">Send Image</p>
-                <button onClick={() => !imgUploading && setImgModal(null)}
+                <button onClick={() => setImgModal(null)}
                   className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors">
                   <X className="h-4 w-4" />
                 </button>
               </div>
               <div className="relative bg-black/10">
                 <img src={imgModal.previewUrl} alt="preview" className="w-full max-h-64 object-contain" />
-                {imgUploading && (
-                  <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center gap-2">
-                    <p className="text-white text-sm font-medium">Uploading… {imgUploadPct}%</p>
-                    <div className="w-48 h-1.5 bg-white/20 rounded-full overflow-hidden">
-                      <div className="h-full bg-white rounded-full transition-all duration-200" style={{ width: `${imgUploadPct}%` }} />
-                    </div>
-                  </div>
-                )}
               </div>
               <div className="px-4 py-3 space-y-3">
                 <textarea value={imgCaption} onChange={e => setImgCaption(e.target.value)}
-                  placeholder="Add a caption… (optional)" rows={2} disabled={imgUploading}
+                  placeholder="Add a caption… (optional)" rows={2}
                   className="w-full bg-muted rounded-xl px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none resize-none" />
                 <div>
                   <p className="text-xs font-medium text-muted-foreground mb-2">Quality</p>
                   <div className="grid grid-cols-3 gap-2">
                     {([["480p", "480p", "Smaller"], ["720p", "720p", "Balanced"], ["hd", "HD", "Original"]] as [ImgQuality, string, string][]).map(([val, label, sub]) => (
-                      <button key={val} onClick={() => setImgQuality(val)} disabled={imgUploading}
+                      <button key={val} onClick={() => setImgQuality(val)}
                         className={`flex flex-col items-center py-2 rounded-xl border text-xs transition-all ${imgQuality === val ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-foreground/30"}`}>
                         <span className="font-semibold">{label}</span>
                         <span className="text-[10px] opacity-70 mt-0.5">{sub}</span>
@@ -3575,11 +3641,9 @@ export default function Groups() {
                     ))}
                   </div>
                 </div>
-                <button onClick={sendImageMsg} disabled={imgUploading}
-                  className="w-full h-10 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2">
-                  {imgUploading
-                    ? <><div className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin" /> Uploading…</>
-                    : <><Send className="h-4 w-4" /> Send</>}
+                <button onClick={sendImageMsg}
+                  className="w-full h-10 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition-opacity flex items-center justify-center gap-2">
+                  <Send className="h-4 w-4" /> Send
                 </button>
               </div>
             </div>
@@ -3589,35 +3653,27 @@ export default function Groups() {
         {/* Video send modal */}
         {vidModal && (
           <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-4"
-            onClick={e => { if (e.target === e.currentTarget && !vidUploading) setVidModal(null); }}>
+            onClick={e => { if (e.target === e.currentTarget) setVidModal(null); }}>
             <div className="w-full max-w-sm bg-card border border-border rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
               <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-border">
                 <p className="font-semibold text-foreground">Send Video</p>
-                <button onClick={() => !vidUploading && setVidModal(null)}
+                <button onClick={() => setVidModal(null)}
                   className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors">
                   <X className="h-4 w-4" />
                 </button>
               </div>
               <div className="relative bg-black">
                 <video src={vidModal.previewUrl} className="w-full max-h-48 object-contain" controls />
-                {vidUploading && (
-                  <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-2">
-                    <p className="text-white text-sm font-medium">Uploading… {vidUploadPct}%</p>
-                    <div className="w-48 h-1.5 bg-white/20 rounded-full overflow-hidden">
-                      <div className="h-full bg-white rounded-full transition-all duration-200" style={{ width: `${vidUploadPct}%` }} />
-                    </div>
-                  </div>
-                )}
               </div>
               <div className="px-4 py-3 space-y-3">
                 <textarea value={vidCaption} onChange={e => setVidCaption(e.target.value)}
-                  placeholder="Add a caption… (optional)" rows={2} disabled={vidUploading}
+                  placeholder="Add a caption… (optional)" rows={2}
                   className="w-full bg-muted rounded-xl px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none resize-none" />
                 <div>
                   <p className="text-xs font-medium text-muted-foreground mb-2">Quality</p>
                   <div className="grid grid-cols-3 gap-2">
                     {([["low", "Low", "Smaller"], ["medium", "Medium", "Balanced"], ["original", "Original", "Full size"]] as [VidQuality, string, string][]).map(([val, label, sub]) => (
-                      <button key={val} onClick={() => setVidQuality(val)} disabled={vidUploading}
+                      <button key={val} onClick={() => setVidQuality(val)}
                         className={`flex flex-col items-center py-2 rounded-xl border text-xs transition-all ${vidQuality === val ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-foreground/30"}`}>
                         <span className="font-semibold">{label}</span>
                         <span className="text-[10px] opacity-70 mt-0.5">{sub}</span>
@@ -3625,11 +3681,9 @@ export default function Groups() {
                     ))}
                   </div>
                 </div>
-                <button onClick={sendVideoMsg} disabled={vidUploading}
-                  className="w-full h-10 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2">
-                  {vidUploading
-                    ? <><div className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin" /> Uploading…</>
-                    : <><Send className="h-4 w-4" /> Send</>}
+                <button onClick={sendVideoMsg}
+                  className="w-full h-10 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition-opacity flex items-center justify-center gap-2">
+                  <Send className="h-4 w-4" /> Send
                 </button>
               </div>
             </div>
@@ -3639,17 +3693,16 @@ export default function Groups() {
         {/* File send modal */}
         {fileModal && (
           <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-4"
-            onClick={e => { if (e.target === e.currentTarget && !fileUploading) setFileModal(null); }}>
+            onClick={e => { if (e.target === e.currentTarget) setFileModal(null); }}>
             <div className="w-full max-w-sm bg-card border border-border rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
               <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-border">
                 <p className="font-semibold text-foreground">Send File</p>
-                <button onClick={() => !fileUploading && setFileModal(null)}
+                <button onClick={() => setFileModal(null)}
                   className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors">
                   <X className="h-4 w-4" />
                 </button>
               </div>
               <div className="px-4 py-4 space-y-3">
-                {/* File info row */}
                 <div className="flex items-center gap-3 p-3 bg-muted rounded-xl">
                   <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
                     <Paperclip className="h-5 w-5 text-primary" />
@@ -3659,31 +3712,17 @@ export default function Groups() {
                     <p className="text-xs text-muted-foreground">{(fileModal.file.size / 1024 / 1024).toFixed(2)} MB</p>
                   </div>
                 </div>
-                {/* Upload progress */}
-                {fileUploading && (
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between text-xs text-muted-foreground">
-                      <span>Uploading…</span>
-                      <span>{fileUploadPct}%</span>
-                    </div>
-                    <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
-                      <div className="h-full bg-primary rounded-full transition-all duration-200" style={{ width: `${fileUploadPct}%` }} />
-                    </div>
-                  </div>
-                )}
                 <textarea value={fileCaption} onChange={e => setFileCaption(e.target.value)}
-                  placeholder={`Add a description… (optional)`} rows={2} disabled={fileUploading}
+                  placeholder={`Add a description… (optional)`} rows={2}
                   className="w-full bg-muted rounded-xl px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none resize-none" />
                 <div className="flex gap-2">
-                  <button onClick={() => setFileModal(null)} disabled={fileUploading}
-                    className="flex-1 h-10 rounded-xl border border-border text-sm font-medium text-foreground hover:bg-muted transition-colors disabled:opacity-50">
+                  <button onClick={() => setFileModal(null)}
+                    className="flex-1 h-10 rounded-xl border border-border text-sm font-medium text-foreground hover:bg-muted transition-colors">
                     Cancel
                   </button>
-                  <button onClick={sendFileMsg} disabled={fileUploading}
-                    className="flex-1 h-10 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2">
-                    {fileUploading
-                      ? <><div className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin" /> Uploading…</>
-                      : <><Send className="h-4 w-4" /> Send</>}
+                  <button onClick={sendFileMsg}
+                    className="flex-1 h-10 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition-opacity flex items-center justify-center gap-2">
+                    <Send className="h-4 w-4" /> Send
                   </button>
                 </div>
               </div>

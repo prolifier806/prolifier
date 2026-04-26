@@ -10,12 +10,13 @@ import {
   Search, Send, ArrowLeft, Image, Video, Paperclip,
   X, Play, Pause, Mic, StopCircle, RefreshCw, Check, CheckCheck,
   BellOff, Bell, Flag, Trash2, Reply, MessageCircle, MoreHorizontal,
-  Smile, Download,
+  Smile, Download, Maximize2,
 } from "lucide-react";
 import Layout from "@/components/Layout";
 import { toast } from "@/hooks/use-toast";
 import { useUser } from "@/context/UserContext";
 import { supabase } from "@/lib/supabase";
+import { useUploadQueue } from "@/context/UploadQueueContext";
 
 // ── Types ─────────────────────────────────────────────────────────────────
 type Conversation = {
@@ -213,6 +214,7 @@ export default function Messages() {
   const [convSearch, setConvSearch] = useState("");
   const [showMobileChat, setShowMobileChat] = useState(false);
   const [mediaPreview, setMediaPreview] = useState<{ type: string; url: string } | null>(null);
+  const uploadQueue = useUploadQueue();
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollBehaviorRef = useRef<"smooth" | "instant">("instant");
@@ -828,35 +830,75 @@ export default function Messages() {
     });
   };
 
-  // ── File upload ──────────────────────────────────────────────────────
-  const handleFileInput = async (e: React.ChangeEvent<HTMLInputElement>, type: "image" | "video" | "file") => {
+  // ── File upload — instant preview, background upload ────────────────
+  const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>, type: "image" | "video" | "file") => {
     const file = e.target.files?.[0];
     if (!file || !selectedId) return;
-    setUploading(true);
-    try {
-      if (type === "image") {
-        const { url } = await uploadPostImage(file, "chat");
-        await sendMessage(undefined, url, "image");
-      } else if (type === "video") {
-        // Validate format/size/duration, upload with progress, trigger processing
-        const { validateVideo, uploadVideoXHR, sanitizeVideoFilename } = await import("@/processing/videoProcessor");
-        const meta = await validateVideo(file, "chat");
-        const filename = sanitizeVideoFilename(file.name);
-        const result = await apiUploadVideo(file, "chat", () => {});
-        await sendMessage(undefined, result.fallbackUrl, "video");
-      } else {
-        // File — upload via backend
-        const form = new FormData();
-        form.append("file", file);
-        const data = await apiUpload<{ url: string }>("/api/uploads/file", form);
-        await sendMessage(file.name, data.url, type);
-      }
-    } catch (err: any) {
-      toast({ title: err.message || "Upload failed, try again.", variant: "destructive" });
-    } finally {
-      setUploading(false);
-    }
     e.target.value = "";
+
+    const blobUrl = type !== "file" ? URL.createObjectURL(file) : null;
+    const clientId = uuidv4();
+    const convName = conversations.find(c => c.id === selectedId)?.name ?? "chat";
+    const jobId = uploadQueue.addJob(`${type === "image" ? "Photo" : type === "video" ? "Video" : "File"} to ${convName}`);
+
+    // Show message immediately with blob preview
+    if (blobUrl) {
+      scrollBehaviorRef.current = "smooth";
+      setMessages(prev => [...prev, {
+        id: clientId, sender_id: user.id,
+        text: type === "file" ? file.name : null,
+        media_url: blobUrl, media_type: type,
+        created_at: new Date().toISOString(), read: false,
+        reply_to_id: null, reply_to_text: null,
+      }]);
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+
+    // Upload in background — IIFE so component unmount doesn't matter
+    (async () => {
+      try {
+        let realUrl: string;
+        if (type === "image") {
+          const { url } = await uploadPostImage(file, "chat", pct => uploadQueue.updateJob(jobId, { progress: pct }));
+          realUrl = url;
+        } else if (type === "video") {
+          const result = await apiUploadVideo(file, "chat", pct => uploadQueue.updateJob(jobId, { progress: pct }));
+          realUrl = result.fallbackUrl;
+        } else {
+          uploadQueue.updateJob(jobId, { progress: 30 });
+          const form = new FormData();
+          form.append("file", file);
+          const data = await apiUpload<{ url: string }>("/api/uploads/file", form);
+          realUrl = data.url;
+          uploadQueue.updateJob(jobId, { progress: 90 });
+        }
+
+        if (blobUrl) {
+          URL.revokeObjectURL(blobUrl);
+          setMessages(prev => prev.map(m => m.id === clientId ? { ...m, media_url: realUrl } : m));
+        }
+
+        // Now send via socket with real URL
+        const replySnapshot = replyTo ? { replyToId: replyTo.id, replyToText: replyTo.text } : { replyToId: null, replyToText: null };
+        sendDm({
+          clientId,
+          receiverId: selectedId!,
+          text: type === "file" ? file.name : null,
+          mediaUrl: realUrl,
+          mediaType: type,
+          ...replySnapshot,
+        });
+
+        uploadQueue.updateJob(jobId, { status: "done", progress: 100 });
+      } catch (err: any) {
+        if (blobUrl) {
+          URL.revokeObjectURL(blobUrl);
+          setMessages(prev => prev.filter(m => m.id !== clientId));
+        }
+        uploadQueue.updateJob(jobId, { status: "failed" });
+        toast({ title: err.message || "Upload failed, try again.", variant: "destructive" });
+      }
+    })();
   };
 
   // ── Voice recorder ───────────────────────────────────────────────────
@@ -1129,27 +1171,30 @@ export default function Messages() {
           )}
 
           {m.media_type === "video" && m.media_url && (
-            <div
-              style={{ ...textBubble, cursor:"pointer" }}
-              onClick={() => setMediaPreview({ type:"video", url:m.media_url! })}>
+            <div style={textBubble}>
               <ReplyStrip isMe={isMe} />
-              <div className="relative" style={{ marginTop: m.reply_to_text ? 8 : 0 }}>
+              <div className="relative group/vid" style={{ marginTop: m.reply_to_text ? 8 : 0 }}>
                 <video
                   src={m.media_url}
                   controls
                   controlsList="nodownload noplaybackrate nopictureinpicture nofullscreen"
                   disablePictureInPicture
                   className="block w-full bg-black"
-                  onClick={e => e.stopPropagation()}
                 />
+                <button
+                  onClick={() => setMediaPreview({ type:"video", url:m.media_url! })}
+                  className="absolute top-2 left-2 h-7 w-7 rounded-full bg-black/50 hover:bg-black/75 flex items-center justify-center text-white opacity-0 group-hover/vid:opacity-100 transition-opacity z-10"
+                  title="Fullscreen">
+                  <Maximize2 className="h-3.5 w-3.5" />
+                </button>
                 <button
                   onClick={async e => {
                     e.stopPropagation();
                     await downloadFile(m.media_url!, "video.mp4");
                   }}
-                  className="absolute top-2 right-2 h-7 w-7 rounded-full bg-black/50 hover:bg-black/70 flex items-center justify-center transition-colors"
+                  className="absolute top-2 right-2 h-7 w-7 rounded-full bg-black/50 hover:bg-black/70 flex items-center justify-center text-white opacity-0 group-hover/vid:opacity-100 transition-opacity z-10"
                   title="Save video">
-                  <Download className="h-3.5 w-3.5 text-white" />
+                  <Download className="h-3.5 w-3.5" />
                 </button>
               </div>
               <Meta m={m} isMe={isMe} />
@@ -1432,28 +1477,21 @@ export default function Messages() {
                 </div>
               )}
 
-              {/* Upload progress bar */}
-              {uploading && !isBlocked && (
-                <div className="px-4 py-2.5 border-t border-border bg-muted/40 flex items-center gap-3 shrink-0">
-                  <div className="h-4 w-4 rounded-full border-2 border-primary border-t-transparent animate-spin shrink-0" />
-                  <span className="text-xs text-muted-foreground">Uploading…</span>
-                </div>
-              )}
 
               {/* Input bar */}
               {!recording && !isBlocked && (
                 <div className="p-3 border-t border-border shrink-0">
                   <div className="flex items-center gap-2 bg-muted rounded-2xl px-3 py-1.5">
                     <div className="flex items-center gap-0.5 shrink-0">
-                      <button type="button" disabled={uploading} onMouseDown={e => e.preventDefault()} onClick={() => imageRef.current?.click()}
+                      <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => imageRef.current?.click()}
                         className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors disabled:opacity-40" title="Image">
                         <Image className="h-4 w-4" />
                       </button>
-                      <button type="button" disabled={uploading} onMouseDown={e => e.preventDefault()} onClick={() => videoRef.current?.click()}
+                      <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => videoRef.current?.click()}
                         className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors disabled:opacity-40" title="Video">
                         <Video className="h-4 w-4" />
                       </button>
-                      <button type="button" disabled={uploading} onMouseDown={e => e.preventDefault()} onClick={() => fileRef.current?.click()}
+                      <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => fileRef.current?.click()}
                         className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors disabled:opacity-40" title="File">
                         <Paperclip className="h-4 w-4" />
                       </button>
@@ -1587,11 +1625,21 @@ export default function Messages() {
       {/* Lightbox */}
       {mediaPreview && (
         <div className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4" onClick={() => setMediaPreview(null)}>
-          <button className="absolute top-4 right-4 h-9 w-9 rounded-full bg-white/10 flex items-center justify-center text-white hover:bg-white/20">
+          <button className="absolute top-4 right-4 h-9 w-9 rounded-full bg-white/10 flex items-center justify-center text-white hover:bg-white/20" onClick={() => setMediaPreview(null)}>
             <X className="h-5 w-5" />
           </button>
-          {mediaPreview.type === "image" && <img src={mediaPreview.url} alt="full" className="max-w-full max-h-full rounded-xl object-contain" />}
-          {mediaPreview.type === "video" && <video src={mediaPreview.url} controls autoPlay className="max-w-full max-h-full rounded-xl" />}
+          {mediaPreview.type === "image" && <img src={mediaPreview.url} alt="full" className="max-w-full max-h-full rounded-xl object-contain" onClick={e => e.stopPropagation()} />}
+          {mediaPreview.type === "video" && (
+            <>
+              <video src={mediaPreview.url} controls autoPlay disablePictureInPicture
+                controlsList="nodownload nopictureinpicture noplaybackrate"
+                className="max-w-[95vw] max-h-[90vh] rounded-xl" onClick={e => e.stopPropagation()} />
+              <button onClick={async e => { e.stopPropagation(); const blob = await fetch(mediaPreview!.url).then(r => r.blob()); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "video.mp4"; a.click(); URL.revokeObjectURL(a.href); }}
+                className="absolute top-4 right-16 h-9 w-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors z-10">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              </button>
+            </>
+          )}
         </div>
       )}
     </Layout>
