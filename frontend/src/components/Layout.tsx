@@ -2,7 +2,8 @@ import { ReactNode, useEffect, useState, useRef } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useTheme } from "@/context/ThemeContext";
 import { useUser } from "@/context/UserContext";
-import { Home, Search, MessageCircle, Users, Bell, Settings, Leaf, Sun, Moon, MessageSquarePlus } from "lucide-react";
+import { Home, Search, MessageCircle, Users, Bell, Settings, Leaf, Sun, Moon, MessageSquarePlus, Plus } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import UploadStatusBar from "@/components/UploadStatusBar";
 
@@ -18,8 +19,19 @@ const NAV_PATHS = [
 
 export default function Layout({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
+  const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
   const { user } = useUser();
+
+  const handleNewPost = () => {
+    if (pathname === "/feed") {
+      window.dispatchEvent(new CustomEvent("prolifier:new-post"));
+    } else {
+      navigate("/feed");
+      // Give Feed time to mount before firing the event
+      setTimeout(() => window.dispatchEvent(new CustomEvent("prolifier:new-post")), 300);
+    }
+  };
   const [notifCount, setNotifCount] = useState(0);
   const [msgCount, setMsgCount] = useState(0);
   const [discoverCount, setDiscoverCount] = useState(0);
@@ -411,6 +423,16 @@ export default function Layout({ children }: { children: ReactNode }) {
             <MessageSquarePlus className="h-4 w-4 shrink-0" />
             Feedback
           </Link>
+
+          <button
+            onClick={handleNewPost}
+            className="w-full mt-1 flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-semibold border-2 border-dashed border-primary/50 text-primary hover:border-primary hover:bg-primary/5 active:scale-[0.98] transition-all duration-150"
+          >
+            <span className="h-5 w-5 rounded-full border-2 border-primary/60 flex items-center justify-center shrink-0">
+              <Plus className="h-3 w-3" />
+            </span>
+            New Post
+          </button>
         </nav>
 
         <div className="p-3 border-t border-border space-y-1">

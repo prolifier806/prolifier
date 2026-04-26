@@ -25,7 +25,6 @@ import { isAbortError } from "@/api/client";
 import { uploadAvatar, removeAvatar } from "@/api/uploads";
 import { checkUsername, setUsername as apiSetUsername } from "@/api/users";
 import { updatePost, deletePost } from "@/api/posts";
-import { getConnections } from "@/api/connections";
 import { SKILL_CATEGORIES } from "@/lib/skills";
 import { LOCATIONS } from "@/lib/locations";
 
@@ -197,14 +196,15 @@ export default function Profile() {
   const loadAnalytics = useCallback(async () => {
     if (!user.id) return;
     try {
-      const [postsRes, connectionsData, savedRes] = await Promise.all([
+      const [postsRes, connSentRes, connRecvRes, savedRes] = await Promise.all([
         (supabase as any).from("posts").select("id", { count: "exact", head: true }).eq("user_id", user.id),
-        getConnections(),
+        (supabase as any).from("connections").select("id", { count: "exact", head: true }).eq("requester_id", user.id).eq("status", "accepted"),
+        (supabase as any).from("connections").select("id", { count: "exact", head: true }).eq("receiver_id", user.id).eq("status", "accepted"),
         (supabase as any).from("saved_posts").select("post_id", { count: "exact", head: true }).eq("user_id", user.id),
       ]);
       setAnalytics({
         postCount: postsRes.count || 0,
-        connectionCount: (connectionsData || []).length,
+        connectionCount: (connSentRes.count || 0) + (connRecvRes.count || 0),
         savedCount: savedRes.count || 0,
       });
     } catch { /* silent */ }
