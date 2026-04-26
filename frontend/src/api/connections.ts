@@ -11,4 +11,4 @@ export const acceptRequest     = (requesterId: string) => apiPatch(`/api/connect
 export const declineRequest    = (requesterId: string) => apiDelete(`/api/connections/${requesterId}/decline`);
 export const removeConnection  = (otherId: string) => apiDelete(`/api/connections/${otherId}`);
 export const markRequestsRead     = () => apiPatch("/api/connections/requests/read", {});
-export const getUserConnections   = (userId: string) => apiGet<{ data: any[]; count: number }>(`/api/connections/user/${userId}`);
+export const getUserConnections   = (userId: string) => apiGet<any[]>(`/api/connections/user/${userId}`);

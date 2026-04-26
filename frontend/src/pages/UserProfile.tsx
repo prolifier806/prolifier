@@ -220,7 +220,7 @@ export default function UserProfile() {
           getUserConnections(id),
         ]);
 
-        setConnectionCount(theirConnsRes.count ?? (theirConnsRes.data?.length ?? 0));
+        setConnectionCount((theirConnsRes || []).length);
 
         setPosts((postsRes.data || []).map((post: any) => ({
           id: post.id, tag: post.tag, content: post.content,
@@ -529,7 +529,7 @@ export default function UserProfile() {
               setConnectionsLoading(true);
               try {
                 const result = await getUserConnections(id);
-                setUserConnections((result.data || []).map((p: any) => ({
+                setUserConnections((result || []).map((p: any) => ({
                   id: p.id, name: p.name || "Unknown", avatar: p.avatar || "?",
                   avatarUrl: p.avatar_url || undefined, color: p.color || "bg-primary", location: p.location || "",
                 })));

@@ -45,7 +45,7 @@ export async function getUserConnections(req: AuthRequest, res: Response): Promi
 
   if (profErr) { res.status(500).json({ success: false, error: profErr.message }); return; }
 
-  res.json({ success: true, data: profiles || [], count: peerIds.length });
+  res.json({ success: true, data: profiles || [] });
 }
 
 export async function getPendingRequests(req: AuthRequest, res: Response): Promise<void> {
