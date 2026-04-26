@@ -166,13 +166,43 @@ function SmartVideo({ src, className, onClick }: { src: string; className?: stri
 
   if (hlsSrc) {
     return (
-      <div className={`${portrait ? "flex justify-center" : ""} ${onClick ? "relative group" : ""}`}>
-        <VideoPlayer
-          hlsSrc={hlsSrc}
-          fallbackSrc={src}
-          poster={poster}
-          onPortrait={setPortrait}
+      <div className={portrait ? "flex justify-center" : ""}>
+        <div className={`relative ${onClick ? "group" : ""} ${portrait ? "inline-block" : "w-full"}`}>
+          <VideoPlayer
+            hlsSrc={hlsSrc}
+            fallbackSrc={src}
+            poster={poster}
+            onPortrait={setPortrait}
+            className={`rounded-xl ${portrait ? "max-h-[70vh] w-auto max-w-full" : "w-full max-h-72"} ${className ?? ""}`}
+          />
+          {onClick && (
+            <button
+              onClick={onClick}
+              className="absolute top-2 right-2 h-8 w-8 rounded-full bg-black/50 hover:bg-black/75 flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity z-10"
+            >
+              <Maximize2 className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={portrait ? "flex justify-center" : ""}>
+      <div className={`relative ${onClick ? "group" : ""} ${portrait ? "inline-block" : "w-full"}`}>
+        <video
+          src={src}
+          poster={poster ?? undefined}
+          controls
+          disablePictureInPicture
+          controlsList="nodownload nopictureinpicture noplaybackrate"
           className={`rounded-xl ${portrait ? "max-h-[70vh] w-auto max-w-full" : "w-full max-h-72"} ${className ?? ""}`}
+          style={{ backgroundColor: "#000" }}
+          onLoadedMetadata={e => {
+            const v = e.currentTarget;
+            setPortrait(v.videoHeight > v.videoWidth);
+          }}
         />
         {onClick && (
           <button
@@ -183,32 +213,6 @@ function SmartVideo({ src, className, onClick }: { src: string; className?: stri
           </button>
         )}
       </div>
-    );
-  }
-
-  return (
-    <div className={`${portrait ? "flex justify-center" : ""} ${onClick ? "relative group" : ""}`}>
-      <video
-        src={src}
-        poster={poster ?? undefined}
-        controls
-        disablePictureInPicture
-        controlsList="nodownload nopictureinpicture noplaybackrate"
-        className={`rounded-xl ${portrait ? "max-h-[70vh] w-auto max-w-full" : "w-full max-h-72"} ${className ?? ""}`}
-        style={{ backgroundColor: "#000" }}
-        onLoadedMetadata={e => {
-          const v = e.currentTarget;
-          setPortrait(v.videoHeight > v.videoWidth);
-        }}
-      />
-      {onClick && (
-        <button
-          onClick={onClick}
-          className="absolute top-2 right-2 h-8 w-8 rounded-full bg-black/50 hover:bg-black/75 flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity z-10"
-        >
-          <Maximize2 className="h-4 w-4" />
-        </button>
-      )}
     </div>
   );
 }
