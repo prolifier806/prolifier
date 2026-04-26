@@ -2741,9 +2741,6 @@ export default function Feed() {
               }
               setPostDialog(d => ({ ...d, open: v }));
             }}>
-              <Button className="w-full h-12 gap-2 font-semibold" onClick={() => setPostDialog(d => ({ ...d, open: true }))}>
-                <Plus className="h-4 w-4"/> Share an update
-              </Button>
               <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle>{postDialog.postType === "feed" ? "Share an update" : "Post a collaboration"}</DialogTitle>
@@ -2970,9 +2967,6 @@ export default function Feed() {
               if (!v) { handleRemoveCollabImage(); handleRemoveCollabVideo(); }
               setCollabDialog(d => ({ ...d, open: v }));
             }}>
-              <Button className="w-full h-12 gap-2 font-semibold" onClick={() => setCollabDialog(d => ({ ...d, open: true }))}>
-                <Plus className="h-4 w-4"/> Post a collaboration
-              </Button>
               <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle>Post a collaboration</DialogTitle>
