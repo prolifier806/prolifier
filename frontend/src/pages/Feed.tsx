@@ -1371,8 +1371,8 @@ function EditCollabDialog({ collab, open, onClose, onSave }: {
 // OPT: wrapped in memo with a custom comparator — only re-renders when this
 // specific post's like/save status or content actually changes, not when any
 // other state in the Feed changes (dialogs opening, search input, etc.)
-const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, highlighted, onLike, onSave, onComment, onDelete, onEdit, onHide, onReport, onShare }: {
-  post: Post; likedPosts: Set<string>; savedPosts: Set<string>; highlighted?: boolean;
+const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, onLike, onSave, onComment, onDelete, onEdit, onHide, onReport, onShare }: {
+  post: Post; likedPosts: Set<string>; savedPosts: Set<string>;
   onLike:(id:string)=>void; onSave:(id:string)=>void; onComment:(p:Post)=>void;
   onDelete:(id:string)=>void; onEdit:(p:Post)=>void; onHide:(id:string)=>void;
   onReport:(id:string)=>void; onShare:(id:string)=>void;
@@ -1398,7 +1398,7 @@ const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, highligh
   return (
     <>
       <div data-post-id={post.id}
-        className={`rounded-xl border border-border bg-card hover:shadow-sm transition-all duration-500 overflow-hidden${highlighted ? " ring-2 ring-primary" : ""}`}>
+        className="rounded-xl border border-border bg-card hover:shadow-sm overflow-hidden">
         <div className="flex items-center gap-3 px-5 pt-5 pb-3">
           <div className={`shrink-0 ${!post.authorDeleted ? "cursor-pointer hover:opacity-80 transition-opacity" : ""}`} onClick={goToProfile}>
             <Avatar initials={post.authorDeleted ? "?" : post.avatar} color={post.authorDeleted ? "bg-muted" : post.avatarColor} url={post.authorDeleted ? undefined : post.avatarUrl}/>
@@ -1497,8 +1497,8 @@ const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, highligh
 
 // ── Collab Card ────────────────────────────────────────────────────────────
 // OPT: same memo treatment as PostCard
-const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollabs, highlighted, matchLabel, onInterest, onMessage, onSave, onDelete, onEdit, onHide, onReport, onShare }: {
-  collab: Collab; interestedSet: Set<string>; savedCollabs: Set<string>; highlighted?: boolean;
+const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollabs, matchLabel, onInterest, onMessage, onSave, onDelete, onEdit, onHide, onReport, onShare }: {
+  collab: Collab; interestedSet: Set<string>; savedCollabs: Set<string>;
   matchLabel?: "strong" | "good" | "low";
   onInterest:(id:string,name:string)=>void; onMessage:(name:string)=>void; onSave:(id:string)=>void;
   onDelete:(id:string)=>void; onEdit:(c:Collab)=>void; onHide:(id:string)=>void;
@@ -1521,7 +1521,7 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
 
   return (
     <>
-      <div data-collab-id={collab.id} className={`rounded-xl border bg-card hover:shadow-sm transition-all duration-500 overflow-hidden ${highlighted ? "border-primary ring-2 ring-primary/30" : "border-border"}`}>
+      <div data-collab-id={collab.id} className="rounded-xl border border-border bg-card hover:shadow-sm overflow-hidden">
         <div className="flex items-center gap-3 px-5 pt-5 pb-3">
           <div className={`shrink-0 ${!collab.authorDeleted ? "cursor-pointer hover:opacity-80 transition-opacity" : ""}`} onClick={goToProfile}>
             <Avatar initials={collab.authorDeleted ? "?" : collab.avatar} color={collab.authorDeleted ? "bg-muted" : collab.avatarColor} url={collab.authorDeleted ? undefined : collab.avatarUrl}/>
@@ -1686,8 +1686,6 @@ export default function Feed() {
   const [activePostTag, setActivePostTag] = useState("All");
   const [connectedUserIds, setConnectedUserIds] = useState<Set<string>>(new Set());
 
-  const [highlightedPostId, setHighlightedPostId] = useState<string|null>(null);
-  const [highlightedCollabId, setHighlightedCollabId] = useState<string|null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
   const [collabs, setCollabs] = useState<Collab[]>([]);
   const [likedPosts, setLikedPosts] = useState<Set<string>>(new Set());
@@ -1751,12 +1749,16 @@ export default function Feed() {
     if (deepLinkHandledRef.current === postId) return; // already handled this link
     const target = posts.find(p => p.id === postId);
     if (target) {
-      deepLinkHandledRef.current = postId; // mark before any state/nav call
-      setHighlightedPostId(postId);
-      setTimeout(() => {
-        document.querySelector(`[data-post-id="${postId}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
-      }, 300);
+      deepLinkHandledRef.current = postId;
       navigate("/feed", { replace: true });
+      setTimeout(() => {
+        const el = document.querySelector(`[data-post-id="${postId}"]`) as HTMLElement | null;
+        if (!el) return;
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        el.style.transition = "box-shadow 0.6s ease-out";
+        el.style.boxShadow = "0 0 0 2px hsl(var(--primary))";
+        setTimeout(() => { el.style.boxShadow = ""; }, 1000);
+      }, 300);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [posts]);
@@ -1778,29 +1780,19 @@ export default function Feed() {
     if (target) {
       deepLinkHandledRef.current = collabId;
       setActiveTab("collabs");
-      setHighlightedCollabId(collabId);
-      setTimeout(() => {
-        document.querySelector(`[data-collab-id="${collabId}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
-      }, 300);
       navigate("/feed", { replace: true });
+      setTimeout(() => {
+        const el = document.querySelector(`[data-collab-id="${collabId}"]`) as HTMLElement | null;
+        if (!el) return;
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        el.style.transition = "box-shadow 0.6s ease-out";
+        el.style.boxShadow = "0 0 0 2px hsl(var(--primary))";
+        setTimeout(() => { el.style.boxShadow = ""; }, 1000);
+      }, 300);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [collabs, searchParams]);
 
-  // ── Clear highlight rings after 800ms ──
-  useEffect(() => {
-    if (highlightedPostId) {
-      const t = setTimeout(() => setHighlightedPostId(null), 800);
-      return () => clearTimeout(t);
-    }
-  }, [highlightedPostId]);
-
-  useEffect(() => {
-    if (highlightedCollabId) {
-      const t = setTimeout(() => setHighlightedCollabId(null), 800);
-      return () => clearTimeout(t);
-    }
-  }, [highlightedCollabId]);
 
   // ── Feed stale cache — show last feed instantly on return visits ─────────────
   // WHY: Without this, every page visit shows a blank spinner until the API responds.
@@ -2917,7 +2909,6 @@ export default function Feed() {
                 </div>
               ) : filteredPosts.map(post => (
                 <PostCard key={post.id} post={post} likedPosts={likedPosts} savedPosts={savedPosts}
-                  highlighted={highlightedPostId === post.id}
                   onLike={handleLike} onSave={handleSavePost} onComment={handleOpenComments}
                   onDelete={handleDeletePost} onEdit={setEditingPost} onHide={handleHidePost}
                   onReport={id => setReportTarget({type:"post",id})}
@@ -3063,7 +3054,6 @@ export default function Feed() {
               <>
                 {filteredCollabs.map(c => (
                   <CollabCard key={c.id} collab={c} interestedSet={interestedCollabs} savedCollabs={savedCollabs}
-                    highlighted={highlightedCollabId === c.id}
                     matchLabel={undefined}
                     onInterest={handleInterest} onMessage={() => navigate("/messages")}
                     onSave={handleSaveCollab} onDelete={handleDeleteCollab} onEdit={setEditingCollab}
