@@ -1963,14 +1963,18 @@ export default function Feed() {
         isOwn: c.user_id === user.id,
       }));
 
-      applyFeedData(rawPosts, rawCollabs);
-
-      // If the DB returned empty and we had no cache, the Supabase auth session
-      // may not have been ready yet (common on hard refresh). Retry once after 2s.
-      if (!isRetry && !hadCache && rawPosts.length === 0 && rawCollabs.length === 0) {
+      // If the first query returned 0 posts + 0 collabs, the Supabase auth session
+      // may not have been ready (JWT not yet attached on hard refresh) or there was
+      // a transient issue. Don't overwrite existing cached posts with empty — retry
+      // silently instead. On the retry we trust whatever comes back.
+      if (!isRetry && rawPosts.length === 0 && rawCollabs.length === 0) {
         if (feedRetryTimerRef.current) clearTimeout(feedRetryTimerRef.current);
         feedRetryTimerRef.current = setTimeout(() => fetchFeed(true), 2000);
+        setLoading(false);
+        return; // keep cache (if any) visible until retry completes
       }
+
+      applyFeedData(rawPosts, rawCollabs);
 
       try {
         localStorage.setItem(FEED_CACHE_KEY, JSON.stringify({ ts: Date.now(), posts: rawPosts, collabs: rawCollabs }));
@@ -1979,9 +1983,16 @@ export default function Feed() {
       setLoading(false);
       logger.info("feed.load.done", { userId: user.id, postCount: rawPosts.length, collabCount: rawCollabs.length });
     } catch (err: any) {
-      if (isAbortError(err)) { setLoading(false); return; }
+      if (isAbortError(err)) {
+        // Timeout — retry once silently before giving up
+        if (!isRetry) {
+          if (feedRetryTimerRef.current) clearTimeout(feedRetryTimerRef.current);
+          feedRetryTimerRef.current = setTimeout(() => fetchFeed(true), 2000);
+        }
+        setLoading(false);
+        return;
+      }
       logger.error("feed.load.error", { error: err.message });
-      // On first load failure (not a retry), silently retry once after 2 seconds
       if (!isRetry) {
         if (feedRetryTimerRef.current) clearTimeout(feedRetryTimerRef.current);
         feedRetryTimerRef.current = setTimeout(() => fetchFeed(true), 2000);
