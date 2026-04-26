@@ -387,11 +387,13 @@ export default function Groups() {
   const [search, setSearch] = useState("");
   const [topic, setTopic] = useState(""); // "" = all topics
   const [filter, setFilter] = useState<"all" | "joined">("all");
-  const [sort, setSort] = useState<"popular" | "newest" | "active">("popular");
+  const [sort, setSort] = useState<"default" | "popular" | "newest" | "active">("default");
   const [showSortMenu, setShowSortMenu] = useState(false);
   const [loadingGroups, setLoadingGroups] = useState(true);
   // Groups that had a message in the last 48 hours — loaded once alongside groups
   const [activeGroupIds, setActiveGroupIds] = useState<Set<string>>(new Set());
+  // Stable random order assigned once per page load for the "Default" sort
+  const shuffleOrderRef = useRef<Map<string, number>>(new Map());
 
   // View routing
   const [view, setView] = useState<"list" | "group" | "create">("list");
@@ -734,8 +736,13 @@ export default function Groups() {
         .filter(g => activeGroupIds.has(g.id))
         .sort((a, b) => b.member_count - a.member_count);
     }
-    // default: popular
-    return [...base].sort((a, b) => b.member_count - a.member_count);
+    if (sort === "popular") {
+      return [...base].sort((a, b) => b.member_count - a.member_count);
+    }
+    // default: stable random order assigned once on load
+    return [...base].sort((a, b) =>
+      (shuffleOrderRef.current.get(a.id) ?? 0) - (shuffleOrderRef.current.get(b.id) ?? 0)
+    );
   }, [groups, search, topic, filter, sort, joinedIds, activeGroupIds, user.id]);
 
   const totalUnread = useMemo(
@@ -752,29 +759,41 @@ export default function Groups() {
     if (!user.id) return;
     setLoadingGroups(true);
     try {
-      // Fetch groups first — show list immediately, rest loads in background
-      const { data: groupsData, error: groupsErr } = await (supabase as any)
-        .from("groups")
-        .select("*")
-        .order("member_count", { ascending: false })
-        .order("created_at", { ascending: false })
-        .limit(300);
+      // Fetch groups, memberships, and join requests all at once — no flicker
+      const [
+        { data: groupsData, error: groupsErr },
+        { data: memberData },
+        { data: reqData },
+      ] = await Promise.all([
+        (supabase as any).from("groups").select("*").order("member_count", { ascending: false }).order("created_at", { ascending: false }).limit(300),
+        (supabase as any).from("group_members").select("group_id").eq("user_id", user.id),
+        (supabase as any).from("group_join_requests").select("group_id, status").eq("user_id", user.id),
+      ]);
       if (groupsErr) throw groupsErr;
+
+      // Assign stable random order once — used by "Default" sort
+      const newShuffle = new Map<string, number>();
+      (groupsData || []).forEach((g: any) => newShuffle.set(g.id, Math.random()));
+      shuffleOrderRef.current = newShuffle;
+
+      // Compute active groups from groups data — no extra query needed
+      const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+      const activeIds = (groupsData || [])
+        .filter((g: any) => g.last_message_at && g.last_message_at > cutoff)
+        .map((g: any) => g.id);
+
+      const joined = new Set<string>((memberData || []).map((r: any) => r.group_id));
+
+      // Set all at once — groups + membership + active state render together, no flicker
       setGroups(groupsData || []);
-      // Unblock the UI — memberships, unread, mentions load in background
+      setJoinedIds(joined);
+      setRequestedIds(new Set(
+        (reqData || []).filter((r: any) => r.status === "pending").map((r: any) => r.group_id)
+      ));
+      setActiveGroupIds(new Set(activeIds));
       setLoadingGroups(false);
 
-      // Fetch memberships and pending join requests in parallel
       try {
-        const [{ data: memberData }, { data: reqData }] = await Promise.all([
-          (supabase as any).from("group_members").select("group_id").eq("user_id", user.id),
-          (supabase as any).from("group_join_requests").select("group_id, status").eq("user_id", user.id),
-        ]);
-        const joined = new Set<string>((memberData || []).map((r: any) => r.group_id));
-        setJoinedIds(joined);
-        setRequestedIds(new Set(
-          (reqData || []).filter((r: any) => r.status === "pending").map((r: any) => r.group_id)
-        ));
         // Load unread counts — ONE batched query for all joined groups, not N sequential queries
         const initialUnread: Record<string, number> = {};
         const joinedArr = Array.from(joined);
@@ -831,15 +850,6 @@ export default function Groups() {
           } catch { /* non-fatal */ }
         }
 
-        // Detect "active" groups using last_message_at on the groups table itself —
-        // this avoids RLS blocking access to private group messages for non-members.
-        try {
-          const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
-          const activeIds = (groupsData || [])
-            .filter((g: any) => g.last_message_at && g.last_message_at > cutoff)
-            .map((g: any) => g.id);
-          setActiveGroupIds(new Set(activeIds));
-        } catch { /* non-fatal */ }
       } catch (memberErr) {
         if (import.meta.env.DEV) console.error("fetchGroups memberships:", memberErr);
         setJoinedIds(new Set());
@@ -3775,16 +3785,16 @@ export default function Groups() {
                 showSortMenu ? "border-primary text-primary bg-primary/5" : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/30"
               }`}>
               <SlidersHorizontal className="h-4 w-4" />
-              <span className="hidden sm:inline">{sort === "popular" ? "Popular" : sort === "newest" ? "Newest" : "Active"}</span>
+              <span className="hidden sm:inline">{sort === "popular" ? "Popular" : sort === "newest" ? "Newest" : sort === "active" ? "Active" : "Default"}</span>
             </button>
             {showSortMenu && (
               <>
                 <div className="fixed inset-0 z-30" onClick={() => setShowSortMenu(false)} />
                 <div className="absolute right-0 top-12 z-40 bg-card border border-border rounded-xl shadow-xl overflow-hidden w-36 animate-in fade-in zoom-in-95 duration-100">
-                  {(["popular", "newest", "active"] as const).map(s => (
+                  {(["default", "popular", "newest", "active"] as const).map(s => (
                     <button key={s} onClick={() => { setSort(s); setShowSortMenu(false); }}
                       className={`w-full px-4 py-2.5 text-sm text-left flex items-center justify-between transition-colors hover:bg-muted ${sort === s ? "text-primary font-medium" : "text-foreground"}`}>
-                      {s === "popular" ? "Popular" : s === "newest" ? "Newest" : "Active"}
+                      {s === "default" ? "Default" : s === "popular" ? "Popular" : s === "newest" ? "Newest" : "Active"}
                       {sort === s && <Check className="h-3.5 w-3.5" />}
                     </button>
                   ))}
