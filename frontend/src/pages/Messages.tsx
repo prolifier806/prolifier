@@ -795,6 +795,10 @@ export default function Messages() {
   const sendMessage = (text?: string, mediaUrl?: string, mediaType?: string) => {
     const trimmed = text?.trim();
     if ((!trimmed && !mediaUrl) || !selectedId) return;
+    if (trimmed && trimmed.length > 1500) {
+      toast({ title: "Message exceeds maximum character limit", variant: "destructive" });
+      return;
+    }
     // Block check uses in-memory state — no DB round-trip
     if (blockedByMe.has(selectedId) || blockedByThem.has(selectedId)) return;
 
@@ -1532,7 +1536,7 @@ export default function Messages() {
                       placeholder={uploading ? "Uploading…" : `Message ${selectedConvo.name}…`}
                       disabled={uploading}
                       className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none min-w-0 py-1 disabled:opacity-50 resize-none overflow-hidden leading-5" />
-                    <button type="button" onClick={() => sendMessage(msg)} disabled={!msg.trim() || uploading}
+                    <button type="button" onClick={() => sendMessage(msg)} disabled={!msg.trim() || uploading || msg.trim().length > 1500}
                       className="h-7 w-7 rounded-full bg-primary text-primary-foreground flex items-center justify-center hover:opacity-90 transition-opacity disabled:opacity-30 shrink-0">
                       <Send className="h-3.5 w-3.5" />
                     </button>

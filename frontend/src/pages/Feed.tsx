@@ -2743,7 +2743,7 @@ export default function Feed() {
             }}>
               <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
-                  <DialogTitle>{postDialog.postType === "feed" ? "Share an update" : "Post a collaboration"}</DialogTitle>
+                  <DialogTitle>{postDialog.postType === "feed" ? "New Post" : "Post a collaboration"}</DialogTitle>
                   <DialogDescription>{postDialog.postType === "feed" ? "Share your journey, ask a question, or celebrate a milestone." : "Share what you're building and the co-founder you're looking for."}</DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4 py-2">
@@ -2755,7 +2755,7 @@ export default function Feed() {
                         onClick={() => setPostDialog(d => ({ ...d, postType: "feed" }))}
                         className={`flex-1 py-2 text-sm font-medium transition-colors ${postDialog.postType === "feed" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
                       >
-                        Feed
+                        Posts
                       </button>
                       <button
                         onClick={() => setPostDialog(d => ({ ...d, postType: "collab" }))}

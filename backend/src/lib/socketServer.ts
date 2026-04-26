@@ -169,6 +169,12 @@ export function initSocketServer(httpServer: HttpServer, allowedOrigins: Set<str
         return;
       }
 
+      // Character limit validation
+      if (text && text.trim().length > 1500) {
+        socket.emit("error", "Message exceeds maximum character limit");
+        return;
+      }
+
       // Idempotency: if we already processed this clientId, re-ack without re-inserting
       const existingId = alreadySeen(clientId);
       if (existingId) {
@@ -289,6 +295,12 @@ export function initSocketServer(httpServer: HttpServer, allowedOrigins: Set<str
     // ── dm:send ────────────────────────────────────────────────────────────
     socket.on("dm:send", async (payload: DmSendPayload) => {
       const { clientId, receiverId, text, mediaUrl, mediaType, replyToId, replyToText } = payload;
+
+      // Character limit validation
+      if (text && text.trim().length > 1500) {
+        socket.emit("error", "Message exceeds maximum character limit");
+        return;
+      }
 
       // Idempotency
       const existingId = alreadySeen(clientId);

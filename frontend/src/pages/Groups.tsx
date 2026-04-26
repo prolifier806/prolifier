@@ -1459,6 +1459,10 @@ export default function Groups() {
     if (sendLockRef.current) return;
     const trimmed = text?.trim();
     if ((!trimmed && !mediaUrl) || !activeGroup) return;
+    if (trimmed && trimmed.length > 1500) {
+      toast({ title: "Message exceeds maximum character limit", variant: "destructive" });
+      return;
+    }
     sendLockRef.current = true;
     // Release lock after one event-loop tick — long enough to block a synchronous
     // double-call but short enough not to block a deliberate next message.
@@ -1544,6 +1548,10 @@ export default function Groups() {
     if (!imgModal || !activeGroup) return;
     const { file, previewUrl } = imgModal;
     const caption = imgCaption.trim();
+    if (caption.length > 300) {
+      toast({ title: "Message exceeds maximum character limit", variant: "destructive" });
+      return;
+    }
     const quality = imgQuality;
     const groupId = activeGroup.id;
     const groupName = activeGroup.name;
@@ -1585,6 +1593,10 @@ export default function Groups() {
     if (!vidModal || !activeGroup) return;
     const { file, previewUrl } = vidModal;
     const caption = vidCaption.trim();
+    if (caption.length > 300) {
+      toast({ title: "Message exceeds maximum character limit", variant: "destructive" });
+      return;
+    }
     const groupId = activeGroup.id;
     const groupName = activeGroup.name;
     const clientId = uuidv4();
@@ -1622,6 +1634,10 @@ export default function Groups() {
     if (!fileModal || !activeGroup) return;
     const { file } = fileModal;
     const caption = fileCaption.trim();
+    if (caption.length > 300) {
+      toast({ title: "Message exceeds maximum character limit", variant: "destructive" });
+      return;
+    }
     const groupId = activeGroup.id;
     const groupName = activeGroup.name;
     const payload = caption ? `${file.name}\n${caption}` : file.name;
@@ -3528,7 +3544,7 @@ export default function Groups() {
                     }}
                     placeholder="Message here…"
                     className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none py-1 resize-none overflow-hidden leading-relaxed" />
-                  <button onClick={() => sendMessage(chatInput)} disabled={!chatInput.trim()}
+                  <button onClick={() => sendMessage(chatInput)} disabled={!chatInput.trim() || chatInput.trim().length > 1500}
                     className="h-7 w-7 rounded-lg bg-primary text-primary-foreground flex items-center justify-center hover:opacity-90 transition-opacity disabled:opacity-30 shrink-0 mb-0.5">
                     <Send className="h-3.5 w-3.5" />
                   </button>
@@ -3637,7 +3653,7 @@ export default function Groups() {
               </div>
               <div className="px-4 py-3 space-y-3">
                 <textarea value={imgCaption} onChange={e => setImgCaption(e.target.value)}
-                  placeholder="Add a caption… (optional)" rows={2}
+                  placeholder="Add a caption… (optional)" rows={2} maxLength={300}
                   className="w-full bg-muted rounded-xl px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none resize-none" />
                 <div>
                   <p className="text-xs font-medium text-muted-foreground mb-2">Quality</p>
@@ -3679,7 +3695,7 @@ export default function Groups() {
               </div>
               <div className="px-4 py-3 space-y-3">
                 <textarea value={vidCaption} onChange={e => setVidCaption(e.target.value)}
-                  placeholder="Add a caption… (optional)" rows={2}
+                  placeholder="Add a caption… (optional)" rows={2} maxLength={300}
                   className="w-full bg-muted rounded-xl px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none resize-none" />
                 <div>
                   <p className="text-xs font-medium text-muted-foreground mb-2">Quality</p>
@@ -3725,7 +3741,7 @@ export default function Groups() {
                   </div>
                 </div>
                 <textarea value={fileCaption} onChange={e => setFileCaption(e.target.value)}
-                  placeholder={`Add a description… (optional)`} rows={2}
+                  placeholder={`Add a description… (optional)`} rows={2} maxLength={300}
                   className="w-full bg-muted rounded-xl px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none resize-none" />
                 <div className="flex gap-2">
                   <button onClick={() => setFileModal(null)}
