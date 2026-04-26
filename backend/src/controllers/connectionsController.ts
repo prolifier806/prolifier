@@ -20,6 +20,34 @@ export async function getConnections(req: AuthRequest, res: Response): Promise<v
   res.json({ success: true, data });
 }
 
+// Returns another user's accepted connections — uses supabaseAdmin to bypass RLS
+export async function getUserConnections(req: AuthRequest, res: Response): Promise<void> {
+  const { userId } = req.params;
+
+  const { data, error } = await supabaseAdmin
+    .from("connections")
+    .select("requester_id, receiver_id")
+    .or(`requester_id.eq.${userId},receiver_id.eq.${userId}`)
+    .eq("status", "accepted");
+
+  if (error) { res.status(500).json({ success: false, error: error.message }); return; }
+
+  const peerIds = (data || []).map((r: any) =>
+    r.requester_id === userId ? r.receiver_id : r.requester_id
+  );
+
+  if (peerIds.length === 0) { res.json({ success: true, data: [], count: 0 }); return; }
+
+  const { data: profiles, error: profErr } = await supabaseAdmin
+    .from("profiles")
+    .select("id, name, avatar, avatar_url, color, location")
+    .in("id", peerIds);
+
+  if (profErr) { res.status(500).json({ success: false, error: profErr.message }); return; }
+
+  res.json({ success: true, data: profiles || [], count: peerIds.length });
+}
+
 export async function getPendingRequests(req: AuthRequest, res: Response): Promise<void> {
   const userId = req.user.id;
 

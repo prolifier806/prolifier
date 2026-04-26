@@ -10,4 +10,5 @@ export const sendRequest       = (receiverId: string) => apiPost("/api/connectio
 export const acceptRequest     = (requesterId: string) => apiPatch(`/api/connections/${requesterId}/accept`, {});
 export const declineRequest    = (requesterId: string) => apiDelete(`/api/connections/${requesterId}/decline`);
 export const removeConnection  = (otherId: string) => apiDelete(`/api/connections/${otherId}`);
-export const markRequestsRead  = () => apiPatch("/api/connections/requests/read", {});
+export const markRequestsRead     = () => apiPatch("/api/connections/requests/read", {});
+export const getUserConnections   = (userId: string) => apiGet<{ data: any[]; count: number }>(`/api/connections/user/${userId}`);

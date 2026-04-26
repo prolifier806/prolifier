@@ -12,7 +12,7 @@ import { useUser } from "@/context/UserContext";
 import { supabase } from "@/lib/supabase";
 import { createNotification } from "@/api/notifications";
 import { blockUser, unblockUser } from "@/api/users";
-import { sendRequest, removeConnection } from "@/api/connections";
+import { sendRequest, removeConnection, getUserConnections } from "@/api/connections";
 import { createReport } from "@/api/reports";
 
 const PROFILE_REPORT_REASONS = [
@@ -210,23 +210,17 @@ export default function UserProfile() {
         if (ownerHasBlockedMe) return;
 
         // ── Step 4: load posts / collabs / connection state / their conn count ──
-        const [postsRes, collabsRes, [connSentRes, connRecvRes], theirConnsReq, theirConnsRec] = await Promise.all([
+        const [postsRes, collabsRes, [connSentRes, connRecvRes], theirConnsRes] = await Promise.all([
           (supabase as any).from("posts").select("id, tag, content, created_at, likes").eq("user_id", id).order("created_at", { ascending: false }).limit(20),
           (supabase as any).from("collabs").select("id, title, looking, description, skills").eq("user_id", id).order("created_at", { ascending: false }).limit(10),
           Promise.all([
             (supabase as any).from("connections").select("id, status").eq("requester_id", user.id).eq("receiver_id", id).maybeSingle(),
             (supabase as any).from("connections").select("id, status").eq("requester_id", id).eq("receiver_id", user.id).maybeSingle(),
           ]),
-          (supabase as any).from("connections").select("receiver_id").eq("requester_id", id).eq("status", "accepted"),
-          (supabase as any).from("connections").select("requester_id").eq("receiver_id", id).eq("status", "accepted"),
+          getUserConnections(id),
         ]);
 
-        // Deduplicated connection count for their profile
-        const theirConnIds = new Set([
-          ...(theirConnsReq.data || []).map((r: any) => r.receiver_id),
-          ...(theirConnsRec.data || []).map((r: any) => r.requester_id),
-        ]);
-        setConnectionCount(theirConnIds.size);
+        setConnectionCount(theirConnsRes.count ?? (theirConnsRes.data?.length ?? 0));
 
         setPosts((postsRes.data || []).map((post: any) => ({
           id: post.id, tag: post.tag, content: post.content,
@@ -534,22 +528,11 @@ export default function UserProfile() {
             if (tab === "connections" && !connectionsLoaded) {
               setConnectionsLoading(true);
               try {
-                const [reqRes, recRes] = await Promise.all([
-                  (supabase as any).from("connections").select("receiver_id").eq("requester_id", id).eq("status", "accepted"),
-                  (supabase as any).from("connections").select("requester_id").eq("receiver_id", id).eq("status", "accepted"),
-                ]);
-                const ids = [...new Set([
-                  ...(reqRes.data || []).map((r: any) => r.receiver_id),
-                  ...(recRes.data || []).map((r: any) => r.requester_id),
-                ])];
-                if (ids.length > 0) {
-                  const { data: profiles } = await (supabase as any)
-                    .from("profiles").select("id, name, avatar, avatar_url, color, location").in("id", ids);
-                  setUserConnections((profiles || []).map((p: any) => ({
-                    id: p.id, name: p.name || "Unknown", avatar: p.avatar || "?",
-                    avatarUrl: p.avatar_url || undefined, color: p.color || "bg-primary", location: p.location || "",
-                  })));
-                }
+                const result = await getUserConnections(id);
+                setUserConnections((result.data || []).map((p: any) => ({
+                  id: p.id, name: p.name || "Unknown", avatar: p.avatar || "?",
+                  avatarUrl: p.avatar_url || undefined, color: p.color || "bg-primary", location: p.location || "",
+                })));
                 setConnectionsLoaded(true);
               } finally {
                 setConnectionsLoading(false);
