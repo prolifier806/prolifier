@@ -1970,8 +1970,9 @@ export default function Feed() {
       if (!isRetry && rawPosts.length === 0 && rawCollabs.length === 0) {
         if (feedRetryTimerRef.current) clearTimeout(feedRetryTimerRef.current);
         feedRetryTimerRef.current = setTimeout(() => fetchFeed(true), 2000);
-        setLoading(false);
-        return; // keep cache (if any) visible until retry completes
+        // Don't setLoading(false) here — keep skeleton (no cache) or cached posts
+        // visible until the retry completes. The retry always calls setLoading(false).
+        return;
       }
 
       applyFeedData(rawPosts, rawCollabs);
@@ -1984,22 +1985,24 @@ export default function Feed() {
       logger.info("feed.load.done", { userId: user.id, postCount: rawPosts.length, collabCount: rawCollabs.length });
     } catch (err: any) {
       if (isAbortError(err)) {
-        // Timeout — retry once silently before giving up
         if (!isRetry) {
           if (feedRetryTimerRef.current) clearTimeout(feedRetryTimerRef.current);
           feedRetryTimerRef.current = setTimeout(() => fetchFeed(true), 2000);
+          // Keep skeleton/cache visible until retry completes
+        } else {
+          setLoading(false);
         }
-        setLoading(false);
         return;
       }
       logger.error("feed.load.error", { error: err.message });
       if (!isRetry) {
         if (feedRetryTimerRef.current) clearTimeout(feedRetryTimerRef.current);
         feedRetryTimerRef.current = setTimeout(() => fetchFeed(true), 2000);
+        // Keep skeleton/cache visible until retry completes
       } else {
         toast({ title: "Failed to load feed", description: err.message, variant: "destructive" });
+        setLoading(false);
       }
-      setLoading(false);
     }
   }, [user.id]);
 
