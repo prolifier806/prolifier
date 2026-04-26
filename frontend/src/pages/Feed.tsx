@@ -1398,7 +1398,7 @@ const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, highligh
   return (
     <>
       <div data-post-id={post.id}
-        className={`rounded-xl border border-border bg-card hover:shadow-sm transition-shadow overflow-hidden${highlighted ? " ring-2 ring-primary" : ""}`}>
+        className={`rounded-xl border border-border bg-card hover:shadow-sm transition-all duration-500 overflow-hidden${highlighted ? " ring-2 ring-primary" : ""}`}>
         <div className="flex items-center gap-3 px-5 pt-5 pb-3">
           <div className={`shrink-0 ${!post.authorDeleted ? "cursor-pointer hover:opacity-80 transition-opacity" : ""}`} onClick={goToProfile}>
             <Avatar initials={post.authorDeleted ? "?" : post.avatar} color={post.authorDeleted ? "bg-muted" : post.avatarColor} url={post.authorDeleted ? undefined : post.avatarUrl}/>
@@ -1521,7 +1521,7 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
 
   return (
     <>
-      <div data-collab-id={collab.id} className={`rounded-xl border bg-card hover:shadow-sm transition-shadow overflow-hidden ${highlighted ? "border-primary ring-2 ring-primary/30" : "border-border"}`}>
+      <div data-collab-id={collab.id} className={`rounded-xl border bg-card hover:shadow-sm transition-all duration-500 overflow-hidden ${highlighted ? "border-primary ring-2 ring-primary/30" : "border-border"}`}>
         <div className="flex items-center gap-3 px-5 pt-5 pb-3">
           <div className={`shrink-0 ${!collab.authorDeleted ? "cursor-pointer hover:opacity-80 transition-opacity" : ""}`} onClick={goToProfile}>
             <Avatar initials={collab.authorDeleted ? "?" : collab.avatar} color={collab.authorDeleted ? "bg-muted" : collab.avatarColor} url={collab.authorDeleted ? undefined : collab.avatarUrl}/>
@@ -1787,17 +1787,17 @@ export default function Feed() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [collabs, searchParams]);
 
-  // ── Clear highlight rings after 2 seconds ──
+  // ── Clear highlight rings after 800ms ──
   useEffect(() => {
     if (highlightedPostId) {
-      const t = setTimeout(() => setHighlightedPostId(null), 2000);
+      const t = setTimeout(() => setHighlightedPostId(null), 800);
       return () => clearTimeout(t);
     }
   }, [highlightedPostId]);
 
   useEffect(() => {
     if (highlightedCollabId) {
-      const t = setTimeout(() => setHighlightedCollabId(null), 2000);
+      const t = setTimeout(() => setHighlightedCollabId(null), 800);
       return () => clearTimeout(t);
     }
   }, [highlightedCollabId]);
