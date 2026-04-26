@@ -166,12 +166,13 @@ function SmartVideo({ src, className, onClick }: { src: string; className?: stri
 
   if (hlsSrc) {
     return (
-      <div className={`relative ${onClick ? "group" : ""}`}>
+      <div className={`${portrait ? "flex justify-center" : ""} ${onClick ? "relative group" : ""}`}>
         <VideoPlayer
           hlsSrc={hlsSrc}
           fallbackSrc={src}
           poster={poster}
-          className={`rounded-xl ${portrait ? "mx-auto max-h-[70vh] w-auto max-w-full" : "w-full max-h-72"} ${className ?? ""}`}
+          onPortrait={setPortrait}
+          className={`rounded-xl ${portrait ? "max-h-[70vh] w-auto max-w-full" : "w-full max-h-72"} ${className ?? ""}`}
         />
         {onClick && (
           <button

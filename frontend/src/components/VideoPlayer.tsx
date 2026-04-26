@@ -48,6 +48,7 @@ interface VideoPlayerProps {
   poster?: string | null;
   className?: string;
   compact?: boolean;
+  onPortrait?: (isPortrait: boolean) => void;
 }
 
 export default function VideoPlayer({
@@ -56,11 +57,11 @@ export default function VideoPlayer({
   poster,
   className = "",
   compact = false,
+  onPortrait,
 }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<any>(null);
-  const [quality, setQuality] = useState<string>("Auto");
-  const [levels, setLevels] = useState<string[]>([]);
+  const [portrait, setPortrait] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -97,17 +98,6 @@ export default function VideoPlayer({
       hls.loadSource(hlsSrc);
       hls.attachMedia(video);
 
-      hls.on(Hls.Events.MANIFEST_PARSED, (_: unknown, data: { levels: Array<{ height: number }> }) => {
-        if (destroyed) return;
-        setLevels(["Auto", ...data.levels.map((l: { height: number }) => `${l.height}p`)]);
-      });
-
-      hls.on(Hls.Events.LEVEL_SWITCHED, (_: unknown, data: { level: number }) => {
-        if (destroyed) return;
-        const lvl = hls.levels?.[data.level];
-        if (lvl) setQuality(`${lvl.height}p`);
-      });
-
       hls.on(Hls.Events.ERROR, (_: unknown, data: { fatal: boolean }) => {
         if (destroyed || !data.fatal) return;
         setError("Playback error — using fallback.");
@@ -124,18 +114,6 @@ export default function VideoPlayer({
     };
   }, [hlsSrc, fallbackSrc]);
 
-  const handleQualityChange = (label: string) => {
-    setQuality(label);
-    const hls = hlsRef.current;
-    if (!hls) return;
-    if (label === "Auto") {
-      hls.currentLevel = -1;
-    } else {
-      const idx = hls.levels?.findIndex((l: { height: number }) => `${l.height}p` === label);
-      if (idx != null && idx >= 0) hls.currentLevel = idx;
-    }
-  };
-
   return (
     <div className={`relative ${compact ? "rounded-2xl" : "rounded-xl"} overflow-hidden bg-black ${className}`}>
       <video
@@ -146,20 +124,19 @@ export default function VideoPlayer({
         preload="metadata"
         disablePictureInPicture
         controlsList="nodownload nopictureinpicture noplaybackrate"
-        className={compact ? "max-w-full max-h-56 w-full" : "w-full max-h-[70vh] object-contain"}
+        className={compact
+          ? "max-w-full max-h-56 w-full"
+          : portrait
+            ? "max-h-[70vh] w-auto mx-auto block"
+            : "w-full max-h-[70vh] object-contain"
+        }
+        onLoadedMetadata={e => {
+          const v = e.currentTarget;
+          const isPortrait = v.videoHeight > v.videoWidth;
+          setPortrait(isPortrait);
+          onPortrait?.(isPortrait);
+        }}
       />
-
-      {!compact && levels.length > 1 && (
-        <div className="absolute top-2 right-2">
-          <select
-            value={quality}
-            onChange={e => handleQualityChange(e.target.value)}
-            className="bg-black/60 text-white text-xs rounded px-1.5 py-0.5 border-0 outline-none cursor-pointer"
-          >
-            {levels.map(l => <option key={l} value={l}>{l}</option>)}
-          </select>
-        </div>
-      )}
 
       {error && (
         <p className="absolute bottom-2 left-2 text-[10px] text-red-400 bg-black/60 px-2 py-0.5 rounded">
