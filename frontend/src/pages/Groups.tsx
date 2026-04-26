@@ -516,7 +516,7 @@ export default function Groups() {
   const [fileModal, setFileModal] = useState<{ file: File } | null>(null);
   const [vidCaption, setVidCaption] = useState("");
   const [vidQuality, setVidQuality] = useState<VidQuality>("medium");
-  const [lightbox, setLightbox] = useState<{ type: "image" | "video"; url: string } | null>(null);
+  const [lightbox, setLightbox] = useState<{ type: "image" | "video"; url: string; startTime?: number } | null>(null);
   const [imgCaption, setImgCaption] = useState("");
   const [imgQuality, setImgQuality] = useState<ImgQuality>("720p");
   const [fileCaption, setFileCaption] = useState("");
@@ -2238,7 +2238,7 @@ export default function Groups() {
                       {m.media_type === "video" && m.media_url && (
                         <div className="relative inline-block group/vid" style={{ maxWidth: "360px", width: "100%" }}>
                           <video src={m.media_url} controls controlsList="nodownload noplaybackrate nopictureinpicture nofullscreen" disablePictureInPicture className="block w-full bg-black" />
-                          <button onClick={() => setLightbox({ type: "video", url: m.media_url! })}
+                          <button onClick={e => { const vid = e.currentTarget.closest(".group\\/vid")?.querySelector("video") as HTMLVideoElement | null; const startTime = vid?.currentTime ?? 0; vid?.pause(); setLightbox({ type: "video", url: m.media_url!, startTime }); }}
                             className="absolute top-2 left-2 h-7 w-7 rounded-full bg-black/50 hover:bg-black/75 flex items-center justify-center text-white opacity-0 group-hover/vid:opacity-100 transition-opacity z-10"
                             title="Fullscreen">
                             <Maximize2 className="h-3.5 w-3.5" />
@@ -2417,7 +2417,7 @@ export default function Groups() {
                       {m.media_type === "video" && m.media_url && (
                         <div className="relative inline-block group/vid" style={{ maxWidth: "360px", width: "100%" }}>
                           <video src={m.media_url} controls controlsList="nodownload noplaybackrate nopictureinpicture nofullscreen" disablePictureInPicture className="block w-full bg-black" />
-                          <button onClick={() => setLightbox({ type: "video", url: m.media_url! })}
+                          <button onClick={e => { const vid = e.currentTarget.closest(".group\\/vid")?.querySelector("video") as HTMLVideoElement | null; const startTime = vid?.currentTime ?? 0; vid?.pause(); setLightbox({ type: "video", url: m.media_url!, startTime }); }}
                             className="absolute top-2 left-2 h-7 w-7 rounded-full bg-black/50 hover:bg-black/75 flex items-center justify-center text-white opacity-0 group-hover/vid:opacity-100 transition-opacity z-10"
                             title="Fullscreen">
                             <Maximize2 className="h-3.5 w-3.5" />
@@ -3583,6 +3583,7 @@ export default function Groups() {
               <>
                 <video src={lightbox.url} controls autoPlay disablePictureInPicture
                   controlsList="nodownload nopictureinpicture noplaybackrate"
+                  onLoadedMetadata={e => { if (lightbox.startTime) (e.target as HTMLVideoElement).currentTime = lightbox.startTime; }}
                   className="max-w-[95vw] max-h-[90vh] rounded-xl shadow-2xl" onClick={e => e.stopPropagation()} />
                 <button onClick={async e => { e.stopPropagation(); const blob = await fetch(lightbox!.url).then(r => r.blob()); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "video.mp4"; a.click(); URL.revokeObjectURL(a.href); }}
                   className="absolute top-4 right-16 h-9 w-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors z-10">
