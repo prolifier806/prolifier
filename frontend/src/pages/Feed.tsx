@@ -1552,10 +1552,11 @@ const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollab
                 {collab.authorSkills.map(s => <span key={s} className="text-xs font-medium bg-primary/10 text-primary px-2 py-0.5 rounded-full">{s}</span>)}
               </div>
             )}
-            {!collab.authorDeleted && <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5"><MapPin className="h-3 w-3 shrink-0"/> {collab.location}</p>}
+            <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+              {!collab.authorDeleted && <><MapPin className="h-3 w-3 shrink-0"/> {collab.location} · </>}{timeAgo(collab.createdAt)}
+            </p>
           </div>
           <div className="flex flex-col items-end gap-1 shrink-0">
-            <p className="text-xs text-muted-foreground">{timeAgo(collab.createdAt)}</p>
             <div className="flex items-center gap-1">
             {matchLabel && !collab.isOwn && (
               matchLabel === "strong"
