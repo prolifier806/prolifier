@@ -1186,7 +1186,9 @@ function EditPostDialog({ post, open, onClose, onSave, userId }: {
           <Textarea value={content} onChange={(e) => setContent(e.target.value)} rows={4} />
           {video && (
             <div className="relative rounded-xl overflow-hidden">
-              <video src={video} controls className="w-full max-h-48 rounded-xl" />
+              <video src={video} controls disablePictureInPicture
+                controlsList="nodownload nopictureinpicture noplaybackrate"
+                className="w-full max-h-48 rounded-xl" />
               <button onClick={removeVideo} className="absolute top-2 right-2 h-7 w-7 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-black/70"><X className="h-3.5 w-3.5"/></button>
             </div>
           )}
@@ -2754,7 +2756,9 @@ export default function Feed() {
                   </div>
                   {postDialog.video && (
                     <div className="relative rounded-xl overflow-hidden">
-                      <video src={postDialog.video} controls className="w-full max-h-48 rounded-xl" style={{backgroundColor:"#000"}}/>
+                      <video src={postDialog.video} controls disablePictureInPicture
+                        controlsList="nodownload nopictureinpicture noplaybackrate"
+                        className="w-full max-h-48 rounded-xl" style={{backgroundColor:"#000"}}/>
                       <button onClick={handleRemovePostVideo} className="absolute top-2 right-2 h-7 w-7 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-black/70"><X className="h-3.5 w-3.5"/></button>
                     </div>
                   )}

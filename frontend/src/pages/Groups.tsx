@@ -3663,7 +3663,9 @@ export default function Groups() {
                 </button>
               </div>
               <div className="relative bg-black">
-                <video src={vidModal.previewUrl} className="w-full max-h-48 object-contain" controls />
+                <video src={vidModal.previewUrl} controls disablePictureInPicture
+                  controlsList="nodownload nopictureinpicture noplaybackrate"
+                  className="w-full max-h-48 object-contain" />
               </div>
               <div className="px-4 py-3 space-y-3">
                 <textarea value={vidCaption} onChange={e => setVidCaption(e.target.value)}
