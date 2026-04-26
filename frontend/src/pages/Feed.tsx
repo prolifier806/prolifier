@@ -2121,16 +2121,21 @@ export default function Feed() {
   // ── Post Actions ──────────────────────────────────────────────────────
   // OPT: optimistic UI — state updates instantly, DB write happens in background
   const handleLike = useCallback(async (id: string) => {
-    // Block rapid taps — ignore while a request for this post is in flight
+    // Ignore taps within 500ms of a previous tap on the same post
     if (likePendingRef.current.has(id)) return;
     const post = posts.find(p => p.id === id);
     if (post && blockedUserIds.has(post.user_id)) return;
     const was = likedPosts.has(id);
-    likePendingRef.current.add(id);
-    // Optimistic update — instant feedback + persist to cache immediately
+
+    // Optimistic update — instant feedback
     setLikedPosts(p => { const n = new Set(p); was ? n.delete(id) : n.add(id); persistLiked(n); return n; });
     setPosts(p => p.map(x => x.id === id ? { ...x, likes: was ? x.likes - 1 : x.likes + 1 } : x));
     patchFeedCacheLike(id, !was);
+
+    // Release lock after 500ms — short enough to feel instant, long enough to
+    // prevent double-tap sending two conflicting API calls
+    likePendingRef.current.add(id);
+    setTimeout(() => likePendingRef.current.delete(id), 500);
 
     try {
       if (was) {
@@ -2149,12 +2154,10 @@ export default function Feed() {
         }
       }
     } catch {
-      // Revert optimistic update and caches on failure
+      // Revert optimistic update on failure
       setLikedPosts(p => { const n = new Set(p); was ? n.add(id) : n.delete(id); persistLiked(n); return n; });
       setPosts(p => p.map(x => x.id === id ? { ...x, likes: was ? x.likes + 1 : x.likes - 1 } : x));
       patchFeedCacheLike(id, was);
-    } finally {
-      likePendingRef.current.delete(id);
     }
   }, [likedPosts, posts, user.id, user.name]);
 
