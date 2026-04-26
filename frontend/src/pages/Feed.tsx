@@ -1708,7 +1708,13 @@ export default function Feed() {
   const postsCursorRef = useRef<string | null>(null);
   const collabsCursorRef = useRef<string | null>(null);
   const deepLinkHandledRef = useRef<string | null>(null);
-  const likePendingRef = useRef<Set<string>>(new Set());
+  const feedRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Like debounce: tracks the timer per post-id and the "last known server state"
+  // so rapid taps collapse into a single API call with the final desired state.
+  const likeDebounceRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const likeServerStateRef = useRef<Map<string, boolean>>(new Map()); // true = liked on server
+  const likeDesiredRef = useRef<Map<string, boolean>>(new Map());     // true = user wants liked
   const postsEndRef = useRef<HTMLDivElement | null>(null);
   const collabsEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -1880,16 +1886,18 @@ export default function Feed() {
   // network hops. Querying Supabase directly (same as comments) cuts the feed
   // load time in half. RLS policies on posts/collabs/blocks are `using (true)`
   // or scoped to auth.uid(), so the anon+JWT client works correctly.
-  const fetchFeed = useCallback(async () => {
+  const fetchFeed = useCallback(async (isRetry = false) => {
     if (!user.id) return;
 
     // Show cached data immediately — always, regardless of age.
+    let hadCache = false;
     try {
       const raw = localStorage.getItem(FEED_CACHE_KEY);
       if (raw) {
         const { posts: cp, collabs: cc } = JSON.parse(raw);
         applyFeedData(cp, cc);
         setLoading(false);
+        hadCache = true;
       }
     } catch {}
 
@@ -1957,6 +1965,13 @@ export default function Feed() {
 
       applyFeedData(rawPosts, rawCollabs);
 
+      // If the DB returned empty and we had no cache, the Supabase auth session
+      // may not have been ready yet (common on hard refresh). Retry once after 2s.
+      if (!isRetry && !hadCache && rawPosts.length === 0 && rawCollabs.length === 0) {
+        if (feedRetryTimerRef.current) clearTimeout(feedRetryTimerRef.current);
+        feedRetryTimerRef.current = setTimeout(() => fetchFeed(true), 2000);
+      }
+
       try {
         localStorage.setItem(FEED_CACHE_KEY, JSON.stringify({ ts: Date.now(), posts: rawPosts, collabs: rawCollabs }));
       } catch {}
@@ -1966,7 +1981,13 @@ export default function Feed() {
     } catch (err: any) {
       if (isAbortError(err)) { setLoading(false); return; }
       logger.error("feed.load.error", { error: err.message });
-      toast({ title: "Failed to load feed", description: err.message, variant: "destructive" });
+      // On first load failure (not a retry), silently retry once after 2 seconds
+      if (!isRetry) {
+        if (feedRetryTimerRef.current) clearTimeout(feedRetryTimerRef.current);
+        feedRetryTimerRef.current = setTimeout(() => fetchFeed(true), 2000);
+      } else {
+        toast({ title: "Failed to load feed", description: err.message, variant: "destructive" });
+      }
       setLoading(false);
     }
   }, [user.id]);
@@ -1982,6 +2003,9 @@ export default function Feed() {
 
   useEffect(() => {
     fetchFeed();
+    return () => {
+      if (feedRetryTimerRef.current) clearTimeout(feedRetryTimerRef.current);
+    };
   }, [fetchFeed]);
 
   // Fetch connected user IDs for relevance sorting
@@ -2120,45 +2144,63 @@ export default function Feed() {
 
   // ── Post Actions ──────────────────────────────────────────────────────
   // OPT: optimistic UI — state updates instantly, DB write happens in background
-  const handleLike = useCallback(async (id: string) => {
-    // Ignore taps within 500ms of a previous tap on the same post
-    if (likePendingRef.current.has(id)) return;
+  const handleLike = useCallback((id: string) => {
     const post = posts.find(p => p.id === id);
     if (post && blockedUserIds.has(post.user_id)) return;
+
     const was = likedPosts.has(id);
+    const desired = !was;
 
-    // Optimistic update — instant feedback
-    setLikedPosts(p => { const n = new Set(p); was ? n.delete(id) : n.add(id); persistLiked(n); return n; });
-    setPosts(p => p.map(x => x.id === id ? { ...x, likes: was ? x.likes - 1 : x.likes + 1 } : x));
-    patchFeedCacheLike(id, !was);
-
-    // Release lock after 500ms — short enough to feel instant, long enough to
-    // prevent double-tap sending two conflicting API calls
-    likePendingRef.current.add(id);
-    setTimeout(() => likePendingRef.current.delete(id), 500);
-
-    try {
-      if (was) {
-        await unlikePost(id);
-      } else {
-        await likePost(id);
-        if (post && post.user_id !== user.id) {
-          createNotification({
-            userId: post.user_id,
-            type: "like",
-            text: `${user.name} liked your post`,
-            subtext: post.content?.slice(0, 60) || undefined,
-            action: "feed",
-            actorId: user.id,
-          });
-        }
-      }
-    } catch {
-      // Revert optimistic update on failure
-      setLikedPosts(p => { const n = new Set(p); was ? n.add(id) : n.delete(id); persistLiked(n); return n; });
-      setPosts(p => p.map(x => x.id === id ? { ...x, likes: was ? x.likes + 1 : x.likes - 1 } : x));
-      patchFeedCacheLike(id, was);
+    // If no server state recorded yet, record the pre-tap server state
+    if (!likeServerStateRef.current.has(id)) {
+      likeServerStateRef.current.set(id, was);
     }
+    likeDesiredRef.current.set(id, desired);
+
+    // Optimistic update — instant feedback on every tap
+    setLikedPosts(p => { const n = new Set(p); desired ? n.add(id) : n.delete(id); persistLiked(n); return n; });
+    setPosts(p => p.map(x => x.id === id ? { ...x, likes: was ? x.likes - 1 : x.likes + 1 } : x));
+    patchFeedCacheLike(id, desired);
+
+    // Cancel any previous pending API call for this post, schedule new one
+    const existing = likeDebounceRef.current.get(id);
+    if (existing) clearTimeout(existing);
+
+    const timer = setTimeout(async () => {
+      likeDebounceRef.current.delete(id);
+      const serverState = likeServerStateRef.current.get(id) ?? false;
+      const finalDesired = likeDesiredRef.current.get(id) ?? desired;
+      likeServerStateRef.current.delete(id);
+      likeDesiredRef.current.delete(id);
+
+      // Skip if final state matches server — e.g. like then unlike = no-op
+      if (finalDesired === serverState) return;
+
+      try {
+        if (finalDesired) {
+          await likePost(id);
+          if (post && post.user_id !== user.id) {
+            createNotification({
+              userId: post.user_id,
+              type: "like",
+              text: `${user.name} liked your post`,
+              subtext: post.content?.slice(0, 60) || undefined,
+              action: "feed",
+              actorId: user.id,
+            });
+          }
+        } else {
+          await unlikePost(id);
+        }
+      } catch {
+        // Revert to server state on failure
+        setLikedPosts(p => { const n = new Set(p); serverState ? n.add(id) : n.delete(id); persistLiked(n); return n; });
+        setPosts(p => p.map(x => x.id === id ? { ...x, likes: finalDesired ? x.likes - 1 : x.likes + 1 } : x));
+        patchFeedCacheLike(id, serverState);
+      }
+    }, 300);
+
+    likeDebounceRef.current.set(id, timer);
   }, [likedPosts, posts, user.id, user.name]);
 
   const handleSavePost = useCallback(async (id: string) => {
