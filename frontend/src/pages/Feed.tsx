@@ -612,14 +612,14 @@ function ShareDialog({ onClose, link, content }: {
   useEffect(() => {
     if (!user.id) return;
     (async () => {
-      const conns = await apiGet<any[]>("/api/connections").catch(() => []);
-      const all = conns
-        .filter((c: any) => c.status === "accepted")
-        .map((c: any) => {
-          const p = c.requester_id === user.id ? c.receiver_profile : c.requester_profile;
-          return p ? { id: p.id, name: p.name || "Unknown", avatar: p.avatar || "?", avatarUrl: p.avatar_url || undefined, color: p.color || "bg-primary" } : null;
-        })
-        .filter(Boolean);
+      const profiles = await apiGet<any[]>(`/api/connections/user/${user.id}`).catch(() => []);
+      const all = (profiles || []).map((p: any) => ({
+        id: p.id,
+        name: p.name || "Unknown",
+        avatar: p.avatar || "?",
+        avatarUrl: p.avatar_url || undefined,
+        color: p.color || "bg-primary",
+      }));
       setConnections(all);
       setLoadingConns(false);
     })();
