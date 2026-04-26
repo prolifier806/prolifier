@@ -1708,6 +1708,7 @@ export default function Feed() {
   const postsCursorRef = useRef<string | null>(null);
   const collabsCursorRef = useRef<string | null>(null);
   const deepLinkHandledRef = useRef<string | null>(null);
+  const likePendingRef = useRef<Set<string>>(new Set());
   const postsEndRef = useRef<HTMLDivElement | null>(null);
   const collabsEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -2120,10 +2121,12 @@ export default function Feed() {
   // ── Post Actions ──────────────────────────────────────────────────────
   // OPT: optimistic UI — state updates instantly, DB write happens in background
   const handleLike = useCallback(async (id: string) => {
-    // Block check — don't allow interaction with posts from blocked/blocking users
+    // Block rapid taps — ignore while a request for this post is in flight
+    if (likePendingRef.current.has(id)) return;
     const post = posts.find(p => p.id === id);
     if (post && blockedUserIds.has(post.user_id)) return;
     const was = likedPosts.has(id);
+    likePendingRef.current.add(id);
     // Optimistic update — instant feedback + persist to cache immediately
     setLikedPosts(p => { const n = new Set(p); was ? n.delete(id) : n.add(id); persistLiked(n); return n; });
     setPosts(p => p.map(x => x.id === id ? { ...x, likes: was ? x.likes - 1 : x.likes + 1 } : x));
@@ -2134,7 +2137,6 @@ export default function Feed() {
         await unlikePost(id);
       } else {
         await likePost(id);
-        const post = posts.find(p => p.id === id);
         if (post && post.user_id !== user.id) {
           createNotification({
             userId: post.user_id,
@@ -2151,8 +2153,9 @@ export default function Feed() {
       setLikedPosts(p => { const n = new Set(p); was ? n.add(id) : n.delete(id); persistLiked(n); return n; });
       setPosts(p => p.map(x => x.id === id ? { ...x, likes: was ? x.likes + 1 : x.likes - 1 } : x));
       patchFeedCacheLike(id, was);
+    } finally {
+      likePendingRef.current.delete(id);
     }
-
   }, [likedPosts, posts, user.id, user.name]);
 
   const handleSavePost = useCallback(async (id: string) => {
