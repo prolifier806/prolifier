@@ -9,8 +9,8 @@ import { Button } from "@/components/ui/button";
 import {
   Search, Send, ArrowLeft, Image, Video, Paperclip,
   X, Play, Pause, Mic, StopCircle, RefreshCw, Check, CheckCheck,
-  BellOff, Bell, Flag, Trash2, Reply, MessageCircle, MoreHorizontal,
-  Smile, Download, Maximize2,
+  Flag, Trash2, Reply, MessageCircle, MoreHorizontal,
+  Smile, Download, Maximize2, ChevronUp, ChevronDown, Edit3,
 } from "lucide-react";
 import Layout from "@/components/Layout";
 import { toast } from "@/hooks/use-toast";
@@ -43,6 +43,8 @@ type Message = {
   reply_to_id: string | null;
   reply_to_text: string | null;
   views?: number;
+  edited?: boolean;
+  unsent?: boolean;
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -185,7 +187,7 @@ function useVoiceRecorder(onStop: (blob: Blob) => void) {
 }
 
 import { createReport } from "@/api/reports";
-import { hideConversation, toggleDmReaction, getDmMessageReactions } from "@/api/messages";
+import { hideConversation, toggleDmReaction, getDmMessageReactions, editDmMessage, unsendDmMessage } from "@/api/messages";
 import { uploadPostImage, uploadVideo as apiUploadVideo } from "@/api/uploads";
 import { unblockUser } from "@/api/users";
 import { apiPost, apiUpload, isAbortError } from "@/api/client";
@@ -243,9 +245,16 @@ export default function Messages() {
   const mutedByMeRef = useRef<Set<string>>(new Set());
   useEffect(() => { blockedByMeRef.current = blockedByMe; }, [blockedByMe]);
   useEffect(() => { mutedByMeRef.current = mutedByMe; }, [mutedByMe]);
-  // Report modal state
-  const [showReportModal, setShowReportModal] = useState(false);
-  const [reportReason, setReportReason] = useState("spam");
+  // Report selection mode
+  const [showReportTypeSheet, setShowReportTypeSheet] = useState(false);
+  const [reportType, setReportType] = useState("Spam or misleading");
+  const [reportSelectionMode, setReportSelectionMode] = useState(false);
+  const [reportSelectedMsgIds, setReportSelectedMsgIds] = useState<Set<string>>(new Set());
+  const [reportFlowSubmitting, setReportFlowSubmitting] = useState(false);
+  // Message search
+  const [showMsgSearch, setShowMsgSearch] = useState(false);
+  const [msgSearchQuery, setMsgSearchQuery] = useState("");
+  const [msgSearchIndex, setMsgSearchIndex] = useState(0);
   // Delete chat confirmation
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingChat, setDeletingChat] = useState(false);
@@ -260,6 +269,11 @@ export default function Messages() {
   const QUICK_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
   // Sidebar conversation context menu
   const [convoMenuId, setConvoMenuId] = useState<string | null>(null);
+  // Message 3-dot menu + inline edit
+  const [dmMsgMenuId, setDmMsgMenuId] = useState<string | null>(null);
+  const [editingDmMsgId, setEditingDmMsgId] = useState<string | null>(null);
+  const [editDmMsgText, setEditDmMsgText] = useState("");
+  const editDmRef = useRef<HTMLInputElement>(null);
 
   // Socket.IO — primary realtime transport
   const [socketToken, setSocketToken] = useState<string | null>(null);
@@ -379,8 +393,6 @@ export default function Messages() {
   const iBlockedThem = useMemo(() => selectedId ? blockedByMe.has(selectedId) : false, [selectedId, blockedByMe]);
   const theyBlockedMe = useMemo(() => selectedId ? blockedByThem.has(selectedId) : false, [selectedId, blockedByThem]);
   const isBlocked = iBlockedThem || theyBlockedMe;
-  const isMuted = useMemo(() => selectedId ? mutedByMe.has(selectedId) : false, [selectedId, mutedByMe]);
-
   const handleUnblockHere = async () => {
     if (!selectedId) return;
     try {
@@ -390,29 +402,32 @@ export default function Messages() {
     } catch { /* ignore */ }
   };
 
-  const handleToggleMute = async () => {
-    if (!selectedId) return;
+  // ── DM message edit / unsend ─────────────────────────────────────────────
+  const saveEditDmMsg = async () => {
+    const trimmed = editDmMsgText.trim();
+    const msgId = editingDmMsgId;
+    if (!trimmed || !msgId) return;
+    const prev = messages;
+    setMessages(m => m.map(x => x.id === msgId ? { ...x, text: trimmed, edited: true } : x));
+    setEditingDmMsgId(null);
+    setEditDmMsgText("");
     try {
-      if (isMuted) {
-        await apiPost(`/api/users/me/mute/${selectedId}/remove`).catch(() => {});
-        setMutedByMe(prev => { const n = new Set(prev); n.delete(selectedId); return n; });
-        toast({ title: "Unmuted" });
-      } else {
-        await apiPost(`/api/users/me/mute/${selectedId}`).catch(() => {});
-        setMutedByMe(prev => new Set([...prev, selectedId]));
-        toast({ title: "Muted — you won't get message notifications from this user" });
-      }
-    } catch { /* ignore */ }
+      await editDmMessage(msgId, trimmed);
+    } catch {
+      setMessages(prev);
+      toast({ title: "Edit failed", variant: "destructive" });
+    }
   };
 
-  const handleReport = async () => {
-    if (!selectedId) return;
+  const unsendDmMsg = async (msgId: string) => {
+    setDmMsgMenuId(null);
+    const prev = messages;
+    setMessages(m => m.map(x => x.id === msgId ? { ...x, unsent: true, text: null, media_url: null, media_type: null } : x));
     try {
-      await createReport({ targetId: selectedId, targetType: "user", reason: reportReason });
-      setShowReportModal(false);
-      toast({ title: "Report submitted", description: "Thank you — our team will review it." });
+      await unsendDmMessage(msgId);
     } catch {
-      toast({ title: "Failed to submit report", variant: "destructive" });
+      setMessages(prev);
+      toast({ title: "Could not unsend", variant: "destructive" });
     }
   };
 
@@ -583,7 +598,7 @@ export default function Messages() {
         setLoadingMsgs(true);
         const { data: msgs } = await (supabase as any)
           .from("messages")
-          .select("id, sender_id, text, media_url, media_type, created_at, read")
+          .select("id, sender_id, text, media_url, media_type, created_at, read, reply_to_id, reply_to_text, edited, unsent")
           .or(`and(sender_id.eq.${user.id},receiver_id.eq.${withId}),and(sender_id.eq.${withId},receiver_id.eq.${user.id})`)
           .order("created_at", { ascending: false })
           .limit(MSG_PAGE);
@@ -634,7 +649,7 @@ export default function Messages() {
       // Fetch the 50 most recent messages — descending then reverse in state
       const { data, error } = await (supabase as any)
         .from("messages")
-        .select("id, sender_id, text, media_url, media_type, created_at, read")
+        .select("id, sender_id, text, media_url, media_type, created_at, read, reply_to_id, reply_to_text, edited, unsent")
         .or(`and(sender_id.eq.${user.id},receiver_id.eq.${otherId}),and(sender_id.eq.${otherId},receiver_id.eq.${user.id})`)
         .order("created_at", { ascending: false })
         .limit(MSG_PAGE);
@@ -693,7 +708,7 @@ export default function Messages() {
     try {
       const { data, error } = await (supabase as any)
         .from("messages")
-        .select("id, sender_id, text, media_url, media_type, created_at, read")
+        .select("id, sender_id, text, media_url, media_type, created_at, read, reply_to_id, reply_to_text, edited, unsent")
         .or(`and(sender_id.eq.${user.id},receiver_id.eq.${otherId}),and(sender_id.eq.${otherId},receiver_id.eq.${user.id})`)
         .lt("created_at", oldestMsgCursorRef.current)
         .order("created_at", { ascending: false })
@@ -758,13 +773,36 @@ export default function Messages() {
           if (!conversations.find(c => c.id === row.sender_id)) fetchConversations();
         }
       })
-      // Read receipts: messages sent BY current user that recipient marked read
+      // Updates on messages I sent (read receipts + edits/unsends I made reflected back)
       .on("postgres_changes", {
         event: "UPDATE", schema: "public", table: "messages",
         filter: `sender_id=eq.${user.id}`,
       }, (payload) => {
         const row = payload.new as any;
-        if (row.read) setMessages(prev => prev.map(m => m.id === row.id ? { ...m, read: true } : m));
+        setMessages(prev => prev.map(m => m.id === row.id ? {
+          ...m,
+          read: row.read ?? m.read,
+          text: row.text ?? null,
+          media_url: row.media_url ?? null,
+          media_type: row.media_type ?? null,
+          edited: row.edited ?? m.edited,
+          unsent: row.unsent ?? m.unsent,
+        } : m));
+      })
+      // Updates on messages I received (other user edited or unsent)
+      .on("postgres_changes", {
+        event: "UPDATE", schema: "public", table: "messages",
+        filter: `receiver_id=eq.${user.id}`,
+      }, (payload) => {
+        const row = payload.new as any;
+        setMessages(prev => prev.map(m => m.id === row.id ? {
+          ...m,
+          text: row.text ?? null,
+          media_url: row.media_url ?? null,
+          media_type: row.media_type ?? null,
+          edited: row.edited ?? m.edited,
+          unsent: row.unsent ?? m.unsent,
+        } : m));
       }),
   );
 
@@ -784,6 +822,14 @@ export default function Messages() {
     setShowMobileChat(true);
     setReplyTo(null);
     setPeerTyping(false);
+    setShowMsgSearch(false);
+    setMsgSearchQuery("");
+    setMsgSearchIndex(0);
+    setReportSelectionMode(false);
+    setReportSelectedMsgIds(new Set());
+    setDmMsgMenuId(null);
+    setEditingDmMsgId(null);
+    setEditDmMsgText("");
     fetchMessages(otherId);
     // Tell server to mark DB rows + notify the other user via socket
     dmMarkRead(otherId);
@@ -926,6 +972,21 @@ export default function Messages() {
   const fmt = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
   const filteredConvos = conversations.filter(c => !convSearch || c.name.toLowerCase().includes(convSearch.toLowerCase()));
 
+  const msgSearchMatchIds = useMemo(() =>
+    msgSearchQuery.trim()
+      ? messages.filter(m => m.text?.toLowerCase().includes(msgSearchQuery.toLowerCase())).map(m => m.id)
+      : [],
+    [messages, msgSearchQuery]
+  );
+
+  useEffect(() => { setMsgSearchIndex(0); }, [msgSearchQuery]);
+
+  useEffect(() => {
+    if (msgSearchMatchIds.length === 0) return;
+    const id = msgSearchMatchIds[msgSearchIndex];
+    if (id) document.getElementById(`msg-${id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [msgSearchIndex, msgSearchMatchIds]);
+
   // Get a short label for quoting a message
   const quoteLabel = (m: Message): string => {
     if (m.media_type === "image") return "📷 Image";
@@ -995,6 +1056,7 @@ export default function Messages() {
   const Meta = ({ m, isMe }: { m: Message; isMe: boolean }) => (
     <div style={{ display:"flex", alignItems:"center", justifyContent:"flex-end", gap:3,
       padding:"2px 10px 6px", fontSize:11, color: isMe ? "rgba(255,255,255,.65)" : "rgba(0,0,0,.4)", whiteSpace:"nowrap" }}>
+      {m.edited && <span style={{ fontStyle:"italic", opacity:.8 }}>edited ·</span>}
       <span>{fmtTime(m.created_at)}</span>
       {isMe && (m.read
         ? <CheckCheck style={{ width:14, height:14 }} />
@@ -1005,6 +1067,17 @@ export default function Messages() {
   const renderMessage = (m: Message) => {
     const isMe = m.sender_id === user.id;
     const onReply = () => { setReplyTo({ id: m.id, text: quoteLabel(m) }); setTimeout(() => inputRef.current?.focus(), 50); };
+
+    // ── Tombstone for unsent messages ────────────────────────────────────────
+    if (m.unsent) {
+      return (
+        <div key={m.id} className={`flex items-end gap-1 ${isMe ? "justify-end" : "justify-start"}`}>
+          <p className="text-xs text-muted-foreground italic py-1.5 px-3 bg-muted rounded-2xl select-none">
+            🚫 This message was unsent.
+          </p>
+        </div>
+      );
+    }
 
     // Bubble colors — solid primary for sent, muted for received
     const SENT_BG  = "hsl(var(--primary))";
@@ -1040,7 +1113,7 @@ export default function Messages() {
       </div>
     ) : null;
 
-    const replyBtn = (flip = false) => (
+    const replyBtn = (flip = false) => reportSelectionMode ? null : (
       <button onClick={onReply}
         className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground
           opacity-0 group-hover:opacity-100 hover:bg-muted/80 transition-all shrink-0 self-end mb-1">
@@ -1048,7 +1121,7 @@ export default function Messages() {
       </button>
     );
 
-    const reactionBtn = (
+    const reactionBtn = reportSelectionMode ? null : (
       <button
         onClick={e => { e.stopPropagation(); setReactionPickerMsgId(reactionPickerMsgId === m.id ? null : m.id); }}
         className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground
@@ -1056,6 +1129,36 @@ export default function Messages() {
         <Smile className="h-3.5 w-3.5" />
       </button>
     );
+
+    // ── 3-dot menu — own messages only, hidden in report selection mode ───────
+    const menuOpen = dmMsgMenuId === m.id;
+    const isTextOnly = m.text && (!m.media_type || m.media_type === "text");
+    const msgMenuBtn = (isMe && !reportSelectionMode) ? (
+      <div className="relative shrink-0 self-end mb-1">
+        <button
+          onClick={e => { e.stopPropagation(); setDmMsgMenuId(menuOpen ? null : m.id); }}
+          className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-muted/80 transition-all">
+          <MoreHorizontal className="h-3.5 w-3.5" />
+        </button>
+        {menuOpen && (
+          <div className="absolute right-0 bottom-full mb-1 z-50 bg-card border border-border rounded-xl shadow-xl overflow-hidden min-w-[150px]"
+            onClick={e => e.stopPropagation()}>
+            {isTextOnly && (
+              <button
+                onClick={() => { setEditingDmMsgId(m.id); setEditDmMsgText(m.text || ""); setDmMsgMenuId(null); setTimeout(() => editDmRef.current?.focus(), 50); }}
+                className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-foreground hover:bg-muted transition-colors">
+                <Edit3 className="h-3.5 w-3.5" /> Edit
+              </button>
+            )}
+            <button
+              onClick={() => unsendDmMsg(m.id)}
+              className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-destructive hover:bg-destructive/5 transition-colors">
+              <Trash2 className="h-3.5 w-3.5" /> Unsend
+            </button>
+          </div>
+        )}
+      </div>
+    ) : null;
 
     const rowCls = `group flex items-end gap-1 ${isMe ? "justify-end" : "justify-start"}`;
 
@@ -1102,7 +1205,7 @@ export default function Messages() {
             {!isMe && reactionBtn}
             <div className="relative" style={{ maxWidth:300 }}>
               <ReactionPicker />
-              <div style={{ ...textBubble, cursor:"pointer" }} onClick={() => navigate(link)}>
+              <div style={{ ...textBubble, cursor: reportSelectionMode ? "pointer" : "pointer" }} onClick={reportSelectionMode ? undefined : () => navigate(link)}>
                 {share.image && <img src={share.image} alt="preview" style={{ display:"block", width:"100%", height:"auto" }} loading="lazy" />}
                 <div style={{ padding:"10px 12px 4px" }}>
                   <p style={{ fontSize:10, fontWeight:700, opacity:.6, textTransform:"uppercase", letterSpacing:".05em", marginBottom:3 }}>
@@ -1117,6 +1220,7 @@ export default function Messages() {
               <ReactionPills />
             </div>
             {isMe && reactionBtn}
+            {isMe && msgMenuBtn}
             {isMe && replyBtn(true)}
           </div>
         );
@@ -1138,7 +1242,7 @@ export default function Messages() {
               style={{ display:"block", width:"100%", height:"auto", cursor:"pointer",
                 marginTop: m.reply_to_text ? 6 : 0 }}
               loading="lazy"
-              onClick={() => setMediaPreview({ type:"image", url:m.media_url! })}
+              onClick={reportSelectionMode ? undefined : () => setMediaPreview({ type:"image", url:m.media_url! })}
             />
             {m.text && (
               <div style={{ padding:"6px 12px 2px", fontSize:14, lineHeight:1.4,
@@ -1150,6 +1254,7 @@ export default function Messages() {
             <ReactionPills />
           </div>
           {isMe && reactionBtn}
+          {isMe && msgMenuBtn}
           {isMe && replyBtn(true)}
         </div>
       );
@@ -1164,14 +1269,36 @@ export default function Messages() {
           <ReactionPicker />
 
           {m.text && (!m.media_type || m.media_type === "text") && (
-            <div style={textBubble}>
-              <ReplyStrip isMe={isMe} />
-              <div style={{ padding: m.reply_to_text ? "8px 12px 2px" : "10px 12px 2px",
-                fontSize:15, lineHeight:1.45, whiteSpace:"pre-wrap", wordBreak:"break-word" }}>
-                {renderTextWithLinks(m.text, isMe)}
+            editingDmMsgId === m.id ? (
+              <div className="flex items-center gap-2">
+                <input
+                  ref={editDmRef}
+                  value={editDmMsgText}
+                  onChange={e => setEditDmMsgText(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === "Enter") saveEditDmMsg();
+                    if (e.key === "Escape") { setEditingDmMsgId(null); setEditDmMsgText(""); }
+                  }}
+                  className="flex-1 px-3 py-1.5 rounded-xl text-sm bg-secondary border border-primary outline-none text-foreground"
+                />
+                <button onClick={saveEditDmMsg} className="h-7 w-7 rounded-full bg-primary text-primary-foreground flex items-center justify-center shrink-0">
+                  <Check className="h-3.5 w-3.5" />
+                </button>
+                <button onClick={() => { setEditingDmMsgId(null); setEditDmMsgText(""); }}
+                  className="h-7 w-7 rounded-full bg-muted flex items-center justify-center shrink-0 text-muted-foreground">
+                  <X className="h-3.5 w-3.5" />
+                </button>
               </div>
-              <Meta m={m} isMe={isMe} />
-            </div>
+            ) : (
+              <div style={textBubble}>
+                <ReplyStrip isMe={isMe} />
+                <div style={{ padding: m.reply_to_text ? "8px 12px 2px" : "10px 12px 2px",
+                  fontSize:15, lineHeight:1.45, whiteSpace:"pre-wrap", wordBreak:"break-word" }}>
+                  {renderTextWithLinks(m.text, isMe)}
+                </div>
+                <Meta m={m} isMe={isMe} />
+              </div>
+            )
           )}
 
           {m.media_type === "video" && m.media_url && (
@@ -1232,6 +1359,7 @@ export default function Messages() {
           <ReactionPills />
         </div>
         {isMe && reactionBtn}
+        {isMe && msgMenuBtn}
         {isMe && replyBtn(true)}
       </div>
     );
@@ -1381,26 +1509,83 @@ export default function Messages() {
                     })()}
                   </div>
                 </button>
-                {/* Mute and Report buttons — hidden when anonymized */}
-                {!theyBlockedMe && (
-                  <div className="flex items-center gap-1 shrink-0">
+                {/* Search and Report buttons */}
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    onClick={() => { setShowMsgSearch(s => !s); setMsgSearchQuery(""); setMsgSearchIndex(0); }}
+                    title="Search messages"
+                    className={`h-8 w-8 rounded-full flex items-center justify-center transition-colors ${showMsgSearch ? "text-primary bg-primary/10" : "text-muted-foreground hover:bg-muted"}`}
+                  >
+                    <Search className="h-4 w-4" />
+                  </button>
+                  {!theyBlockedMe && (
                     <button
-                      onClick={handleToggleMute}
-                      title={isMuted ? "Unmute notifications" : "Mute notifications"}
-                      className={`h-8 w-8 rounded-full flex items-center justify-center transition-colors ${isMuted ? "text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/30" : "text-muted-foreground hover:bg-muted"}`}
-                    >
-                      {isMuted ? <BellOff className="h-4 w-4" /> : <Bell className="h-4 w-4" />}
-                    </button>
-                    <button
-                      onClick={() => setShowReportModal(true)}
-                      title="Report user"
+                      onClick={() => setShowReportTypeSheet(true)}
+                      title="Report"
                       className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-rose-500 transition-colors"
                     >
                       <Flag className="h-4 w-4" />
                     </button>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
+
+              {/* Message search bar */}
+              {showMsgSearch && (
+                <div className="px-4 py-2 border-b border-border bg-card/80 flex items-center gap-2 shrink-0">
+                  <Search className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <input
+                    autoFocus
+                    value={msgSearchQuery}
+                    onChange={e => setMsgSearchQuery(e.target.value)}
+                    placeholder="Search messages…"
+                    className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                  />
+                  {msgSearchMatchIds.length > 0 && (
+                    <span className="text-xs text-muted-foreground shrink-0">
+                      {msgSearchIndex + 1}/{msgSearchMatchIds.length}
+                    </span>
+                  )}
+                  {msgSearchQuery.trim() && msgSearchMatchIds.length === 0 && (
+                    <span className="text-xs text-muted-foreground shrink-0">No results</span>
+                  )}
+                  <button
+                    disabled={msgSearchMatchIds.length === 0}
+                    onClick={() => setMsgSearchIndex(i => (i - 1 + msgSearchMatchIds.length) % msgSearchMatchIds.length)}
+                    className="h-6 w-6 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted disabled:opacity-30 transition-colors"
+                  >
+                    <ChevronUp className="h-4 w-4" />
+                  </button>
+                  <button
+                    disabled={msgSearchMatchIds.length === 0}
+                    onClick={() => setMsgSearchIndex(i => (i + 1) % msgSearchMatchIds.length)}
+                    className="h-6 w-6 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted disabled:opacity-30 transition-colors"
+                  >
+                    <ChevronDown className="h-4 w-4" />
+                  </button>
+                  <button
+                    onClick={() => { setShowMsgSearch(false); setMsgSearchQuery(""); setMsgSearchIndex(0); }}
+                    className="h-6 w-6 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
+
+              {/* Report selection mode banner */}
+              {reportSelectionMode && (
+                <div className="px-4 py-2 border-b border-border bg-rose-50/60 dark:bg-rose-950/20 flex items-center justify-between shrink-0">
+                  <span className="text-sm font-medium text-rose-600 dark:text-rose-400">
+                    Tap messages to select
+                  </span>
+                  <button
+                    onClick={() => { setReportSelectionMode(false); setReportSelectedMsgIds(new Set()); }}
+                    className="text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-muted transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
 
               {/* Messages */}
               <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -1428,7 +1613,26 @@ export default function Messages() {
                         </button>
                       </div>
                     )}
-                    {messages.map(renderMessage)}
+                    {messages.map(m => {
+                      const isCurrentSearchMatch = msgSearchMatchIds.length > 0 && msgSearchMatchIds[msgSearchIndex] === m.id;
+                      const isAnySearchMatch = msgSearchMatchIds.includes(m.id);
+                      const selectable = reportSelectionMode && m.sender_id !== user.id;
+                      const isSelected = reportSelectedMsgIds.has(m.id);
+                      return (
+                        <div
+                          key={m.id}
+                          id={`msg-${m.id}`}
+                          className={`rounded-xl transition-colors ${isCurrentSearchMatch ? "bg-amber-400/10" : isAnySearchMatch ? "bg-amber-400/5" : ""} ${selectable ? "cursor-pointer" : ""} ${isSelected ? "ring-2 ring-rose-500/50 rounded-xl" : ""}`}
+                          onClick={selectable ? () => setReportSelectedMsgIds(prev => {
+                            const n = new Set(prev);
+                            n.has(m.id) ? n.delete(m.id) : n.add(m.id);
+                            return n;
+                          }) : undefined}
+                        >
+                          {renderMessage(m)}
+                        </div>
+                      );
+                    })}
                   </>
                 )}
                 <div ref={bottomRef} />
@@ -1482,8 +1686,47 @@ export default function Messages() {
               )}
 
 
+              {/* Report selection submit bar */}
+              {reportSelectionMode && (
+                <div className="px-4 py-3 border-t border-border bg-card flex items-center justify-between shrink-0">
+                  <span className="text-sm text-muted-foreground">
+                    {reportSelectedMsgIds.size === 0 ? "No messages selected" : `${reportSelectedMsgIds.size} selected`}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => { setReportSelectionMode(false); setReportSelectedMsgIds(new Set()); }}
+                      className="h-8 px-3 rounded-lg border border-border text-sm text-muted-foreground hover:bg-muted transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      disabled={reportSelectedMsgIds.size === 0 || reportFlowSubmitting}
+                      onClick={async () => {
+                        setReportFlowSubmitting(true);
+                        try {
+                          await Promise.all([...reportSelectedMsgIds].map(id =>
+                            createReport({ targetId: id, targetType: "message", reason: reportType })
+                          ));
+                          setReportSelectionMode(false);
+                          setReportSelectedMsgIds(new Set());
+                          toast({ title: "Report submitted", description: "Thank you — our team will review it." });
+                        } catch {
+                          toast({ title: "Failed to submit report", variant: "destructive" });
+                        } finally {
+                          setReportFlowSubmitting(false);
+                        }
+                      }}
+                      className="h-8 px-3 rounded-lg bg-rose-500 text-white text-sm font-semibold hover:bg-rose-600 transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                    >
+                      {reportFlowSubmitting && <div className="h-3 w-3 rounded-full border-2 border-white border-t-transparent animate-spin" />}
+                      Submit report
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Input bar */}
-              {!recording && !isBlocked && (
+              {!reportSelectionMode && !recording && !isBlocked && (
                 <div className="p-3 border-t border-border shrink-0">
                   <div className="flex items-center gap-2 bg-muted rounded-2xl px-3 py-1.5">
                     <div className="flex items-center gap-0.5 shrink-0">
@@ -1553,33 +1796,47 @@ export default function Messages() {
         <div className="fixed inset-0 z-40" onClick={() => setReactionPickerMsgId(null)} />
       )}
 
-      {/* Report modal */}
-      {showReportModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => setShowReportModal(false)}>
+      {/* Message menu backdrop */}
+      {dmMsgMenuId !== null && (
+        <div className="fixed inset-0 z-30" onClick={() => setDmMsgMenuId(null)} />
+      )}
+
+      {/* Report type picker sheet */}
+      {showReportTypeSheet && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center p-4" onClick={() => setShowReportTypeSheet(false)}>
           <div className="bg-card rounded-2xl shadow-xl w-full max-w-sm p-6" onClick={e => e.stopPropagation()}>
-            <h2 className="text-base font-bold mb-1">Report user</h2>
-            <p className="text-sm text-muted-foreground mb-4">Select a reason and we'll review this account.</p>
+            <h2 className="text-base font-bold mb-1">Report messages</h2>
+            <p className="text-sm text-muted-foreground mb-4">Select a reason, then tap the messages you want to report.</p>
             <div className="space-y-2 mb-5">
-              {["spam", "harassment", "inappropriate content", "fake account", "other"].map(r => (
-                <label key={r} className="flex items-center gap-3 cursor-pointer group">
-                  <input
-                    type="radio"
-                    name="report-reason"
-                    value={r}
-                    checked={reportReason === r}
-                    onChange={() => setReportReason(r)}
-                    className="accent-primary"
-                  />
-                  <span className="text-sm capitalize text-foreground">{r}</span>
-                </label>
+              {["Spam or misleading", "Inappropriate content", "Harassment or bullying", "Hate speech", "Misinformation", "Other"].map(r => (
+                <button
+                  key={r}
+                  onClick={() => setReportType(r)}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border transition-colors text-left ${
+                    reportType === r ? "border-rose-400 bg-rose-50 dark:bg-rose-950/30" : "border-border hover:bg-muted"
+                  }`}
+                >
+                  <div className={`h-4 w-4 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                    reportType === r ? "border-rose-500" : "border-muted-foreground"
+                  }`}>
+                    {reportType === r && <div className="h-2 w-2 rounded-full bg-rose-500" />}
+                  </div>
+                  <span className="text-sm">{r}</span>
+                </button>
               ))}
             </div>
             <div className="flex gap-2">
-              <button onClick={() => setShowReportModal(false)} className="flex-1 h-9 rounded-lg border border-border text-sm font-medium text-muted-foreground hover:bg-muted transition-colors">
+              <button
+                onClick={() => setShowReportTypeSheet(false)}
+                className="flex-1 h-9 rounded-lg border border-border text-sm font-medium text-muted-foreground hover:bg-muted transition-colors"
+              >
                 Cancel
               </button>
-              <button onClick={handleReport} className="flex-1 h-9 rounded-lg bg-rose-500 text-white text-sm font-semibold hover:bg-rose-600 transition-colors">
-                Submit report
+              <button
+                onClick={() => { setShowReportTypeSheet(false); setReportSelectionMode(true); setReportSelectedMsgIds(new Set()); }}
+                className="flex-1 h-9 rounded-lg bg-rose-500 text-white text-sm font-semibold hover:bg-rose-600 transition-colors"
+              >
+                Next
               </button>
             </div>
           </div>

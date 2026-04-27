@@ -160,6 +160,61 @@ export async function getDmReactions(req: AuthRequest, res: Response): Promise<v
   res.json({ success: true, data: result });
 }
 
+export async function editDmMessage(req: AuthRequest, res: Response): Promise<void> {
+  const userId = req.user.id;
+  const { messageId } = req.params;
+  const { text } = req.body as { text: string };
+
+  if (!text?.trim()) {
+    res.status(400).json({ success: false, error: "Text is required" });
+    return;
+  }
+  if (text.trim().length > 1500) {
+    res.status(400).json({ success: false, error: "Message too long" });
+    return;
+  }
+
+  const { data: msg } = await supabaseAdmin
+    .from("messages")
+    .select("sender_id, unsent")
+    .eq("id", messageId)
+    .single();
+
+  if (!msg) { res.status(404).json({ success: false, error: "Message not found" }); return; }
+  if (msg.sender_id !== userId) { res.status(403).json({ success: false, error: "Not authorized" }); return; }
+  if (msg.unsent) { res.status(400).json({ success: false, error: "Cannot edit unsent message" }); return; }
+
+  const { error } = await supabaseAdmin
+    .from("messages")
+    .update({ text: text.trim(), edited: true })
+    .eq("id", messageId);
+
+  if (error) { res.status(500).json({ success: false, error: error.message }); return; }
+  res.json({ success: true, data: null });
+}
+
+export async function unsendDmMessage(req: AuthRequest, res: Response): Promise<void> {
+  const userId = req.user.id;
+  const { messageId } = req.params;
+
+  const { data: msg } = await supabaseAdmin
+    .from("messages")
+    .select("sender_id")
+    .eq("id", messageId)
+    .single();
+
+  if (!msg) { res.status(404).json({ success: false, error: "Message not found" }); return; }
+  if (msg.sender_id !== userId) { res.status(403).json({ success: false, error: "Not authorized" }); return; }
+
+  const { error } = await supabaseAdmin
+    .from("messages")
+    .update({ unsent: true, text: null, media_url: null, media_type: null })
+    .eq("id", messageId);
+
+  if (error) { res.status(500).json({ success: false, error: error.message }); return; }
+  res.json({ success: true, data: null });
+}
+
 export async function hideConversation(req: AuthRequest, res: Response): Promise<void> {
   const userId = req.user.id;
   const { chatId } = req.params;

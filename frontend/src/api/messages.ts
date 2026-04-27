@@ -26,3 +26,9 @@ export const getDmMessageReactions = (messageIds: string[]) =>
   apiGet<Record<string, Record<string, { count: number; userIds: string[] }>>>(
     `/api/messages/reactions?messageIds=${messageIds.join(",")}`
   );
+
+export const editDmMessage = (messageId: string, text: string) =>
+  apiPost<null>(`/api/messages/${messageId}/edit`, { text });
+
+export const unsendDmMessage = (messageId: string) =>
+  apiPost<null>(`/api/messages/${messageId}/unsend`);
