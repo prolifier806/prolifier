@@ -1742,10 +1742,10 @@ export default function Feed() {
 
   // Open post dialog when triggered from sidebar "New Post" button on any page
   useEffect(() => {
-    const handler = () => setPostDialog(d => ({ ...d, open: true }));
+    const handler = () => setPostDialog(d => ({ ...d, open: true, postType: activeTab === "collabs" ? "collab" : "feed" }));
     window.addEventListener("prolifier:new-post", handler);
     return () => window.removeEventListener("prolifier:new-post", handler);
-  }, []);
+  }, [activeTab]);
 
   // ── Deep-link: scroll + highlight post when ?post=<id> or ?highlight=<id> is in the URL ──
   // Two-layer guard: ref stores the handled post ID (survives posts state changes)
@@ -2781,182 +2781,6 @@ export default function Feed() {
 
           {/* ── FEED ── */}
           <TabsContent value="feed" className="space-y-4">
-            <Dialog open={postDialog.open} onOpenChange={async (v) => {
-              if (!v) {
-                for (const url of postDialog.images) await deleteFromStorage(url);
-                await handleRemovePostVideo();
-                setPostDialog(d => ({ ...d, images: [] }));
-              }
-              setPostDialog(d => ({ ...d, open: v }));
-            }}>
-              <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
-                <DialogHeader>
-                  <DialogTitle>{postDialog.postType === "feed" ? "New Post" : "Post a collaboration"}</DialogTitle>
-                  <DialogDescription>{postDialog.postType === "feed" ? "Share your journey, ask a question, or celebrate a milestone." : "Share what you're building and the co-founder you're looking for."}</DialogDescription>
-                </DialogHeader>
-                <div className="space-y-4 py-2">
-                  {/* Where to post toggle */}
-                  <div>
-                    <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1.5 block">Where to post</label>
-                    <div className="flex rounded-lg border border-border overflow-hidden">
-                      <button
-                        onClick={() => setPostDialog(d => ({ ...d, postType: "feed" }))}
-                        className={`flex-1 py-2 text-sm font-medium transition-colors ${postDialog.postType === "feed" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
-                      >
-                        Posts
-                      </button>
-                      <button
-                        onClick={() => setPostDialog(d => ({ ...d, postType: "collab" }))}
-                        className={`flex-1 py-2 text-sm font-medium transition-colors ${postDialog.postType === "collab" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
-                      >
-                        Collab
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Feed fields */}
-                  {postDialog.postType === "feed" && (<>
-                    <div>
-                      <label className="text-sm font-medium mb-1.5 block">What's on your mind?</label>
-                      <Textarea
-                        value={postDialog.content}
-                        onChange={e => setPostDialog(d => ({ ...d, content: e.target.value }))}
-                        maxLength={500}
-                        placeholder="Share what you're working on, ask for advice, or celebrate a win..." rows={4}/>
-                      <p className="text-xs text-muted-foreground text-right mt-1">
-                        {postDialog.content.length}/500
-                      </p>
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium mb-1.5 block">Category</label>
-                      <div className="flex flex-wrap gap-2">
-                        {POST_TAGS.map(t => <Badge key={t} variant={postDialog.tag===t?"default":"outline"} className="cursor-pointer" onClick={() => setPostDialog(d => ({ ...d, tag: t }))}>{t}</Badge>)}
-                      </div>
-                    </div>
-                    {postDialog.video && (
-                      <div className="relative rounded-xl overflow-hidden">
-                        <video src={postDialog.video} controls disablePictureInPicture
-                          controlsList="nodownload nopictureinpicture noplaybackrate"
-                          className="w-full max-h-48 rounded-xl" style={{backgroundColor:"#000"}}/>
-                        <button onClick={handleRemovePostVideo} className="absolute top-2 right-2 h-7 w-7 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-black/70"><X className="h-3.5 w-3.5"/></button>
-                      </div>
-                    )}
-                    {!postDialog.video && (
-                      <MediaUploadBar
-                        images={postDialog.images}
-                        onAddImage={url => setPostDialog(d => ({ ...d, images: [...d.images, url] }))}
-                        onRemoveImage={handleRemovePostImageAt}
-                        onVideo={url => setPostDialog(d => ({ ...d, video: url }))}
-                        onUploadingChange={v => setPostDialog(d => ({ ...d, uploading: v }))}
-                        hasVideo={!!postDialog.video}
-                        userId={user.id}
-                        deferred
-                        onImageFile={f => setPostDialog(d => ({ ...d, imageFiles: [...d.imageFiles, f] }))}
-                        onVideoFile={f => setPostDialog(d => ({ ...d, videoFile: f }))}
-                      />
-                    )}
-                  </>)}
-
-                  {/* Collab fields */}
-                  {postDialog.postType === "collab" && (<>
-                    <div>
-                      <label className="text-sm font-medium mb-1.5 block">Project / idea name</label>
-                      <Input value={collabDialog.title}
-                        onChange={e => setCollabDialog(d => ({ ...d, title: e.target.value }))}
-                        maxLength={20}
-                        placeholder="e.g. Community Book Club" className="h-10"/>
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium mb-1.5 block">Co-founder role</label>
-                      <Input value={collabDialog.looking}
-                        onChange={e => setCollabDialog(d => ({ ...d, looking: e.target.value }))}
-                        maxLength={50}
-                        placeholder="e.g. Technical Co-founder, Designer Co-founder" className="h-10"/>
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium mb-1.5 block">Describe your project</label>
-                      <Textarea value={collabDialog.desc}
-                        onChange={e => setCollabDialog(d => ({ ...d, desc: e.target.value }))}
-                        maxLength={500}
-                        placeholder="What are you building, what stage are you at, and what do you need from a co-founder?" rows={3}/>
-                    </div>
-                    <div>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <label className="text-sm font-medium">Relevant skills / areas</label>
-                        <span className={`text-xs font-medium ${collabDialog.skills.length >= 3 ? "text-primary" : "text-muted-foreground"}`}>{collabDialog.skills.length}/3</span>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        {SKILL_OPTIONS.map(s => {
-                          const selected = collabDialog.skills.includes(s);
-                          const maxed = !selected && collabDialog.skills.length >= 3;
-                          return (
-                            <Badge key={s} variant={selected ? "default" : "outline"}
-                              className={`cursor-pointer transition-all ${maxed ? "opacity-40 cursor-not-allowed" : "hover:scale-105"}`}
-                              onClick={() => { if (maxed) return; setCollabDialog(d => ({ ...d, skills: selected ? d.skills.filter(x => x !== s) : [...d.skills, s] })); }}>
-                              {s}
-                            </Badge>
-                          );
-                        })}
-                        {collabDialog.skills.filter(s => !(SKILL_OPTIONS as readonly string[]).includes(s)).map(s => (
-                          <Badge key={s} variant="default" className="cursor-pointer gap-1"
-                            onClick={() => setCollabDialog(d => ({ ...d, skills: d.skills.filter(x => x !== s) }))}>
-                            {s} <X className="h-2.5 w-2.5"/>
-                          </Badge>
-                        ))}
-                      </div>
-                      <div className="flex gap-2 mt-2">
-                        <Input
-                          placeholder="Other skill (type and press Enter)"
-                          value={collabDialog.customSkillInput}
-                          onChange={e => setCollabDialog(d => ({ ...d, customSkillInput: e.target.value }))}
-                          className="h-8 text-sm"
-                          maxLength={20}
-                          onKeyDown={e => {
-                            if (e.key === "Enter") {
-                              e.preventDefault();
-                              const val = collabDialog.customSkillInput.trim();
-                              if (val && !collabDialog.skills.includes(val) && collabDialog.skills.length < 3) {
-                                setCollabDialog(d => ({ ...d, skills: [...d.skills, val], customSkillInput: "" }));
-                              } else {
-                                setCollabDialog(d => ({ ...d, customSkillInput: "" }));
-                              }
-                            }
-                          }}
-                        />
-                        <Button type="button" size="sm" variant="outline" className="h-8 px-3 shrink-0"
-                          disabled={collabDialog.skills.length >= 3}
-                          onClick={() => {
-                            const val = collabDialog.customSkillInput.trim();
-                            if (val && !collabDialog.skills.includes(val) && collabDialog.skills.length < 3) {
-                              setCollabDialog(d => ({ ...d, skills: [...d.skills, val], customSkillInput: "" }));
-                            } else {
-                              setCollabDialog(d => ({ ...d, customSkillInput: "" }));
-                            }
-                          }}>
-                          Add
-                        </Button>
-                      </div>
-                    </div>
-                  </>)}
-                </div>
-                <DialogFooter>
-                  {postDialog.postType === "feed" ? (
-                    <Button onClick={handleCreatePost} disabled={!postDialog.content.trim()} className="gap-2">
-                      <Send className="h-4 w-4"/> Publish
-                    </Button>
-                  ) : (
-                    <Button
-                      onClick={() => { setPostDialog(d => ({ ...d, open: false })); handleCreateCollab(); }}
-                      disabled={!collabDialog.title.trim()||!collabDialog.looking.trim()||!collabDialog.desc.trim()||collabDialog.uploading||collabDialog.publishing}
-                      className="gap-2"
-                    >
-                      <Send className="h-4 w-4"/> {collabDialog.uploading ? "Uploading..." : collabDialog.publishing ? "Posting..." : "Post collab"}
-                    </Button>
-                  )}
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-
             {/* Post search + filter */}
             <div className="flex gap-2">
               <div className="relative flex-1">
@@ -3010,105 +2834,6 @@ export default function Feed() {
 
           {/* ── COLLABS ── */}
           <TabsContent value="collabs" className="space-y-4">
-            <Dialog open={collabDialog.open} onOpenChange={(v) => {
-              if (!v) { handleRemoveCollabImage(); handleRemoveCollabVideo(); }
-              setCollabDialog(d => ({ ...d, open: v }));
-            }}>
-              <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
-                <DialogHeader>
-                  <DialogTitle>Post a collaboration</DialogTitle>
-                  <DialogDescription>Share what you're building and the co-founder you're looking for.</DialogDescription>
-                </DialogHeader>
-                <div className="space-y-4 py-2">
-                  <div>
-                    <label className="text-sm font-medium mb-1.5 block">Project / idea name</label>
-                    <Input value={collabDialog.title}
-                      onChange={e => setCollabDialog(d => ({ ...d, title: e.target.value }))}
-                      maxLength={20}
-                      placeholder="e.g. Community Book Club" className="h-10"/>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium mb-1.5 block">Co-founder role</label>
-                    <Input value={collabDialog.looking}
-                      onChange={e => setCollabDialog(d => ({ ...d, looking: e.target.value }))}
-                      maxLength={50}
-                      placeholder="e.g. Technical Co-founder, Designer Co-founder" className="h-10"/>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium mb-1.5 block">Describe your project</label>
-                    <Textarea value={collabDialog.desc}
-                      onChange={e => setCollabDialog(d => ({ ...d, desc: e.target.value }))}
-                      maxLength={500}
-                      placeholder="What are you building, what stage are you at, and what do you need from a co-founder?" rows={3}/>
-                  </div>
-                  <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <label className="text-sm font-medium">Relevant skills / areas</label>
-                      <span className={`text-xs font-medium ${collabDialog.skills.length >= 3 ? "text-primary" : "text-muted-foreground"}`}>{collabDialog.skills.length}/3</span>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {SKILL_OPTIONS.map(s => {
-                        const selected = collabDialog.skills.includes(s);
-                        const maxed = !selected && collabDialog.skills.length >= 3;
-                        return (
-                          <Badge key={s} variant={selected ? "default" : "outline"}
-                            className={`cursor-pointer transition-all ${maxed ? "opacity-40 cursor-not-allowed" : "hover:scale-105"}`}
-                            onClick={() => { if (maxed) return; setCollabDialog(d => ({ ...d, skills: selected ? d.skills.filter(x => x !== s) : [...d.skills, s] })); }}>
-                            {s}
-                          </Badge>
-                        );
-                      })}
-                      {/* Custom skills added via "Other" */}
-                      {collabDialog.skills.filter(s => !(SKILL_OPTIONS as readonly string[]).includes(s)).map(s => (
-                        <Badge key={s} variant="default" className="cursor-pointer gap-1"
-                          onClick={() => setCollabDialog(d => ({ ...d, skills: d.skills.filter(x => x !== s) }))}>
-                          {s} <X className="h-2.5 w-2.5"/>
-                        </Badge>
-                      ))}
-                    </div>
-                    {/* Other: custom skill input */}
-                    <div className="flex gap-2 mt-2">
-                      <Input
-                        placeholder="Other skill (type and press Enter)"
-                        value={collabDialog.customSkillInput}
-                        onChange={e => setCollabDialog(d => ({ ...d, customSkillInput: e.target.value }))}
-                        className="h-8 text-sm"
-                        maxLength={20}
-                        onKeyDown={e => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
-                            const val = collabDialog.customSkillInput.trim();
-                            if (val && !collabDialog.skills.includes(val) && collabDialog.skills.length < 3) {
-                              setCollabDialog(d => ({ ...d, skills: [...d.skills, val], customSkillInput: "" }));
-                            } else {
-                              setCollabDialog(d => ({ ...d, customSkillInput: "" }));
-                            }
-                          }
-                        }}
-                      />
-                      <Button type="button" size="sm" variant="outline" className="h-8 px-3 shrink-0"
-                        disabled={collabDialog.skills.length >= 3}
-                        onClick={() => {
-                          const val = collabDialog.customSkillInput.trim();
-                          if (val && !collabDialog.skills.includes(val) && collabDialog.skills.length < 3) {
-                            setCollabDialog(d => ({ ...d, skills: [...d.skills, val], customSkillInput: "" }));
-                          } else {
-                            setCollabDialog(d => ({ ...d, customSkillInput: "" }));
-                          }
-                        }}>
-                        Add
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-                <DialogFooter>
-                  <Button onClick={handleCreateCollab} disabled={!collabDialog.title.trim()||!collabDialog.looking.trim()||!collabDialog.desc.trim()||collabDialog.uploading||collabDialog.publishing} className="gap-2">
-                    <Send className="h-4 w-4"/> {collabDialog.uploading ? "Uploading..." : collabDialog.publishing ? "Posting..." : "Post collab"}
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-
             <div className="flex gap-2">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground"/>
@@ -3158,6 +2883,281 @@ export default function Feed() {
           </TabsContent>
         </Tabs>
       </div>
+
+      {/* ── New Post / Collab dialog — outside Tabs so it works on any tab ── */}
+      <Dialog open={postDialog.open} onOpenChange={async (v) => {
+        if (!v) {
+          for (const url of postDialog.images) await deleteFromStorage(url);
+          await handleRemovePostVideo();
+          setPostDialog(d => ({ ...d, images: [] }));
+        }
+        setPostDialog(d => ({ ...d, open: v }));
+      }}>
+        <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{postDialog.postType === "feed" ? "New Post" : "Post a collaboration"}</DialogTitle>
+            <DialogDescription>{postDialog.postType === "feed" ? "Share your journey, ask a question, or celebrate a milestone." : "Share what you're building and the co-founder you're looking for."}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            {/* Where to post toggle */}
+            <div>
+              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1.5 block">Where to post</label>
+              <div className="flex rounded-lg border border-border overflow-hidden">
+                <button
+                  onClick={() => setPostDialog(d => ({ ...d, postType: "feed" }))}
+                  className={`flex-1 py-2 text-sm font-medium transition-colors ${postDialog.postType === "feed" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
+                >
+                  Posts
+                </button>
+                <button
+                  onClick={() => setPostDialog(d => ({ ...d, postType: "collab" }))}
+                  className={`flex-1 py-2 text-sm font-medium transition-colors ${postDialog.postType === "collab" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
+                >
+                  Collab
+                </button>
+              </div>
+            </div>
+
+            {/* Feed fields */}
+            {postDialog.postType === "feed" && (<>
+              <div>
+                <label className="text-sm font-medium mb-1.5 block">What's on your mind?</label>
+                <Textarea
+                  value={postDialog.content}
+                  onChange={e => setPostDialog(d => ({ ...d, content: e.target.value }))}
+                  maxLength={500}
+                  placeholder="Share what you're working on, ask for advice, or celebrate a win..." rows={4}/>
+                <p className="text-xs text-muted-foreground text-right mt-1">
+                  {postDialog.content.length}/500
+                </p>
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1.5 block">Category</label>
+                <div className="flex flex-wrap gap-2">
+                  {POST_TAGS.map(t => <Badge key={t} variant={postDialog.tag===t?"default":"outline"} className="cursor-pointer" onClick={() => setPostDialog(d => ({ ...d, tag: t }))}>{t}</Badge>)}
+                </div>
+              </div>
+              {postDialog.video && (
+                <div className="relative rounded-xl overflow-hidden">
+                  <video src={postDialog.video} controls disablePictureInPicture
+                    controlsList="nodownload nopictureinpicture noplaybackrate"
+                    className="w-full max-h-48 rounded-xl" style={{backgroundColor:"#000"}}/>
+                  <button onClick={handleRemovePostVideo} className="absolute top-2 right-2 h-7 w-7 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-black/70"><X className="h-3.5 w-3.5"/></button>
+                </div>
+              )}
+              {!postDialog.video && (
+                <MediaUploadBar
+                  images={postDialog.images}
+                  onAddImage={url => setPostDialog(d => ({ ...d, images: [...d.images, url] }))}
+                  onRemoveImage={handleRemovePostImageAt}
+                  onVideo={url => setPostDialog(d => ({ ...d, video: url }))}
+                  onUploadingChange={v => setPostDialog(d => ({ ...d, uploading: v }))}
+                  hasVideo={!!postDialog.video}
+                  userId={user.id}
+                  deferred
+                  onImageFile={f => setPostDialog(d => ({ ...d, imageFiles: [...d.imageFiles, f] }))}
+                  onVideoFile={f => setPostDialog(d => ({ ...d, videoFile: f }))}
+                />
+              )}
+            </>)}
+
+            {/* Collab fields */}
+            {postDialog.postType === "collab" && (<>
+              <div>
+                <label className="text-sm font-medium mb-1.5 block">Project / idea name</label>
+                <Input value={collabDialog.title}
+                  onChange={e => setCollabDialog(d => ({ ...d, title: e.target.value }))}
+                  maxLength={20}
+                  placeholder="e.g. Community Book Club" className="h-10"/>
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1.5 block">Co-founder role</label>
+                <Input value={collabDialog.looking}
+                  onChange={e => setCollabDialog(d => ({ ...d, looking: e.target.value }))}
+                  maxLength={50}
+                  placeholder="e.g. Technical Co-founder, Designer Co-founder" className="h-10"/>
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1.5 block">Describe your project</label>
+                <Textarea value={collabDialog.desc}
+                  onChange={e => setCollabDialog(d => ({ ...d, desc: e.target.value }))}
+                  maxLength={500}
+                  placeholder="What are you building, what stage are you at, and what do you need from a co-founder?" rows={3}/>
+              </div>
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-sm font-medium">Relevant skills / areas</label>
+                  <span className={`text-xs font-medium ${collabDialog.skills.length >= 3 ? "text-primary" : "text-muted-foreground"}`}>{collabDialog.skills.length}/3</span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {SKILL_OPTIONS.map(s => {
+                    const selected = collabDialog.skills.includes(s);
+                    const maxed = !selected && collabDialog.skills.length >= 3;
+                    return (
+                      <Badge key={s} variant={selected ? "default" : "outline"}
+                        className={`cursor-pointer transition-all ${maxed ? "opacity-40 cursor-not-allowed" : "hover:scale-105"}`}
+                        onClick={() => { if (maxed) return; setCollabDialog(d => ({ ...d, skills: selected ? d.skills.filter(x => x !== s) : [...d.skills, s] })); }}>
+                        {s}
+                      </Badge>
+                    );
+                  })}
+                  {collabDialog.skills.filter(s => !(SKILL_OPTIONS as readonly string[]).includes(s)).map(s => (
+                    <Badge key={s} variant="default" className="cursor-pointer gap-1"
+                      onClick={() => setCollabDialog(d => ({ ...d, skills: d.skills.filter(x => x !== s) }))}>
+                      {s} <X className="h-2.5 w-2.5"/>
+                    </Badge>
+                  ))}
+                </div>
+                <div className="flex gap-2 mt-2">
+                  <Input
+                    placeholder="Other skill (type and press Enter)"
+                    value={collabDialog.customSkillInput}
+                    onChange={e => setCollabDialog(d => ({ ...d, customSkillInput: e.target.value }))}
+                    className="h-8 text-sm"
+                    maxLength={20}
+                    onKeyDown={e => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        const val = collabDialog.customSkillInput.trim();
+                        if (val && !collabDialog.skills.includes(val) && collabDialog.skills.length < 3) {
+                          setCollabDialog(d => ({ ...d, skills: [...d.skills, val], customSkillInput: "" }));
+                        } else {
+                          setCollabDialog(d => ({ ...d, customSkillInput: "" }));
+                        }
+                      }
+                    }}
+                  />
+                  <Button type="button" size="sm" variant="outline" className="h-8 px-3 shrink-0"
+                    disabled={collabDialog.skills.length >= 3}
+                    onClick={() => {
+                      const val = collabDialog.customSkillInput.trim();
+                      if (val && !collabDialog.skills.includes(val) && collabDialog.skills.length < 3) {
+                        setCollabDialog(d => ({ ...d, skills: [...d.skills, val], customSkillInput: "" }));
+                      } else {
+                        setCollabDialog(d => ({ ...d, customSkillInput: "" }));
+                      }
+                    }}>
+                    Add
+                  </Button>
+                </div>
+              </div>
+            </>)}
+          </div>
+          <DialogFooter>
+            {postDialog.postType === "feed" ? (
+              <Button onClick={handleCreatePost} disabled={!postDialog.content.trim()} className="gap-2">
+                <Send className="h-4 w-4"/> Publish
+              </Button>
+            ) : (
+              <Button
+                onClick={() => { setPostDialog(d => ({ ...d, open: false })); handleCreateCollab(); }}
+                disabled={!collabDialog.title.trim()||!collabDialog.looking.trim()||!collabDialog.desc.trim()||collabDialog.uploading||collabDialog.publishing}
+                className="gap-2"
+              >
+                <Send className="h-4 w-4"/> {collabDialog.uploading ? "Uploading..." : collabDialog.publishing ? "Posting..." : "Post collab"}
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Dedicated collab creation dialog (from Collabs tab button) ── */}
+      <Dialog open={collabDialog.open} onOpenChange={(v) => {
+        if (!v) { handleRemoveCollabImage(); handleRemoveCollabVideo(); }
+        setCollabDialog(d => ({ ...d, open: v }));
+      }}>
+        <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Post a collaboration</DialogTitle>
+            <DialogDescription>Share what you're building and the co-founder you're looking for.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Project / idea name</label>
+              <Input value={collabDialog.title}
+                onChange={e => setCollabDialog(d => ({ ...d, title: e.target.value }))}
+                maxLength={20}
+                placeholder="e.g. Community Book Club" className="h-10"/>
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Co-founder role</label>
+              <Input value={collabDialog.looking}
+                onChange={e => setCollabDialog(d => ({ ...d, looking: e.target.value }))}
+                maxLength={50}
+                placeholder="e.g. Technical Co-founder, Designer Co-founder" className="h-10"/>
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Describe your project</label>
+              <Textarea value={collabDialog.desc}
+                onChange={e => setCollabDialog(d => ({ ...d, desc: e.target.value }))}
+                maxLength={500}
+                placeholder="What are you building, what stage are you at, and what do you need from a co-founder?" rows={3}/>
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-sm font-medium">Relevant skills / areas</label>
+                <span className={`text-xs font-medium ${collabDialog.skills.length >= 3 ? "text-primary" : "text-muted-foreground"}`}>{collabDialog.skills.length}/3</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {SKILL_OPTIONS.map(s => {
+                  const selected = collabDialog.skills.includes(s);
+                  const maxed = !selected && collabDialog.skills.length >= 3;
+                  return (
+                    <Badge key={s} variant={selected ? "default" : "outline"}
+                      className={`cursor-pointer transition-all ${maxed ? "opacity-40 cursor-not-allowed" : "hover:scale-105"}`}
+                      onClick={() => { if (maxed) return; setCollabDialog(d => ({ ...d, skills: selected ? d.skills.filter(x => x !== s) : [...d.skills, s] })); }}>
+                      {s}
+                    </Badge>
+                  );
+                })}
+                {collabDialog.skills.filter(s => !(SKILL_OPTIONS as readonly string[]).includes(s)).map(s => (
+                  <Badge key={s} variant="default" className="cursor-pointer gap-1"
+                    onClick={() => setCollabDialog(d => ({ ...d, skills: d.skills.filter(x => x !== s) }))}>
+                    {s} <X className="h-2.5 w-2.5"/>
+                  </Badge>
+                ))}
+              </div>
+              <div className="flex gap-2 mt-2">
+                <Input
+                  placeholder="Other skill (type and press Enter)"
+                  value={collabDialog.customSkillInput}
+                  onChange={e => setCollabDialog(d => ({ ...d, customSkillInput: e.target.value }))}
+                  className="h-8 text-sm"
+                  maxLength={20}
+                  onKeyDown={e => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      const val = collabDialog.customSkillInput.trim();
+                      if (val && !collabDialog.skills.includes(val) && collabDialog.skills.length < 3) {
+                        setCollabDialog(d => ({ ...d, skills: [...d.skills, val], customSkillInput: "" }));
+                      } else {
+                        setCollabDialog(d => ({ ...d, customSkillInput: "" }));
+                      }
+                    }
+                  }}
+                />
+                <Button type="button" size="sm" variant="outline" className="h-8 px-3 shrink-0"
+                  disabled={collabDialog.skills.length >= 3}
+                  onClick={() => {
+                    const val = collabDialog.customSkillInput.trim();
+                    if (val && !collabDialog.skills.includes(val) && collabDialog.skills.length < 3) {
+                      setCollabDialog(d => ({ ...d, skills: [...d.skills, val], customSkillInput: "" }));
+                    } else {
+                      setCollabDialog(d => ({ ...d, customSkillInput: "" }));
+                    }
+                  }}>
+                  Add
+                </Button>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={handleCreateCollab} disabled={!collabDialog.title.trim()||!collabDialog.looking.trim()||!collabDialog.desc.trim()||collabDialog.uploading||collabDialog.publishing} className="gap-2">
+              <Send className="h-4 w-4"/> {collabDialog.uploading ? "Uploading..." : collabDialog.publishing ? "Posting..." : "Post collab"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {commentingPost && <CommentSheet post={commentingPost} currentUserId={user.id} isLoading={commentsLoading} connectedUserIds={connectedUserIds} onClose={() => setCommentingPost(null)} onAddComment={handleAddComment} onDeleteComment={handleDeleteComment} onEditComment={handleEditComment} onReportComment={handleReportComment}/>}
       {editingPost && <EditPostDialog post={editingPost} open={!!editingPost} onClose={() => setEditingPost(null)} onSave={handleEditPost} userId={user.id}/>}
