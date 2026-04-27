@@ -1141,7 +1141,7 @@ export default function Messages() {
           <MoreHorizontal className="h-3.5 w-3.5" />
         </button>
         {menuOpen && (
-          <div className="absolute right-0 bottom-full mb-1 z-50 bg-card border border-border rounded-xl shadow-xl overflow-hidden min-w-[150px]"
+          <div className="absolute right-0 top-full mt-1 z-50 bg-card border border-border rounded-xl shadow-xl overflow-hidden min-w-[150px]"
             onClick={e => e.stopPropagation()}>
             {isTextOnly && (
               <button
@@ -1427,7 +1427,7 @@ export default function Messages() {
                   </div>
                 </button>
                 {/* 3-dot menu — visible on hover */}
-                <div className="relative pr-2 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className={`relative pr-2 shrink-0 transition-opacity ${convoMenuId === c.id ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
                   <button
                     onClick={e => { e.stopPropagation(); setConvoMenuId(convoMenuId === c.id ? null : c.id); }}
                     className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors">
