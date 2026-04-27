@@ -271,6 +271,7 @@ export default function Messages() {
   const [convoMenuId, setConvoMenuId] = useState<string | null>(null);
   // Message 3-dot menu + inline edit
   const [dmMsgMenuId, setDmMsgMenuId] = useState<string | null>(null);
+  const [dmMsgMenuDir, setDmMsgMenuDir] = useState<"up" | "down">("down");
   const [editingDmMsgId, setEditingDmMsgId] = useState<string | null>(null);
   const [editDmMsgText, setEditDmMsgText] = useState("");
   const editDmRef = useRef<HTMLInputElement>(null);
@@ -1136,12 +1137,12 @@ export default function Messages() {
     const msgMenuBtn = (isMe && !reportSelectionMode) ? (
       <div className="relative shrink-0 self-end mb-1">
         <button
-          onClick={e => { e.stopPropagation(); setDmMsgMenuId(menuOpen ? null : m.id); }}
+          onClick={e => { e.stopPropagation(); const dir = window.innerHeight - (e.currentTarget as HTMLElement).getBoundingClientRect().bottom < 130 ? "up" : "down"; setDmMsgMenuDir(dir); setDmMsgMenuId(menuOpen ? null : m.id); }}
           className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-muted/80 transition-all">
           <MoreHorizontal className="h-3.5 w-3.5" />
         </button>
         {menuOpen && (
-          <div className="absolute right-0 top-full mt-1 z-50 bg-card border border-border rounded-xl shadow-xl overflow-hidden min-w-[150px]"
+          <div className={`absolute right-0 z-50 bg-card border border-border rounded-xl shadow-xl overflow-hidden min-w-[150px] ${dmMsgMenuDir === "up" ? "bottom-full mb-1" : "top-full mt-1"}`}
             onClick={e => e.stopPropagation()}>
             {isTextOnly && (
               <button
@@ -1234,24 +1235,26 @@ export default function Messages() {
           {isMe && replyBtn(true)}
           {isMe && msgMenuBtn}
           {isMe && reactionBtn}
-          <div className="relative" style={{ maxWidth:300, borderRadius:radius, overflow:"hidden", background:bgColor }}>
+          <div className="relative" style={{ maxWidth:300 }}>
             <ReactionPicker />
-            <ReplyStrip isMe={isMe} />
-            <img
-              src={m.media_url}
-              alt="image"
-              style={{ display:"block", width:"100%", height:"auto", cursor:"pointer",
-                marginTop: m.reply_to_text ? 6 : 0 }}
-              loading="lazy"
-              onClick={reportSelectionMode ? undefined : () => setMediaPreview({ type:"image", url:m.media_url! })}
-            />
-            {m.text && (
-              <div style={{ padding:"6px 12px 2px", fontSize:14, lineHeight:1.4,
-                whiteSpace:"pre-wrap", wordBreak:"break-word", color:textColor }}>
-                {renderTextWithLinks(m.text, isMe)}
-              </div>
-            )}
-            <Meta m={m} isMe={isMe} />
+            <div style={{ borderRadius:radius, overflow:"hidden", background:bgColor }}>
+              <ReplyStrip isMe={isMe} />
+              <img
+                src={m.media_url}
+                alt="image"
+                style={{ display:"block", width:"100%", height:"auto", cursor:"pointer",
+                  marginTop: m.reply_to_text ? 6 : 0 }}
+                loading="lazy"
+                onClick={reportSelectionMode ? undefined : () => setMediaPreview({ type:"image", url:m.media_url! })}
+              />
+              {m.text && (
+                <div style={{ padding:"6px 12px 2px", fontSize:14, lineHeight:1.4,
+                  whiteSpace:"pre-wrap", wordBreak:"break-word", color:textColor }}>
+                  {renderTextWithLinks(m.text, isMe)}
+                </div>
+              )}
+              <Meta m={m} isMe={isMe} />
+            </div>
             <ReactionPills />
           </div>
           {!isMe && reactionBtn}
