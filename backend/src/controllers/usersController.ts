@@ -256,80 +256,40 @@ export async function unblockUser(req: AuthRequest, res: Response): Promise<void
 export async function deleteMyAccount(req: AuthRequest, res: Response): Promise<void> {
   const userId = req.user.id;
 
-  // Set deleted_at to start the 7-day cooldown. Do NOT ban auth so the user
-  // can still log back in and recover within the window.
-  const { error } = await supabaseAdmin
-    .from("profiles")
-    .update({ deleted_at: new Date().toISOString() })
-    .eq("id", userId);
-
-  if (error) { res.status(500).json({ success: false, error: error.message }); return; }
-
-  res.json({ success: true, data: null });
-}
-
-export async function recoverAccount(req: AuthRequest, res: Response): Promise<void> {
-  const userId = req.user.id;
-
-  const { data: profile } = await supabaseAdmin
-    .from("profiles")
-    .select("deleted_at")
-    .eq("id", userId)
-    .single();
-
-  if (!profile?.deleted_at) {
-    res.status(400).json({ success: false, error: "Account is not scheduled for deletion" });
-    return;
-  }
-
-  const elapsed = Date.now() - new Date(profile.deleted_at).getTime();
-  if (elapsed > 7 * 24 * 60 * 60 * 1000) {
-    res.status(410).json({ success: false, error: "Recovery window has expired" });
-    return;
-  }
-
-  const { error } = await supabaseAdmin
-    .from("profiles")
-    .update({ deleted_at: null })
-    .eq("id", userId);
-
-  if (error) { res.status(500).json({ success: false, error: error.message }); return; }
-
-  res.json({ success: true, data: null });
-}
-
-export async function purgeExpiredAccount(req: AuthRequest, res: Response): Promise<void> {
-  const userId = req.user.id;
-
-  const { data: profile } = await supabaseAdmin
-    .from("profiles")
-    .select("deleted_at")
-    .eq("id", userId)
-    .single();
-
-  if (!profile?.deleted_at) { res.json({ success: true, data: { purged: false } }); return; }
-
-  const elapsed = Date.now() - new Date(profile.deleted_at).getTime();
-  if (elapsed <= 7 * 24 * 60 * 60 * 1000) { res.json({ success: true, data: { purged: false } }); return; }
-
-  // 7 days have passed — permanently delete everything
+  // Permanently delete all user data immediately.
+  // Messages are intentionally kept so conversation history is preserved;
+  // orphaned sender_id will display as "Deleted Account" in the UI.
   await Promise.all([
     supabaseAdmin.from("post_likes").delete().eq("user_id", userId),
     supabaseAdmin.from("comments").delete().eq("user_id", userId),
     supabaseAdmin.from("connections").delete().or(`requester_id.eq.${userId},receiver_id.eq.${userId}`),
     supabaseAdmin.from("notifications").delete().eq("user_id", userId),
-    supabaseAdmin.from("messages").delete().or(`sender_id.eq.${userId},receiver_id.eq.${userId}`),
     supabaseAdmin.from("blocks").delete().or(`blocker_id.eq.${userId},blocked_id.eq.${userId}`),
     supabaseAdmin.from("saved_posts").delete().eq("user_id", userId),
     supabaseAdmin.from("saved_collabs").delete().eq("user_id", userId),
     supabaseAdmin.from("collab_interests").delete().eq("user_id", userId),
+    supabaseAdmin.from("group_members").delete().eq("user_id", userId),
+    supabaseAdmin.from("group_join_requests").delete().eq("user_id", userId),
+    supabaseAdmin.from("dm_message_reactions").delete().eq("user_id", userId),
+    supabaseAdmin.from("group_message_reactions").delete().eq("user_id", userId),
+    supabaseAdmin.from("hidden_conversations").delete().or(`user_id.eq.${userId},other_id.eq.${userId}`),
+    supabaseAdmin.from("mutes").delete().or(`muter_id.eq.${userId},muted_id.eq.${userId}`),
   ]);
   await supabaseAdmin.from("posts").delete().eq("user_id", userId);
   await supabaseAdmin.from("collabs").delete().eq("user_id", userId);
   await supabaseAdmin.from("profiles").delete().eq("id", userId);
   await supabaseAdmin.auth.admin.deleteUser(userId);
 
-  res.json({ success: true, data: { purged: true } });
+  res.json({ success: true, data: null });
+}
+
+// Kept as stubs for backward compatibility with older clients.
+export async function recoverAccount(_req: AuthRequest, res: Response): Promise<void> {
+  res.status(410).json({ success: false, error: "Account recovery is no longer supported. Deletion is immediate and permanent." });
+}
+
+export async function purgeExpiredAccount(_req: AuthRequest, res: Response): Promise<void> {
+  res.json({ success: true, data: { purged: false } });
 }
 
 /** GET /api/users/search?q=xxx

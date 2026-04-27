@@ -96,7 +96,7 @@ export async function joinGroup(req: AuthRequest, res: Response): Promise<void> 
 
   // Check if group is private — must have an accepted join request or be invited
   const { data: group } = await supabaseAdmin.from("groups")
-    .select("visibility, name").eq("id", id).single();
+    .select("visibility, name, member_count").eq("id", id).single();
   if (group?.visibility === "private") {
     const { data: req_ } = await supabaseAdmin.from("group_join_requests")
       .select("status").eq("group_id", id).eq("user_id", userId).maybeSingle();
@@ -104,6 +104,11 @@ export async function joinGroup(req: AuthRequest, res: Response): Promise<void> 
       res.status(403).json({ success: false, error: "This community is private. Request to join first." });
       return;
     }
+  }
+
+  if ((group?.member_count ?? 0) >= 250) {
+    res.status(400).json({ success: false, error: "This community has reached the maximum of 250 members." });
+    return;
   }
 
   const { error } = await supabaseAdmin.from("group_members")
@@ -548,6 +553,15 @@ export async function respondJoinRequest(req: AuthRequest, res: Response): Promi
     .select("user_id").eq("id", requestId).eq("group_id", groupId).single();
   if (!joinReq) { res.status(404).json({ success: false, error: "Request not found" }); return; }
 
+  if (status === "accepted") {
+    const { data: grp } = await supabaseAdmin.from("groups")
+      .select("member_count").eq("id", groupId).single();
+    if ((grp?.member_count ?? 0) >= 250) {
+      res.status(400).json({ success: false, error: "This community has reached the maximum of 250 members." });
+      return;
+    }
+  }
+
   await supabaseAdmin.from("group_join_requests").update({ status }).eq("id", requestId);
 
   if (status === "accepted") {
@@ -602,6 +616,13 @@ export async function addMember(req: AuthRequest, res: Response): Promise<void> 
   const { data: ban } = await supabaseAdmin.from("group_bans")
     .select("id").eq("group_id", groupId).eq("user_id", userId).maybeSingle();
   if (ban) { res.status(403).json({ success: false, error: "This user is banned from the community" }); return; }
+
+  const { data: groupInfo } = await supabaseAdmin.from("groups")
+    .select("name, member_count").eq("id", groupId).single();
+  if ((groupInfo?.member_count ?? 0) >= 250) {
+    res.status(400).json({ success: false, error: "This community has reached the maximum of 250 members." });
+    return;
+  }
 
   const { error } = await supabaseAdmin.from("group_members")
     .insert({ group_id: groupId, user_id: userId });

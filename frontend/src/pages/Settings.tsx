@@ -195,7 +195,7 @@ export default function Settings() {
     setDeleteLoading(true);
     try {
       await deleteMyAccount();
-      toast({ title: "Account scheduled for deletion", description: "You have 7 days to recover it by logging back in." });
+      toast({ title: "Account permanently deleted", description: "Your account and all associated data have been removed." });
       await signOut();
       navigate("/");
     } catch (err: any) {
@@ -283,7 +283,7 @@ export default function Settings() {
             <div>
               <h2 className="text-lg font-bold text-foreground">Delete your account</h2>
               <p className="text-sm text-muted-foreground mt-1">
-                Your account will be scheduled for deletion. You can recover it within 7 days by logging back in. After that, all your data will be permanently deleted.
+                This is permanent and cannot be undone. Your profile, posts, and account data will be immediately and permanently deleted. Your messages will remain in conversations but show as "Deleted Account".
               </p>
             </div>
             <div>

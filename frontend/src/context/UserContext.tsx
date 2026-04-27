@@ -195,30 +195,6 @@ export function UserProvider({ children }: { children: ReactNode }) {
       if (thisVersion !== syncVersionRef.current) return;
       if (rowError && rowError.code !== "PGRST116") return;
 
-      if (row?.deleted_at) {
-        const elapsed = Date.now() - new Date(row.deleted_at).getTime();
-        const sevenDays = 7 * 24 * 60 * 60 * 1000;
-        if (elapsed > sevenDays) {
-          // 7-day window expired — ask backend to permanently purge
-          try {
-            const { data: purgeResult } = await import("@/api/users").then(m => m.purgeCheckAccount());
-            if ((purgeResult as any)?.purged) {
-              localStorage.removeItem(cacheKey(userId));
-              await supabase.auth.signOut();
-              return;
-            }
-          } catch { /* backend purge failed — sign out anyway */ }
-          localStorage.removeItem(cacheKey(userId));
-          await supabase.auth.signOut();
-          return;
-        }
-        // Still within 7-day window — redirect to recovery page
-        const next = { ...DEFAULT_USER, id: userId, deletedAt: row.deleted_at };
-        writeCache(next);
-        setUser(next);
-        return;
-      }
-
       if (!row) {
         const cached = readCache(userId);
         if (cached?.deletedAt) return;
@@ -374,23 +350,12 @@ export function UserProvider({ children }: { children: ReactNode }) {
     const checkAccountState = async () => {
       const { data, error } = await (supabase as any)
         .from("profiles")
-        .select("deleted_at, permanently_deleted, account_status")
+        .select("account_status")
         .eq("id", id)
         .maybeSingle();
       // Network/auth errors return null data — don't sign out on transient failures
       if (error || !data) return;
-      if (data.permanently_deleted) {
-        localStorage.removeItem(cacheKey(id));
-        await supabase.auth.signOut();
-        window.location.href = "/";
-        return;
-      } else if (data.deleted_at) {
-        setUser(prev => {
-          const next = { ...prev, deletedAt: data.deleted_at };
-          localStorage.removeItem(cacheKey(id));
-          return next;
-        });
-      } else if (data.account_status === "banned") {
+      if (data.account_status === "banned") {
         setUser(prev => ({ ...prev, accountStatus: "banned" }));
       }
     };
@@ -416,11 +381,6 @@ export function UserProvider({ children }: { children: ReactNode }) {
         filter: `id=eq.${authUser.id}`,
       }, (payload) => {
         const row = payload.new as any;
-        if (row.permanently_deleted) {
-          localStorage.removeItem(cacheKey(authUser.id));
-          supabase.auth.signOut();
-          return;
-        }
         if (row.account_status === "banned") {
           setUser(prev => ({ ...prev, accountStatus: "banned" }));
         }
