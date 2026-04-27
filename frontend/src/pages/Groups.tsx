@@ -739,9 +739,9 @@ export default function Groups() {
     if (sort === "popular") {
       return [...base].sort((a, b) => b.member_count - a.member_count);
     }
-    // default: stable random order assigned once on load
+    // default: weighted-random order (higher score = earlier); score is stable per page load
     return [...base].sort((a, b) =>
-      (shuffleOrderRef.current.get(a.id) ?? 0) - (shuffleOrderRef.current.get(b.id) ?? 0)
+      (shuffleOrderRef.current.get(b.id) ?? 0) - (shuffleOrderRef.current.get(a.id) ?? 0)
     );
   }, [groups, search, topic, filter, sort, joinedIds, activeGroupIds, user.id]);
 
@@ -771,9 +771,17 @@ export default function Groups() {
       ]);
       if (groupsErr) throw groupsErr;
 
-      // Assign stable random order once — used by "Default" sort
+      // Assign stable weighted-random score once per page load for "Default" sort.
+      // Score = popularity_boost (0–0.4, log-scaled by member_count) + random (0–0.6).
+      // This lets mid-sized communities occasionally rank above large ones while
+      // very small communities rarely dominate the top positions.
       const newShuffle = new Map<string, number>();
-      (groupsData || []).forEach((g: any) => newShuffle.set(g.id, Math.random()));
+      const maxMembers = Math.max(1, ...(groupsData || []).map((g: any) => g.member_count ?? 0));
+      (groupsData || []).forEach((g: any) => {
+        const pop = Math.log1p(g.member_count ?? 0) / Math.log1p(maxMembers); // 0–1, log-scaled
+        const score = pop * 0.4 + Math.random() * 0.6;
+        newShuffle.set(g.id, score);
+      });
       shuffleOrderRef.current = newShuffle;
 
       // Compute active groups from groups data — no extra query needed
