@@ -1890,14 +1890,20 @@ export default function Feed() {
     if (!user.id) return;
 
     // Show cached data immediately — always, regardless of age.
+    // Skip cache if both arrays are empty (would have been poisoned by a previous failed load).
     let hadCache = false;
     try {
       const raw = localStorage.getItem(FEED_CACHE_KEY);
       if (raw) {
         const { posts: cp, collabs: cc } = JSON.parse(raw);
-        applyFeedData(cp, cc);
-        setLoading(false);
-        hadCache = true;
+        if ((cp && cp.length > 0) || (cc && cc.length > 0)) {
+          applyFeedData(cp, cc);
+          setLoading(false);
+          hadCache = true;
+        } else {
+          // Empty cache entry — remove it so it doesn't poison future loads
+          localStorage.removeItem(FEED_CACHE_KEY);
+        }
       }
     } catch {}
 
@@ -1918,6 +1924,20 @@ export default function Feed() {
         (supabase as any).from("blocks").select("blocked_id").eq("blocker_id", user.id),
         (supabase as any).from("blocks").select("blocker_id").eq("blocked_id", user.id),
       ]);
+
+      // Surface Supabase query errors explicitly instead of silently treating
+      // null data as an empty array (which looks identical to "no posts exist")
+      if (postsRes.error || collabsRes.error) {
+        const errMsg = (postsRes.error || collabsRes.error)?.message ?? "Query failed";
+        if (!isRetry) {
+          if (feedRetryTimerRef.current) clearTimeout(feedRetryTimerRef.current);
+          feedRetryTimerRef.current = setTimeout(() => fetchFeed(true), 2000);
+        } else {
+          setLoading(false);
+        }
+        logger.error("feed.query.error", { error: errMsg });
+        return;
+      }
 
       const blockedIds = new Set<string>([
         ...(blockedRes.data || []).map((r: any) => r.blocked_id),
@@ -1977,9 +1997,12 @@ export default function Feed() {
 
       applyFeedData(rawPosts, rawCollabs);
 
-      try {
-        localStorage.setItem(FEED_CACHE_KEY, JSON.stringify({ ts: Date.now(), posts: rawPosts, collabs: rawCollabs }));
-      } catch {}
+      // Only persist non-empty results — never poison the cache with empty arrays
+      if (rawPosts.length > 0 || rawCollabs.length > 0) {
+        try {
+          localStorage.setItem(FEED_CACHE_KEY, JSON.stringify({ ts: Date.now(), posts: rawPosts, collabs: rawCollabs }));
+        } catch {}
+      }
 
       setLoading(false);
       logger.info("feed.load.done", { userId: user.id, postCount: rawPosts.length, collabCount: rawCollabs.length });
