@@ -49,14 +49,23 @@ type Message = {
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 function fmtTime(iso: string) {
+  return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+function fmtDate(iso: string) {
   const d = new Date(iso);
-  const now = new Date();
-  if (d.toDateString() === now.toDateString())
-    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  const yest = new Date(now); yest.setDate(yest.getDate() - 1);
+  const today = new Date();
+  if (d.toDateString() === today.toDateString()) return "Today";
+  const yest = new Date(today); yest.setDate(yest.getDate() - 1);
   if (d.toDateString() === yest.toDateString()) return "Yesterday";
   return d.toLocaleDateString();
 }
+const DateDivider = ({ label }: { label: string }) => (
+  <div className="flex items-center gap-3 py-2">
+    <div className="flex-1 h-px bg-border" />
+    <span className="text-[10px] font-medium text-muted-foreground px-2">{label}</span>
+    <div className="flex-1 h-px bg-border" />
+  </div>
+);
 
 function initials(name: string) {
   return name ? name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase() : "?";
@@ -1617,26 +1626,36 @@ export default function Messages() {
                         </button>
                       </div>
                     )}
-                    {messages.map(m => {
-                      const isCurrentSearchMatch = msgSearchMatchIds.length > 0 && msgSearchMatchIds[msgSearchIndex] === m.id;
-                      const isAnySearchMatch = msgSearchMatchIds.includes(m.id);
-                      const selectable = reportSelectionMode && m.sender_id !== user.id;
-                      const isSelected = reportSelectedMsgIds.has(m.id);
-                      return (
-                        <div
-                          key={m.id}
-                          id={`msg-${m.id}`}
-                          className={`rounded-xl transition-colors ${isCurrentSearchMatch ? "bg-amber-400/10" : isAnySearchMatch ? "bg-amber-400/5" : ""} ${selectable ? "cursor-pointer" : ""} ${isSelected ? "ring-2 ring-rose-500/50 rounded-xl" : ""}`}
-                          onClick={selectable ? () => setReportSelectedMsgIds(prev => {
-                            const n = new Set(prev);
-                            n.has(m.id) ? n.delete(m.id) : n.add(m.id);
-                            return n;
-                          }) : undefined}
-                        >
-                          {renderMessage(m)}
-                        </div>
-                      );
-                    })}
+                    {(() => {
+                      let lastDate = "";
+                      const els: React.ReactNode[] = [];
+                      messages.forEach(m => {
+                        const dateLabel = fmtDate(m.created_at);
+                        if (dateLabel !== lastDate) {
+                          els.push(<DateDivider key={"date-" + m.id} label={dateLabel} />);
+                          lastDate = dateLabel;
+                        }
+                        const isCurrentSearchMatch = msgSearchMatchIds.length > 0 && msgSearchMatchIds[msgSearchIndex] === m.id;
+                        const isAnySearchMatch = msgSearchMatchIds.includes(m.id);
+                        const selectable = reportSelectionMode && m.sender_id !== user.id;
+                        const isSelected = reportSelectedMsgIds.has(m.id);
+                        els.push(
+                          <div
+                            key={m.id}
+                            id={`msg-${m.id}`}
+                            className={`rounded-xl transition-colors ${isCurrentSearchMatch ? "bg-amber-400/10" : isAnySearchMatch ? "bg-amber-400/5" : ""} ${selectable ? "cursor-pointer" : ""} ${isSelected ? "ring-2 ring-rose-500/50 rounded-xl" : ""}`}
+                            onClick={selectable ? () => setReportSelectedMsgIds(prev => {
+                              const n = new Set(prev);
+                              n.has(m.id) ? n.delete(m.id) : n.add(m.id);
+                              return n;
+                            }) : undefined}
+                          >
+                            {renderMessage(m)}
+                          </div>
+                        );
+                      });
+                      return els;
+                    })()}
                   </>
                 )}
                 <div ref={bottomRef} />
