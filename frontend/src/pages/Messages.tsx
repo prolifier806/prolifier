@@ -266,6 +266,7 @@ export default function Messages() {
   type ReactionMap = Record<string, Record<string, { count: number; userIds: string[] }>>;
   const [reactions, setReactions] = useState<ReactionMap>({});
   const [reactionPickerMsgId, setReactionPickerMsgId] = useState<string | null>(null);
+  const [reactionPickerDir, setReactionPickerDir] = useState<"up" | "down">("up");
   const QUICK_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
   // Sidebar conversation context menu
   const [convoMenuId, setConvoMenuId] = useState<string | null>(null);
@@ -1124,7 +1125,7 @@ export default function Messages() {
 
     const reactionBtn = reportSelectionMode ? null : (
       <button
-        onClick={e => { e.stopPropagation(); setReactionPickerMsgId(reactionPickerMsgId === m.id ? null : m.id); }}
+        onClick={e => { e.stopPropagation(); const dir = (e.currentTarget as HTMLElement).getBoundingClientRect().top < 160 ? "down" : "up"; setReactionPickerDir(dir); setReactionPickerMsgId(reactionPickerMsgId === m.id ? null : m.id); }}
         className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground
           opacity-0 group-hover:opacity-100 hover:bg-muted/80 transition-all shrink-0 self-end mb-1">
         <Smile className="h-3.5 w-3.5" />
@@ -1166,7 +1167,7 @@ export default function Messages() {
     // Reaction picker + pills — shared for all message types
     const ReactionPicker = () => reactionPickerMsgId === m.id ? (
       <div
-        className={`absolute ${isMe ? "left-0" : "right-0"} bottom-full mb-1 z-50 bg-card border border-border rounded-2xl shadow-xl px-2 py-1.5 flex gap-1`}
+        className={`absolute ${isMe ? "right-0" : "left-0"} ${reactionPickerDir === "down" ? "top-full mt-1" : "bottom-full mb-1"} z-50 bg-card border border-border rounded-2xl shadow-xl px-2 py-1.5 flex gap-1`}
         onClick={e => e.stopPropagation()}>
         {QUICK_EMOJIS.map(emoji => (
           <button key={emoji} onClick={() => handleReaction(m.id, emoji)}
