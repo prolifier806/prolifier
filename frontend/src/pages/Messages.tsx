@@ -1165,7 +1165,7 @@ export default function Messages() {
     // Reaction picker + pills — shared for all message types
     const ReactionPicker = () => reactionPickerMsgId === m.id ? (
       <div
-        className={`absolute ${isMe ? "right-0" : "left-0"} bottom-full mb-1 z-50 bg-card border border-border rounded-2xl shadow-xl px-2 py-1.5 flex gap-1`}
+        className={`absolute ${isMe ? "left-0" : "right-0"} bottom-full mb-1 z-50 bg-card border border-border rounded-2xl shadow-xl px-2 py-1.5 flex gap-1`}
         onClick={e => e.stopPropagation()}>
         {QUICK_EMOJIS.map(emoji => (
           <button key={emoji} onClick={() => handleReaction(m.id, emoji)}
@@ -1201,11 +1201,12 @@ export default function Messages() {
           : share.type === "collab" && share.id ? `/feed?tab=collabs&collab=${share.id}` : "/feed";
         return (
           <div key={m.id} className={rowCls}>
-            {!isMe && replyBtn()}
-            {!isMe && reactionBtn}
+            {isMe && replyBtn(true)}
+            {isMe && msgMenuBtn}
+            {isMe && reactionBtn}
             <div className="relative" style={{ maxWidth:300 }}>
               <ReactionPicker />
-              <div style={{ ...textBubble, cursor: reportSelectionMode ? "pointer" : "pointer" }} onClick={reportSelectionMode ? undefined : () => navigate(link)}>
+              <div style={{ ...textBubble, cursor:"pointer" }} onClick={reportSelectionMode ? undefined : () => navigate(link)}>
                 {share.image && <img src={share.image} alt="preview" style={{ display:"block", width:"100%", height:"auto" }} loading="lazy" />}
                 <div style={{ padding:"10px 12px 4px" }}>
                   <p style={{ fontSize:10, fontWeight:700, opacity:.6, textTransform:"uppercase", letterSpacing:".05em", marginBottom:3 }}>
@@ -1219,9 +1220,8 @@ export default function Messages() {
               </div>
               <ReactionPills />
             </div>
-            {isMe && reactionBtn}
-            {isMe && msgMenuBtn}
-            {isMe && replyBtn(true)}
+            {!isMe && reactionBtn}
+            {!isMe && replyBtn()}
           </div>
         );
       }
@@ -1231,8 +1231,9 @@ export default function Messages() {
     if (m.media_type === "image" && m.media_url) {
       return (
         <div key={m.id} className={rowCls}>
-          {!isMe && replyBtn()}
-          {!isMe && reactionBtn}
+          {isMe && replyBtn(true)}
+          {isMe && msgMenuBtn}
+          {isMe && reactionBtn}
           <div className="relative" style={{ maxWidth:300, borderRadius:radius, overflow:"hidden", background:bgColor }}>
             <ReactionPicker />
             <ReplyStrip isMe={isMe} />
@@ -1253,9 +1254,8 @@ export default function Messages() {
             <Meta m={m} isMe={isMe} />
             <ReactionPills />
           </div>
-          {isMe && reactionBtn}
-          {isMe && msgMenuBtn}
-          {isMe && replyBtn(true)}
+          {!isMe && reactionBtn}
+          {!isMe && replyBtn()}
         </div>
       );
     }
@@ -1263,8 +1263,9 @@ export default function Messages() {
     // ── Text / video / file / audio ───────────────────────────────────────
     return (
       <div key={m.id} className={rowCls}>
-        {!isMe && replyBtn()}
-        {!isMe && reactionBtn}
+        {isMe && replyBtn(true)}
+        {isMe && msgMenuBtn}
+        {isMe && reactionBtn}
         <div className="relative" style={{ maxWidth:300 }}>
           <ReactionPicker />
 
@@ -1358,9 +1359,8 @@ export default function Messages() {
 
           <ReactionPills />
         </div>
-        {isMe && reactionBtn}
-        {isMe && msgMenuBtn}
-        {isMe && replyBtn(true)}
+        {!isMe && reactionBtn}
+        {!isMe && replyBtn()}
       </div>
     );
   };
