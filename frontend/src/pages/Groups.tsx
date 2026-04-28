@@ -45,6 +45,7 @@ import {
 } from "@/api/groups";
 import { uploadPostImage, uploadVideo, uploadFile } from "@/api/uploads";
 import { createReport } from "@/api/reports";
+import { containsProfanity, getProfanityError } from "@/lib/profanity";
 
 
 // ── Types ─────────────────────────────────────────────────────────────────
@@ -528,6 +529,7 @@ export default function Groups() {
 
   // Create
   const [newName, setNewName] = useState("");
+  const [newNameError, setNewNameError] = useState<string | null>(null);
   const [newDesc, setNewDesc] = useState("");
   const [newBio, setNewBio] = useState("");
   const [newTopic, setNewTopic] = useState("General");
@@ -2051,6 +2053,11 @@ export default function Groups() {
       toast({ title: "Bio too long", description: "Bio must be 100 characters or fewer.", variant: "destructive" });
       return;
     }
+    const profanityErr = getProfanityError(newName.trim());
+    if (profanityErr) {
+      setNewNameError(profanityErr);
+      return;
+    }
     const ownedCount = groups.filter(g => g.owner_id === user.id).length;
     if (ownedCount >= 10) {
       toast({ title: "Max limit is 10 communities", description: "Delete one of your communities to create a new one.", variant: "destructive" });
@@ -2070,7 +2077,7 @@ export default function Groups() {
       setGroups(prev => [data, ...prev]);
       setJoinedIds(prev => new Set([...prev, data.id]));
       toast({ title: `${data.emoji ?? newEmoji} ${data.name} created!` });
-      setNewName(""); setNewDesc(""); setNewBio(""); setNewTopic("General"); setNewEmoji("🚀"); setNewPrivate(false);
+      setNewName(""); setNewNameError(null); setNewDesc(""); setNewBio(""); setNewTopic("General"); setNewEmoji("🚀"); setNewPrivate(false);
       setNewImageUrl(null); setNewImagePreview(null);
       openGroup(data);
     } catch (err: any) {
@@ -2574,9 +2581,22 @@ export default function Groups() {
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label className="text-sm font-medium">Community name <span className="text-destructive">*</span></label>
-                <span className={`text-xs ${newName.length > 25 ? "text-destructive font-medium" : "text-muted-foreground"}`}>{newName.length}/25</span>
+                <span className={`text-xs ${newName.length >= 25 ? "text-destructive font-medium" : "text-muted-foreground"}`}>{newName.length}/25</span>
               </div>
-              <Input value={newName} onChange={e => setNewName(e.target.value.slice(0, 25))} placeholder="e.g. AI Builders, Design Crew…" className="h-11" maxLength={25} />
+              <Input
+                value={newName}
+                onChange={e => {
+                  const val = e.target.value.slice(0, 25);
+                  setNewName(val);
+                  setNewNameError(containsProfanity(val) ? "Community name contains inappropriate language." : null);
+                }}
+                placeholder="e.g. AI Builders, Design Crew…"
+                className={`h-11 ${newNameError ? "border-destructive focus-visible:ring-destructive" : ""}`}
+                maxLength={25}
+              />
+              {newNameError && (
+                <p className="text-xs text-destructive mt-1.5">{newNameError}</p>
+              )}
             </div>
             <div>
               <div className="flex items-center justify-between mb-1.5">
@@ -2587,7 +2607,7 @@ export default function Groups() {
             </div>
             <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-muted/60 border border-border text-xs text-muted-foreground">
               <Users className="h-3.5 w-3.5 shrink-0 text-primary" />
-              <span>This community has a maximum of <span className="font-semibold text-foreground">250 members</span>.</span>
+              <span>This community has a maximum limit of <span className="font-semibold text-foreground">250 members</span> max.</span>
             </div>
             <div>
               <label className="text-sm font-medium block mb-2">Topic</label>
@@ -2616,7 +2636,7 @@ export default function Groups() {
                 </button>
               ))}
             </div>
-            <Button onClick={createGroup} disabled={!newName.trim() || creating} className="w-full h-11 font-semibold gap-2">
+            <Button onClick={createGroup} disabled={!newName.trim() || !!newNameError || creating} className="w-full h-11 font-semibold gap-2">
               {creating ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Create Community
             </Button>
           </div>
@@ -3878,7 +3898,7 @@ export default function Groups() {
               const unread = unreadCounts[g.id] ?? 0;
               const requested = requestedIds.has(g.id);
               return (
-                <div key={g.id} onClick={() => openGroup(g)}
+                <div key={g.id} onClick={() => navigate(`/group/${g.id}`)}
                   className="flex flex-col rounded-2xl border border-border bg-card hover:shadow-md hover:-translate-y-0.5 transition-all duration-150 cursor-pointer overflow-hidden group">
                   <div className="h-2 w-full bg-gradient-to-r from-primary/60 to-accent/60" />
                   <div className="flex flex-col flex-1 p-5">
@@ -3920,15 +3940,22 @@ export default function Groups() {
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-muted-foreground line-clamp-2 flex-1">{g.bio || g.description}</p>
+                    <p className="text-xs text-muted-foreground line-clamp-2 flex-1 overflow-hidden">{g.bio || g.description}</p>
                     <div className="mt-4 pt-3 border-t border-border flex items-center justify-between">
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
                         <span className="flex items-center gap-1"><Users className="h-3 w-3" />{g.member_count.toLocaleString()}</span>
                         <Badge variant="outline" className="text-[10px] h-4 px-1.5">{g.topic}</Badge>
                       </div>
                       <button
-                        onClick={e => { e.stopPropagation(); (joined || isMine) ? openGroup(g) : toggleJoin(g.id, false, e); }}
-                        className={`h-7 px-3 rounded-lg text-xs font-medium transition-colors ${
+                        onClick={e => {
+                          e.stopPropagation();
+                          if (joined || isMine) {
+                            openGroup(g);
+                          } else {
+                            toggleJoin(g.id, false, e);
+                          }
+                        }}
+                        className={`h-7 px-3 rounded-lg text-xs font-medium transition-colors shrink-0 ${
                           joined || isMine ? "bg-muted text-foreground hover:bg-secondary"
                             : "bg-primary text-primary-foreground hover:opacity-90"
                         }`}>

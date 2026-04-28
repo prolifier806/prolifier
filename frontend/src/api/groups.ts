@@ -1,5 +1,7 @@
 import { apiPost, apiPatch, apiDelete, apiGet, apiPut } from "./client";
 
+export const getGroupById = (id: string) => apiGet<any>(`/api/groups/${id}`);
+
 export const createGroup = (body: { name: string; description?: string; bio?: string; is_private?: boolean; emoji?: string; topic?: string; image_url?: string | null }) =>
   apiPost<any>("/api/groups", body);
 

@@ -45,6 +45,7 @@ const Feed            = lazyWithReload(() => import("./pages/Feed"));
 const Discover        = lazyWithReload(() => import("./pages/Discover"));
 const Messages        = lazyWithReload(() => import("./pages/Messages"));
 const Groups          = lazyWithReload(() => import("./pages/Groups"));
+const GroupDetail     = lazyWithReload(() => import("./pages/GroupDetail"));
 const Notifications   = lazyWithReload(() => import("./pages/Notifications"));
 const Profile         = lazyWithReload(() => import("./pages/Profile"));
 const UserProfile     = lazyWithReload(() => import("./pages/UserProfile"));
@@ -157,6 +158,7 @@ function AppRoutes() {
         <Route path="/messages"      element={<ProtectedRoute><Messages /></ProtectedRoute>} />
         <Route path="/groups"        element={<ProtectedRoute><Groups /></ProtectedRoute>} />
         <Route path="/groups/:id"    element={<ProtectedRoute><Groups /></ProtectedRoute>} />
+        <Route path="/group/:groupId" element={<ProtectedRoute><GroupDetail /></ProtectedRoute>} />
         <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
         <Route path="/profile"       element={<ProtectedRoute><Profile /></ProtectedRoute>} />
         <Route path="/profile/:id"   element={<ProtectedRoute><UserProfile /></ProtectedRoute>} />

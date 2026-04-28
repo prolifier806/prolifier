@@ -82,6 +82,54 @@ async function postSystemMsg(groupId: string, actingUserId: string, text: string
   }
 }
 
+// ── Get single group (public detail view) ────────────────────────────────────
+export async function getGroupById(req: AuthRequest, res: Response): Promise<void> {
+  const { id } = req.params;
+  const userId = req.user.id;
+
+  const { data: group, error } = await supabaseAdmin
+    .from("groups")
+    .select("*")
+    .eq("id", id)
+    .single();
+
+  if (error || !group) {
+    res.status(404).json({ success: false, error: "Community not found" });
+    return;
+  }
+
+  const [{ data: memberRow }, { data: requestRow }, { data: ownerProfile }, { data: recentMessages }] = await Promise.all([
+    supabaseAdmin.from("group_members").select("role").eq("group_id", id).eq("user_id", userId).maybeSingle(),
+    supabaseAdmin.from("group_join_requests").select("status").eq("group_id", id).eq("user_id", userId).maybeSingle(),
+    supabaseAdmin.from("profiles").select("id, name, avatar, color, avatar_url, username").eq("id", group.owner_id).single(),
+    supabaseAdmin.from("group_messages")
+      .select("id, text, media_type, created_at, user_id, profiles:user_id(name, color, avatar_url)")
+      .eq("group_id", id)
+      .eq("is_system", false)
+      .eq("unsent", false)
+      .order("created_at", { ascending: false })
+      .limit(5),
+  ]);
+
+  const isOwner = group.owner_id === userId;
+  const isJoined = !!memberRow || isOwner;
+  let joinStatus: "owner" | "joined" | "requested" | "none" = "none";
+  if (isOwner) joinStatus = "owner";
+  else if (memberRow) joinStatus = "joined";
+  else if (requestRow?.status === "pending") joinStatus = "requested";
+
+  res.json({
+    success: true,
+    data: {
+      ...group,
+      joinStatus,
+      isJoined,
+      owner: ownerProfile ?? null,
+      recentMessages: (recentMessages || []).reverse(),
+    },
+  });
+}
+
 // ── Join / Leave ──────────────────────────────────────────────────────────────
 export async function joinGroup(req: AuthRequest, res: Response): Promise<void> {
   const { id } = req.params;

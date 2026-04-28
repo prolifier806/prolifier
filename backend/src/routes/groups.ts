@@ -2,7 +2,7 @@ import { Router } from "express";
 import { requireAuth } from "../middleware/requireAuth";
 import { validate } from "../middleware/validate";
 import {
-  createGroup, updateGroup, deleteGroup,
+  createGroup, updateGroup, deleteGroup, getGroupById,
   joinGroup, leaveGroup, removeMember, banMember,
   getBannedUsers, unbanMember, assignRole,
   sendGroupMessage, deleteGroupMessage,
@@ -17,6 +17,7 @@ const router = Router();
 router.use(requireAuth as any);
 
 router.post("/", validate(createGroupSchema), createGroup as any);
+router.get("/:id", getGroupById as any);
 router.patch("/:id", validate(updateGroupSchema), updateGroup as any);
 router.delete("/:id", deleteGroup as any);
 
