@@ -584,6 +584,23 @@ export default function Groups() {
     return () => subscription.unsubscribe();
   }, []);
 
+  // Keep profileCache in sync with the current user's latest name/avatar
+  useEffect(() => {
+    if (!user.id) return;
+    profileCache.current[user.id] = {
+      name: user.name || "",
+      color: user.color || "bg-primary",
+      avatar_url: user.avatarUrl || undefined,
+      role: profileCache.current[user.id]?.role,
+    };
+    // Also patch any already-rendered messages so they show the new name/avatar immediately
+    setMessages(prev => prev.map(m =>
+      m.user_id === user.id
+        ? { ...m, author_name: user.name || m.author_name, author_color: user.color || m.author_color, author_avatar_url: user.avatarUrl || m.author_avatar_url }
+        : m
+    ));
+  }, [user.id, user.name, user.avatarUrl, user.color]);
+
   const { sendMessage: socketSend, startTyping, stopTyping, markRead } = useGroupSocket({
     token: socketToken,
     activeGroupId: view === "group" ? (activeGroup?.id ?? null) : null,

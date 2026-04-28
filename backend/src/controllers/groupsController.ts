@@ -98,18 +98,34 @@ export async function getGroupById(req: AuthRequest, res: Response): Promise<voi
     return;
   }
 
-  const [{ data: memberRow }, { data: requestRow }, { data: ownerProfile }, { data: recentMessages }] = await Promise.all([
+  const [{ data: memberRow }, { data: requestRow }, { data: ownerProfile }, { data: rawMessages }] = await Promise.all([
     supabaseAdmin.from("group_members").select("role").eq("group_id", id).eq("user_id", userId).maybeSingle(),
     supabaseAdmin.from("group_join_requests").select("status").eq("group_id", id).eq("user_id", userId).maybeSingle(),
     supabaseAdmin.from("profiles").select("id, name, avatar, color, avatar_url, username").eq("id", group.owner_id).single(),
     supabaseAdmin.from("group_messages")
-      .select("id, text, media_type, created_at, user_id, profiles:user_id(name, color, avatar_url)")
+      .select("id, text, media_type, created_at, user_id")
       .eq("group_id", id)
       .eq("is_system", false)
       .eq("unsent", false)
       .order("created_at", { ascending: false })
       .limit(5),
   ]);
+
+  // Fetch profiles for message authors separately (avoids FK-join issues)
+  let recentMessages: any[] = [];
+  if (rawMessages && rawMessages.length > 0) {
+    const authorIds = [...new Set(rawMessages.map((m: any) => m.user_id))] as string[];
+    const { data: authorProfiles } = await supabaseAdmin
+      .from("profiles")
+      .select("id, name, color, avatar_url")
+      .in("id", authorIds);
+    const profileMap: Record<string, any> = {};
+    (authorProfiles || []).forEach((p: any) => { profileMap[p.id] = p; });
+    recentMessages = rawMessages.map((m: any) => ({
+      ...m,
+      profiles: profileMap[m.user_id] ?? null,
+    })).reverse();
+  }
 
   const isOwner = group.owner_id === userId;
   const isJoined = !!memberRow || isOwner;
