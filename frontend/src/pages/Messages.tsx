@@ -275,7 +275,8 @@ export default function Messages() {
   type ReactionMap = Record<string, Record<string, { count: number; userIds: string[] }>>;
   const [reactions, setReactions] = useState<ReactionMap>({});
   const [reactionPickerMsgId, setReactionPickerMsgId] = useState<string | null>(null);
-  const [reactionPickerDir, setReactionPickerDir] = useState<"up" | "down">("up");
+  // Fixed position for reaction picker — decouples it from tall containers (portrait video)
+  const [reactionPickerPos, setReactionPickerPos] = useState<{ top: number; left?: number; right?: number } | null>(null);
   const QUICK_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
   // Sidebar conversation context menu
   const [convoMenuId, setConvoMenuId] = useState<string | null>(null);
@@ -814,6 +815,47 @@ export default function Messages() {
           edited: row.edited ?? m.edited,
           unsent: row.unsent ?? m.unsent,
         } : m));
+      })
+      // Other user added a reaction — own reactions are handled optimistically
+      .on("postgres_changes", {
+        event: "INSERT", schema: "public", table: "dm_message_reactions",
+      }, (payload) => {
+        const row = payload.new as any;
+        if (row.user_id === user.id) return;
+        setReactions(prev => {
+          const msg = { ...(prev[row.message_id] ?? {}) };
+          const existing = msg[row.emoji];
+          if (existing?.userIds.includes(row.user_id)) return prev;
+          msg[row.emoji] = {
+            count: (existing?.count ?? 0) + 1,
+            userIds: [...(existing?.userIds ?? []), row.user_id],
+          };
+          return { ...prev, [row.message_id]: msg };
+        });
+      })
+      // Other user removed a reaction (requires REPLICA IDENTITY FULL on the table)
+      .on("postgres_changes", {
+        event: "DELETE", schema: "public", table: "dm_message_reactions",
+      }, (payload) => {
+        const row = payload.old as any;
+        if (!row.message_id || !row.emoji || row.user_id === user.id) return;
+        setReactions(prev => {
+          const msg = { ...(prev[row.message_id] ?? {}) };
+          const existing = msg[row.emoji];
+          if (!existing) return prev;
+          const ids = existing.userIds.filter((id: string) => id !== row.user_id);
+          if (ids.length === 0) {
+            delete msg[row.emoji];
+          } else {
+            msg[row.emoji] = { count: ids.length, userIds: ids };
+          }
+          if (Object.keys(msg).length === 0) {
+            const next = { ...prev };
+            delete next[row.message_id];
+            return next;
+          }
+          return { ...prev, [row.message_id]: msg };
+        });
       }),
   );
 
@@ -1134,7 +1176,23 @@ export default function Messages() {
 
     const reactionBtn = reportSelectionMode ? null : (
       <button
-        onClick={e => { e.stopPropagation(); const dir = (e.currentTarget as HTMLElement).getBoundingClientRect().top < 160 ? "down" : "up"; setReactionPickerDir(dir); setReactionPickerMsgId(reactionPickerMsgId === m.id ? null : m.id); }}
+        onClick={e => {
+          e.stopPropagation();
+          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+          const pickerH = 48;
+          const goDown = rect.top < pickerH + 16;
+          const top = goDown ? rect.bottom + 4 : rect.top - pickerH - 4;
+          const pos = isMe
+            ? { top, right: window.innerWidth - rect.right }
+            : { top, left: rect.left };
+          if (reactionPickerMsgId === m.id) {
+            setReactionPickerMsgId(null);
+            setReactionPickerPos(null);
+          } else {
+            setReactionPickerMsgId(m.id);
+            setReactionPickerPos(pos);
+          }
+        }}
         className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground
           opacity-0 group-hover:opacity-100 hover:bg-muted/80 transition-all shrink-0 self-end mb-1">
         <Smile className="h-3.5 w-3.5" />
@@ -1173,20 +1231,6 @@ export default function Messages() {
 
     const rowCls = `group flex items-end gap-1 ${isMe ? "justify-end" : "justify-start"}`;
 
-    // Reaction picker + pills — shared for all message types
-    const ReactionPicker = () => reactionPickerMsgId === m.id ? (
-      <div
-        className={`absolute ${isMe ? "right-0" : "left-0"} ${reactionPickerDir === "down" ? "top-full mt-1" : "bottom-full mb-1"} z-50 bg-card border border-border rounded-2xl shadow-xl px-2 py-1.5 flex gap-1`}
-        onClick={e => e.stopPropagation()}>
-        {QUICK_EMOJIS.map(emoji => (
-          <button key={emoji} onClick={() => handleReaction(m.id, emoji)}
-            className="text-lg hover:scale-125 transition-transform px-0.5">
-            {emoji}
-          </button>
-        ))}
-      </div>
-    ) : null;
-
     const ReactionPills = () => reactions[m.id] && Object.keys(reactions[m.id]).length > 0 ? (
       <div className={`flex flex-wrap gap-1 mt-1 ${isMe ? "justify-end" : "justify-start"}`}>
         {Object.entries(reactions[m.id]).map(([emoji, { count, userIds }]) => (
@@ -1216,7 +1260,6 @@ export default function Messages() {
             {isMe && msgMenuBtn}
             {isMe && reactionBtn}
             <div className="relative" style={{ maxWidth:300 }}>
-              <ReactionPicker />
               <div style={{ ...textBubble, cursor:"pointer" }} onClick={reportSelectionMode ? undefined : () => navigate(link)}>
                 {share.image && <img src={share.image} alt="preview" style={{ display:"block", width:"100%", height:"auto" }} loading="lazy" />}
                 <div style={{ padding:"10px 12px 4px" }}>
@@ -1246,7 +1289,6 @@ export default function Messages() {
           {isMe && msgMenuBtn}
           {isMe && reactionBtn}
           <div className="relative" style={{ maxWidth:300 }}>
-            <ReactionPicker />
             <div style={{ borderRadius:radius, overflow:"hidden", background:bgColor }}>
               <ReplyStrip isMe={isMe} />
               <img
@@ -1280,8 +1322,6 @@ export default function Messages() {
         {isMe && msgMenuBtn}
         {isMe && reactionBtn}
         <div className="relative" style={{ maxWidth:300 }}>
-          <ReactionPicker />
-
           {m.text && (!m.media_type || m.media_type === "text") && (
             editingDmMsgId === m.id ? (
               <div className="flex items-center gap-2">
@@ -1814,9 +1854,30 @@ export default function Messages() {
         </div>
       </div>
 
+      {/* Reaction picker — fixed position so it's never clipped by tall containers */}
+      {reactionPickerMsgId !== null && reactionPickerPos !== null && (
+        <div
+          style={{
+            position: "fixed",
+            top: reactionPickerPos.top,
+            left: reactionPickerPos.left,
+            right: reactionPickerPos.right,
+            zIndex: 50,
+          }}
+          className="bg-card border border-border rounded-2xl shadow-xl px-2 py-1.5 flex gap-1"
+          onClick={e => e.stopPropagation()}>
+          {QUICK_EMOJIS.map(emoji => (
+            <button key={emoji} onClick={() => handleReaction(reactionPickerMsgId, emoji)}
+              className="text-lg hover:scale-125 transition-transform px-0.5">
+              {emoji}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Reaction picker backdrop */}
       {reactionPickerMsgId !== null && (
-        <div className="fixed inset-0 z-40" onClick={() => setReactionPickerMsgId(null)} />
+        <div className="fixed inset-0 z-40" onClick={() => { setReactionPickerMsgId(null); setReactionPickerPos(null); }} />
       )}
 
       {/* Message menu backdrop */}

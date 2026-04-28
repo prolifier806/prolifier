@@ -334,26 +334,24 @@ export function UserProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Poll for deletion + ban every 60 seconds + on visibility change.
-  // Also registers the API client 403 interceptor so any API call instantly
-  // triggers the suspended screen without waiting for the next poll.
+  // Register the API client 403 interceptor so any API call instantly triggers
+  // the suspended screen. Realtime subscription (below) handles the DB-side detection.
   useEffect(() => {
     if (!authUser?.id) return;
     const id = authUser.id;
 
-    // Register suspension callback in the API client.
-    // Any 403 "suspended" response from the backend will call this immediately.
     setOnSuspended(() => {
       setUser(prev => ({ ...prev, accountStatus: "banned" }));
     });
 
+    // Re-check ban state when the tab becomes visible (handles long-backgrounded tabs
+    // where the realtime socket may have missed an event).
     const checkAccountState = async () => {
       const { data, error } = await (supabase as any)
         .from("profiles")
         .select("account_status")
         .eq("id", id)
         .maybeSingle();
-      // Network/auth errors return null data — don't sign out on transient failures
       if (error || !data) return;
       if (data.account_status === "banned") {
         setUser(prev => ({ ...prev, accountStatus: "banned" }));
@@ -362,12 +360,9 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
     const onVisible = () => { if (document.visibilityState === "visible") checkAccountState(); };
     document.addEventListener("visibilitychange", onVisible);
-    // Poll every 15 s as a safety net (realtime + API interceptor handle instant cases)
-    const timer = setInterval(checkAccountState, 15_000);
 
     return () => {
       document.removeEventListener("visibilitychange", onVisible);
-      clearInterval(timer);
     };
   }, [authUser?.id]);
 
