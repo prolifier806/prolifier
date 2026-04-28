@@ -197,7 +197,7 @@ function useVoiceRecorder(onStop: (blob: Blob) => void) {
 
 import { createReport } from "@/api/reports";
 import { hideConversation, toggleDmReaction, getDmMessageReactions, editDmMessage, unsendDmMessage } from "@/api/messages";
-import { uploadPostImage, uploadVideo as apiUploadVideo } from "@/api/uploads";
+import { uploadPostImage, uploadVideo as apiUploadVideo, uploadFile } from "@/api/uploads";
 import { unblockUser } from "@/api/users";
 import { apiPost, apiUpload, isAbortError } from "@/api/client";
 
@@ -278,6 +278,17 @@ export default function Messages() {
   // Fixed position for reaction picker — decouples it from tall containers (portrait video)
   const [reactionPickerPos, setReactionPickerPos] = useState<{ top: number; left?: number; right?: number } | null>(null);
   const QUICK_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
+  // Upload preview modals (image / video / file)
+  type ImgQuality = "480p" | "720p" | "hd";
+  type VidQuality = "low" | "medium" | "original";
+  const [imgModal, setImgModal] = useState<{ file: File; previewUrl: string } | null>(null);
+  const [vidModal, setVidModal] = useState<{ file: File; previewUrl: string } | null>(null);
+  const [fileModal, setFileModal] = useState<{ file: File } | null>(null);
+  const [imgCaption, setImgCaption] = useState("");
+  const [vidCaption, setVidCaption] = useState("");
+  const [fileCaption, setFileCaption] = useState("");
+  const [imgQuality, setImgQuality] = useState<ImgQuality>("720p");
+  const [vidQuality, setVidQuality] = useState<VidQuality>("medium");
   // Sidebar conversation context menu
   const [convoMenuId, setConvoMenuId] = useState<string | null>(null);
   // Message 3-dot menu + inline edit
@@ -938,68 +949,137 @@ export default function Messages() {
     const file = e.target.files?.[0];
     if (!file || !selectedId) return;
     e.target.value = "";
-
-    const blobUrl = type !== "file" ? URL.createObjectURL(file) : null;
-    const clientId = uuidv4();
-    const convName = conversations.find(c => c.id === selectedId)?.name ?? "chat";
-    const jobId = uploadQueue.addJob(`${type === "image" ? "Photo" : type === "video" ? "Video" : "File"} to ${convName}`);
-
-    // Show message immediately with blob preview
-    if (blobUrl) {
-      scrollBehaviorRef.current = "smooth";
-      setMessages(prev => [...prev, {
-        id: clientId, sender_id: user.id,
-        text: type === "file" ? file.name : null,
-        media_url: blobUrl, media_type: type,
-        created_at: new Date().toISOString(), read: false,
-        reply_to_id: null, reply_to_text: null,
-      }]);
-      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (type === "image") {
+      setImgModal({ file, previewUrl: URL.createObjectURL(file) });
+      setImgCaption(""); setImgQuality("720p");
+    } else if (type === "video") {
+      setVidModal({ file, previewUrl: URL.createObjectURL(file) });
+      setVidCaption(""); setVidQuality("medium");
+    } else {
+      setFileModal({ file });
+      setFileCaption("");
     }
+  };
 
-    // Upload in background — IIFE so component unmount doesn't matter
+  const resizeImage = (file: File, maxW: number, maxH: number): Promise<File> =>
+    new Promise(resolve => {
+      const img = new window.Image();
+      const objUrl = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(objUrl);
+        let { width, height } = img;
+        const ratio = Math.min(maxW / width, maxH / height, 1);
+        width = Math.round(width * ratio); height = Math.round(height * ratio);
+        const canvas = document.createElement("canvas");
+        canvas.width = width; canvas.height = height;
+        canvas.getContext("2d")!.drawImage(img, 0, 0, width, height);
+        canvas.toBlob(blob => resolve(new File([blob!], file.name, { type: "image/jpeg" })), "image/jpeg", 0.88);
+      };
+      img.src = objUrl;
+    });
+
+  const sendImageMsg = () => {
+    if (!imgModal || !selectedId) return;
+    const { file, previewUrl } = imgModal;
+    const caption = imgCaption.trim();
+    if (caption.length > 300) { toast({ title: "Caption too long", variant: "destructive" }); return; }
+    const quality = imgQuality;
+    const convName = conversations.find(c => c.id === selectedId)?.name ?? "chat";
+    const clientId = uuidv4();
+    const replySnapshot = replyTo ? { replyToId: replyTo.id, replyToText: replyTo.text } : { replyToId: null, replyToText: null };
+    scrollBehaviorRef.current = "smooth";
+    setMessages(prev => [...prev, {
+      id: clientId, sender_id: user.id, text: caption || null,
+      media_url: previewUrl, media_type: "image",
+      created_at: new Date().toISOString(), read: false,
+      reply_to_id: replySnapshot.replyToId, reply_to_text: replySnapshot.replyToText,
+    }]);
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    setImgModal(null); setImgCaption(""); setImgQuality("720p");
+    setReplyTo(null);
+    const jobId = uploadQueue.addJob(`Photo to ${convName}`);
     (async () => {
       try {
-        let realUrl: string;
-        if (type === "image") {
-          const { url } = await uploadPostImage(file, "chat", pct => uploadQueue.updateJob(jobId, { progress: pct }));
-          realUrl = url;
-        } else if (type === "video") {
-          const result = await apiUploadVideo(file, "chat", pct => uploadQueue.updateJob(jobId, { progress: pct }));
-          realUrl = result.fallbackUrl;
-        } else {
-          uploadQueue.updateJob(jobId, { progress: 30 });
-          const form = new FormData();
-          form.append("file", file);
-          const data = await apiUpload<{ url: string }>("/api/uploads/file", form);
-          realUrl = data.url;
-          uploadQueue.updateJob(jobId, { progress: 90 });
-        }
-
-        if (blobUrl) {
-          URL.revokeObjectURL(blobUrl);
-          setMessages(prev => prev.map(m => m.id === clientId ? { ...m, media_url: realUrl } : m));
-        }
-
-        // Now send via socket with real URL
-        const replySnapshot = replyTo ? { replyToId: replyTo.id, replyToText: replyTo.text } : { replyToId: null, replyToText: null };
-        sendDm({
-          clientId,
-          receiverId: selectedId!,
-          text: type === "file" ? file.name : null,
-          mediaUrl: realUrl,
-          mediaType: type,
-          ...replySnapshot,
-        });
-
+        let fileToUpload = file;
+        if (quality === "480p") fileToUpload = await resizeImage(file, 854, 480);
+        if (quality === "720p") fileToUpload = await resizeImage(file, 1280, 720);
+        const { url } = await uploadPostImage(fileToUpload, "chat", pct => uploadQueue.updateJob(jobId, { progress: pct }));
+        URL.revokeObjectURL(previewUrl);
+        setMessages(prev => prev.map(m => m.id === clientId ? { ...m, media_url: url } : m));
+        sendDm({ clientId, receiverId: selectedId, text: caption || null, mediaUrl: url, mediaType: "image", ...replySnapshot });
         uploadQueue.updateJob(jobId, { status: "done", progress: 100 });
       } catch (err: any) {
-        if (blobUrl) {
-          URL.revokeObjectURL(blobUrl);
-          setMessages(prev => prev.filter(m => m.id !== clientId));
-        }
+        URL.revokeObjectURL(previewUrl);
+        setMessages(prev => prev.filter(m => m.id !== clientId));
         uploadQueue.updateJob(jobId, { status: "failed" });
-        toast({ title: err.message || "Upload failed, try again.", variant: "destructive" });
+        toast({ title: err.message || "Upload failed", variant: "destructive" });
+      }
+    })();
+  };
+
+  const sendVideoMsg = () => {
+    if (!vidModal || !selectedId) return;
+    const { file, previewUrl } = vidModal;
+    const caption = vidCaption.trim();
+    if (caption.length > 300) { toast({ title: "Caption too long", variant: "destructive" }); return; }
+    const convName = conversations.find(c => c.id === selectedId)?.name ?? "chat";
+    const clientId = uuidv4();
+    const replySnapshot = replyTo ? { replyToId: replyTo.id, replyToText: replyTo.text } : { replyToId: null, replyToText: null };
+    scrollBehaviorRef.current = "smooth";
+    setMessages(prev => [...prev, {
+      id: clientId, sender_id: user.id, text: caption || null,
+      media_url: previewUrl, media_type: "video",
+      created_at: new Date().toISOString(), read: false,
+      reply_to_id: replySnapshot.replyToId, reply_to_text: replySnapshot.replyToText,
+    }]);
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    setVidModal(null); setVidCaption(""); setVidQuality("medium");
+    setReplyTo(null);
+    const jobId = uploadQueue.addJob(`Video to ${convName}`);
+    (async () => {
+      try {
+        const result = await apiUploadVideo(file, "chat", pct => uploadQueue.updateJob(jobId, { progress: pct }));
+        URL.revokeObjectURL(previewUrl);
+        setMessages(prev => prev.map(m => m.id === clientId ? { ...m, media_url: result.fallbackUrl } : m));
+        sendDm({ clientId, receiverId: selectedId, text: caption || null, mediaUrl: result.fallbackUrl, mediaType: "video", ...replySnapshot });
+        uploadQueue.updateJob(jobId, { status: "done", progress: 100 });
+      } catch (err: any) {
+        URL.revokeObjectURL(previewUrl);
+        setMessages(prev => prev.filter(m => m.id !== clientId));
+        uploadQueue.updateJob(jobId, { status: "failed" });
+        toast({ title: err.message || "Upload failed", variant: "destructive" });
+      }
+    })();
+  };
+
+  const sendFileMsg = () => {
+    if (!fileModal || !selectedId) return;
+    const { file } = fileModal;
+    const caption = fileCaption.trim();
+    if (caption.length > 300) { toast({ title: "Caption too long", variant: "destructive" }); return; }
+    const payload = caption ? `${file.name}\n${caption}` : file.name;
+    const convName = conversations.find(c => c.id === selectedId)?.name ?? "chat";
+    const clientId = uuidv4();
+    const replySnapshot = replyTo ? { replyToId: replyTo.id, replyToText: replyTo.text } : { replyToId: null, replyToText: null };
+    setFileModal(null); setFileCaption("");
+    setReplyTo(null);
+    const jobId = uploadQueue.addJob(`File to ${convName}`);
+    (async () => {
+      try {
+        const { url } = await uploadFile(file, pct => uploadQueue.updateJob(jobId, { progress: pct }));
+        scrollBehaviorRef.current = "smooth";
+        setMessages(prev => [...prev, {
+          id: clientId, sender_id: user.id, text: payload,
+          media_url: url, media_type: "file",
+          created_at: new Date().toISOString(), read: false,
+          reply_to_id: replySnapshot.replyToId, reply_to_text: replySnapshot.replyToText,
+        }]);
+        bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+        sendDm({ clientId, receiverId: selectedId, text: payload, mediaUrl: url, mediaType: "file", ...replySnapshot });
+        uploadQueue.updateJob(jobId, { status: "done", progress: 100 });
+      } catch (err: any) {
+        uploadQueue.updateJob(jobId, { status: "failed" });
+        toast({ title: err.message || "Upload failed", variant: "destructive" });
       }
     })();
   };
@@ -1985,6 +2065,127 @@ export default function Messages() {
               </button>
             </>
           )}
+        </div>
+      )}
+      {/* Image send modal */}
+      {imgModal && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+          onClick={e => { if (e.target === e.currentTarget) { URL.revokeObjectURL(imgModal.previewUrl); setImgModal(null); } }}>
+          <div className="w-full max-w-sm bg-card border border-border rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-border">
+              <p className="font-semibold text-foreground">Send Image</p>
+              <button onClick={() => { URL.revokeObjectURL(imgModal.previewUrl); setImgModal(null); }}
+                className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="relative bg-black/10">
+              <img src={imgModal.previewUrl} alt="preview" className="w-full max-h-64 object-contain" />
+            </div>
+            <div className="px-4 py-3 space-y-3">
+              <textarea value={imgCaption} onChange={e => setImgCaption(e.target.value)}
+                placeholder="Add a caption… (optional)" rows={2} maxLength={300}
+                className="w-full bg-muted rounded-xl px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none resize-none" />
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-2">Quality</p>
+                <div className="grid grid-cols-3 gap-2">
+                  {([["480p", "480p", "Smaller"], ["720p", "720p", "Balanced"], ["hd", "HD", "Original"]] as [ImgQuality, string, string][]).map(([val, label, sub]) => (
+                    <button key={val} onClick={() => setImgQuality(val)}
+                      className={`flex flex-col items-center py-2 rounded-xl border text-xs transition-all ${imgQuality === val ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-foreground/30"}`}>
+                      <span className="font-semibold">{label}</span>
+                      <span className="text-[10px] opacity-70 mt-0.5">{sub}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <button onClick={sendImageMsg}
+                className="w-full h-10 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition-opacity flex items-center justify-center gap-2">
+                <Send className="h-4 w-4" /> Send
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Video send modal */}
+      {vidModal && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+          onClick={e => { if (e.target === e.currentTarget) { URL.revokeObjectURL(vidModal.previewUrl); setVidModal(null); } }}>
+          <div className="w-full max-w-sm bg-card border border-border rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-border">
+              <p className="font-semibold text-foreground">Send Video</p>
+              <button onClick={() => { URL.revokeObjectURL(vidModal.previewUrl); setVidModal(null); }}
+                className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="relative bg-black">
+              <video src={vidModal.previewUrl} controls disablePictureInPicture
+                controlsList="nodownload nopictureinpicture noplaybackrate"
+                className="w-full max-h-48 object-contain" />
+            </div>
+            <div className="px-4 py-3 space-y-3">
+              <textarea value={vidCaption} onChange={e => setVidCaption(e.target.value)}
+                placeholder="Add a caption… (optional)" rows={2} maxLength={300}
+                className="w-full bg-muted rounded-xl px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none resize-none" />
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-2">Quality</p>
+                <div className="grid grid-cols-3 gap-2">
+                  {([["low", "Low", "Smaller"], ["medium", "Medium", "Balanced"], ["original", "Original", "Full size"]] as [VidQuality, string, string][]).map(([val, label, sub]) => (
+                    <button key={val} onClick={() => setVidQuality(val)}
+                      className={`flex flex-col items-center py-2 rounded-xl border text-xs transition-all ${vidQuality === val ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-foreground/30"}`}>
+                      <span className="font-semibold">{label}</span>
+                      <span className="text-[10px] opacity-70 mt-0.5">{sub}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <button onClick={sendVideoMsg}
+                className="w-full h-10 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition-opacity flex items-center justify-center gap-2">
+                <Send className="h-4 w-4" /> Send
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* File send modal */}
+      {fileModal && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+          onClick={e => { if (e.target === e.currentTarget) setFileModal(null); }}>
+          <div className="w-full max-w-sm bg-card border border-border rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-border">
+              <p className="font-semibold text-foreground">Send File</p>
+              <button onClick={() => setFileModal(null)}
+                className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="px-4 py-4 space-y-3">
+              <div className="flex items-center gap-3 p-3 bg-muted rounded-xl">
+                <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                  <Paperclip className="h-5 w-5 text-primary" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-foreground truncate">{fileModal.file.name}</p>
+                  <p className="text-xs text-muted-foreground">{(fileModal.file.size / 1024 / 1024).toFixed(2)} MB</p>
+                </div>
+              </div>
+              <textarea value={fileCaption} onChange={e => setFileCaption(e.target.value)}
+                placeholder="Add a description… (optional)" rows={2} maxLength={300}
+                className="w-full bg-muted rounded-xl px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none resize-none" />
+              <div className="flex gap-2">
+                <button onClick={() => setFileModal(null)}
+                  className="flex-1 h-10 rounded-xl border border-border text-sm font-medium text-foreground hover:bg-muted transition-colors">
+                  Cancel
+                </button>
+                <button onClick={sendFileMsg}
+                  className="flex-1 h-10 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition-opacity flex items-center justify-center gap-2">
+                  <Send className="h-4 w-4" /> Send
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </Layout>
