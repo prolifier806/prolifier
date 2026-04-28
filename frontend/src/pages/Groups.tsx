@@ -2043,6 +2043,14 @@ export default function Groups() {
   // ── Create group ─────────────────────────────────────────────────────────
   const createGroup = async () => {
     if (!newName.trim() || creating) return;
+    if (newName.trim().length > 25) {
+      toast({ title: "Name too long", description: "Community name must be 25 characters or fewer.", variant: "destructive" });
+      return;
+    }
+    if (newBio.trim().length > 100) {
+      toast({ title: "Bio too long", description: "Bio must be 100 characters or fewer.", variant: "destructive" });
+      return;
+    }
     const ownedCount = groups.filter(g => g.owner_id === user.id).length;
     if (ownedCount >= 10) {
       toast({ title: "Max limit is 10 communities", description: "Delete one of your communities to create a new one.", variant: "destructive" });
@@ -2564,12 +2572,22 @@ export default function Groups() {
               </div>
             </div>
             <div>
-              <label className="text-sm font-medium block mb-1.5">Community name <span className="text-destructive">*</span></label>
-              <Input value={newName} onChange={e => setNewName(e.target.value)} placeholder="e.g. AI Builders, Design Crew…" className="h-11" />
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-sm font-medium">Community name <span className="text-destructive">*</span></label>
+                <span className={`text-xs ${newName.length > 25 ? "text-destructive font-medium" : "text-muted-foreground"}`}>{newName.length}/25</span>
+              </div>
+              <Input value={newName} onChange={e => setNewName(e.target.value.slice(0, 25))} placeholder="e.g. AI Builders, Design Crew…" className="h-11" maxLength={25} />
             </div>
             <div>
-              <label className="text-sm font-medium block mb-1.5">Bio</label>
-              <Textarea value={newBio} onChange={e => setNewBio(e.target.value)} placeholder="Tell people what this community is about…" rows={3} />
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-sm font-medium">Bio</label>
+                <span className={`text-xs ${newBio.length > 100 ? "text-destructive font-medium" : "text-muted-foreground"}`}>{newBio.length}/100</span>
+              </div>
+              <Textarea value={newBio} onChange={e => setNewBio(e.target.value.slice(0, 100))} placeholder="Tell people what this community is about…" rows={3} maxLength={100} />
+            </div>
+            <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-muted/60 border border-border text-xs text-muted-foreground">
+              <Users className="h-3.5 w-3.5 shrink-0 text-primary" />
+              <span>This community has a maximum of <span className="font-semibold text-foreground">250 members</span>.</span>
             </div>
             <div>
               <label className="text-sm font-medium block mb-2">Topic</label>
