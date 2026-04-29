@@ -49,8 +49,8 @@ export default function GroupDetail() {
         toast({ title: "Join request sent" });
       } else {
         await joinGroup(group.id);
-        setGroup((g: any) => ({ ...g, joinStatus: "joined", isJoined: true, member_count: g.member_count + 1 }));
-        toast({ title: `Joined ${group.name}!` });
+        // Navigate directly to inbox after joining
+        navigate(`/groups/${group.id}`, { replace: true });
       }
     } catch (err: any) {
       toast({ title: err?.message || "Action failed", variant: "destructive" });
@@ -59,9 +59,7 @@ export default function GroupDetail() {
     }
   };
 
-  const openChat = () => {
-    navigate(`/groups/${group.id}`);
-  };
+  const openChat = () => navigate(`/groups/${group.id}`);
 
   if (loading) {
     return (
@@ -92,123 +90,120 @@ export default function GroupDetail() {
 
   return (
     <Layout>
-      <div className="max-w-xl mx-auto px-4 py-6">
+      <div className="max-w-xl mx-auto px-4 py-6 space-y-4">
+
         {/* Back */}
         <button
           onClick={() => navigate(-1)}
-          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-5">
+          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
           <ArrowLeft className="h-4 w-4" /> Back
         </button>
 
-        {/* Cover strip */}
-        <div className="h-24 w-full rounded-2xl bg-gradient-to-r from-primary/40 via-accent/30 to-primary/20 mb-0 overflow-hidden">
-          {group.image_url && (
-            <img src={group.image_url} alt={group.name} className="w-full h-full object-cover opacity-30" />
-          )}
-        </div>
+        {/* Header card */}
+        <div className="bg-card border border-border rounded-2xl p-5">
+          <div className="flex items-center gap-4">
+            {/* Avatar */}
+            <div className="h-16 w-16 rounded-2xl bg-muted flex items-center justify-center text-3xl overflow-hidden shrink-0 shadow-sm">
+              {group.image_url
+                ? <img src={group.image_url} alt={group.name} className="w-full h-full object-cover" />
+                : group.emoji}
+            </div>
 
-        {/* Avatar + header */}
-        <div className="-mt-8 px-4 flex items-end justify-between mb-4">
-          <div className="h-16 w-16 rounded-2xl bg-card border-2 border-background shadow-md flex items-center justify-center text-3xl overflow-hidden shrink-0">
-            {group.image_url
-              ? <img src={group.image_url} alt={group.name} className="w-full h-full object-cover" />
-              : group.emoji}
+            {/* Name + meta */}
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h1 className="text-lg font-bold text-foreground leading-tight truncate">{group.name}</h1>
+                {isOwner && (
+                  <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 dark:bg-amber-950 dark:text-amber-400 px-1.5 py-0.5 rounded-full border border-amber-200 dark:border-amber-800 shrink-0">
+                    Owner
+                  </span>
+                )}
+                {isJoined && !isOwner && (
+                  <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-50 dark:bg-emerald-950 dark:text-emerald-400 px-1.5 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800 shrink-0">
+                    Joined
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground flex-wrap">
+                <span className="flex items-center gap-1">
+                  <Users className="h-3 w-3" />
+                  {group.member_count.toLocaleString()} member{group.member_count !== 1 ? "s" : ""}
+                </span>
+                <span className="flex items-center gap-1">
+                  {group.visibility === "private"
+                    ? <><Lock className="h-3 w-3" /> Private</>
+                    : <><Globe className="h-3 w-3" /> Public</>}
+                </span>
+                {group.topic && (
+                  <span className="px-1.5 py-0.5 rounded-full bg-muted border border-border font-medium">
+                    {group.topic}
+                  </span>
+                )}
+              </div>
+            </div>
           </div>
-          <div className="flex gap-2 pb-1">
+
+          {/* Action buttons */}
+          <div className="flex gap-2 mt-4">
             {isJoined && (
               <button
                 onClick={openChat}
-                className="h-9 px-4 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition-opacity flex items-center gap-1.5">
+                className="flex-1 h-9 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition-opacity flex items-center justify-center gap-1.5">
                 <MessageCircle className="h-4 w-4" /> Open Chat
+              </button>
+            )}
+            {isOwner && (
+              <button
+                onClick={openChat}
+                className="flex-1 h-9 rounded-xl border border-border text-sm font-medium text-foreground hover:bg-muted transition-colors flex items-center justify-center gap-1.5">
+                Manage
               </button>
             )}
             {!isOwner && (
               <button
                 onClick={handleJoin}
                 disabled={joining}
-                className={`h-9 px-4 rounded-xl text-sm font-semibold transition-all flex items-center gap-1.5 ${
+                className={`h-9 px-5 rounded-xl text-sm font-semibold transition-all flex items-center gap-1.5 disabled:opacity-60 ${
                   isJoined
                     ? "border border-border text-foreground hover:bg-muted"
                     : isRequested
                     ? "border border-border text-muted-foreground hover:bg-muted"
                     : "bg-primary text-primary-foreground hover:opacity-90"
-                } disabled:opacity-60`}>
-                {joining
-                  ? <div className="h-3.5 w-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" />
-                  : null}
+                }`}>
+                {joining && <div className="h-3.5 w-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" />}
                 {isJoined ? "Leave" : isRequested ? "Requested" : group.visibility === "private" ? "Request to Join" : "Join"}
               </button>
             )}
-            {isOwner && (
-              <button
-                onClick={openChat}
-                className="h-9 px-4 rounded-xl border border-border text-sm font-medium text-foreground hover:bg-muted transition-colors flex items-center gap-1.5">
-                Manage
-              </button>
-            )}
           </div>
         </div>
 
-        {/* Name + badges */}
-        <div className="mb-4">
-          <div className="flex items-center gap-2 flex-wrap mb-1">
-            <h1 className="text-xl font-bold text-foreground">{group.name}</h1>
-            {isOwner && (
-              <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 dark:bg-amber-950 dark:text-amber-400 px-1.5 py-0.5 rounded-full border border-amber-200 dark:border-amber-800">
-                Owner
-              </span>
-            )}
-            {isJoined && !isOwner && (
-              <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-50 dark:bg-emerald-950 dark:text-emerald-400 px-1.5 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
-                Joined
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
-            <span className="flex items-center gap-1">
-              <Users className="h-3.5 w-3.5" />
-              {group.member_count.toLocaleString()} member{group.member_count !== 1 ? "s" : ""}
-            </span>
-            <span className="flex items-center gap-1">
-              {group.visibility === "private"
-                ? <><Lock className="h-3.5 w-3.5" /> Private</>
-                : <><Globe className="h-3.5 w-3.5" /> Public</>}
-            </span>
-            {group.topic && (
-              <span className="px-2 py-0.5 rounded-full bg-muted border border-border font-medium">
-                {group.topic}
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* Bio */}
+        {/* About */}
         {(group.bio || group.description) && (
-          <div className="bg-muted/50 rounded-2xl p-4 mb-4">
-            <p className="text-sm font-semibold text-foreground mb-1">About</p>
-            <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">
+          <div className="bg-card border border-border rounded-2xl p-5">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">About</p>
+            <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
               {group.bio || group.description}
             </p>
           </div>
         )}
 
-        {/* Meta info */}
-        <div className="bg-card border border-border rounded-2xl divide-y divide-border mb-4">
+        {/* Details */}
+        <div className="bg-card border border-border rounded-2xl divide-y divide-border">
           {group.owner && (
             <div className="flex items-center gap-3 px-4 py-3">
               <Crown className="h-4 w-4 text-amber-500 shrink-0" />
-              <div className="flex items-center gap-2 min-w-0">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
                 <div className={`h-7 w-7 rounded-full ${group.owner.avatar_url ? "" : group.owner.color || "bg-primary"} flex items-center justify-center text-white text-xs font-semibold overflow-hidden shrink-0`}>
                   {group.owner.avatar_url
                     ? <img src={group.owner.avatar_url} alt={group.owner.name} className="w-full h-full object-cover" />
-                    : group.owner.avatar}
+                    : (group.owner.name?.[0] || "?").toUpperCase()}
                 </div>
                 <span className="text-sm text-foreground font-medium truncate">{group.owner.name}</span>
                 {group.owner.username && (
                   <span className="text-xs text-muted-foreground truncate">@{group.owner.username}</span>
                 )}
               </div>
-              <span className="ml-auto text-xs text-muted-foreground shrink-0">Admin</span>
+              <span className="text-xs text-muted-foreground shrink-0">Admin</span>
             </div>
           )}
           {group.created_at && (
