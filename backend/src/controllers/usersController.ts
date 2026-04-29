@@ -3,6 +3,7 @@ import { z } from "zod";
 import { supabaseAdmin } from "../lib/supabase";
 import { AuthRequest } from "../lib/types";
 import { checkFields } from "../services/moderation";
+import { cacheGet, cacheSet, cacheDel, cacheDelPattern, CK, TTL } from "../lib/cache";
 
 const PAGE_SIZE = 24;
 
@@ -26,6 +27,10 @@ export const blockUserSchema = z.object({
 
 export async function getProfile(req: AuthRequest, res: Response): Promise<void> {
   const { id } = req.params;
+  const key = CK.profile(id);
+
+  const cached = await cacheGet<any>(key);
+  if (cached) { res.json({ success: true, data: cached }); return; }
 
   const { data, error } = await supabaseAdmin
     .from("profiles")
@@ -35,6 +40,7 @@ export async function getProfile(req: AuthRequest, res: Response): Promise<void>
 
   if (error) { res.status(404).json({ success: false, error: "Profile not found" }); return; }
 
+  await cacheSet(key, data, TTL.PROFILE);
   res.json({ success: true, data });
 }
 
@@ -99,6 +105,10 @@ export async function updateMyProfile(req: AuthRequest, res: Response): Promise<
     .single();
 
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
+
+  // Bust cached public profile so viewers see the updated name/avatar immediately
+  await cacheDel(CK.profile(userId));
+
   res.json({ success: true, data });
 }
 
@@ -110,6 +120,14 @@ export async function discoverProfiles(req: AuthRequest, res: Response): Promise
   const location    = req.query.location    as string | undefined;
   const search      = req.query.search      as string | undefined;
   const collabOnly  = req.query.collabOnly  === "true";
+
+  // Cache only the unfiltered first page — this is the most common request
+  // (user opens Discover with no filters). Any filter combination bypasses cache.
+  const isBaseCase = !cursor && !skills && !rankSkills && !location && !search && !collabOnly;
+  if (isBaseCase) {
+    const cached = await cacheGet<any[]>(CK.discover(userId));
+    if (cached) { return res.json({ success: true, data: cached }); }
+  }
 
   // WHY: When ranking by skills we need a larger pool to sort from so that
   // high-match profiles aren't cut off by the page limit before ranking.
@@ -209,6 +227,11 @@ export async function discoverProfiles(req: AuthRequest, res: Response): Promise
       filtered = scored.map(s => s.profile).slice(0, PAGE_SIZE);
     }
 
+    // Write to cache only for the base (unfiltered) case
+    if (isBaseCase) {
+      await cacheSet(CK.discover(userId), filtered, TTL.DISCOVER);
+    }
+
     return res.json({ success: true, data: filtered });
   }
 }
@@ -236,6 +259,14 @@ export async function blockUser(req: AuthRequest, res: Response): Promise<void> 
     console.warn("[users] Failed to remove connection on block:", connErr);
   }
 
+  // Bust cached search/discover results for both parties — the blocked user
+  // must disappear from each other's search and discover immediately.
+  await Promise.all([
+    cacheDelPattern(`search:users:${userId}:*`),
+    cacheDelPattern(`search:users:${blockedId}:*`),
+    cacheDel(CK.discover(userId), CK.discover(blockedId)),
+  ]);
+
   res.json({ success: true, data: null });
 }
 
@@ -250,6 +281,13 @@ export async function unblockUser(req: AuthRequest, res: Response): Promise<void
     .eq("blocked_id", blockedId);
 
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
+
+  // Bust search/discover so the unblocked user reappears in results.
+  await Promise.all([
+    cacheDelPattern(`search:users:${userId}:*`),
+    cacheDel(CK.discover(userId)),
+  ]);
+
   res.json({ success: true, data: null });
 }
 
@@ -303,6 +341,10 @@ export async function searchUsers(req: AuthRequest, res: Response): Promise<void
 
   if (!raw) { res.json({ success: true, data: [] }); return; }
 
+  const key = CK.searchUsers(userId, raw);
+  const cached = await cacheGet<any[]>(key);
+  if (cached) { res.json({ success: true, data: cached }); return; }
+
   const like = `%${raw}%`;
   const LIMIT = 15;
 
@@ -344,5 +386,6 @@ export async function searchUsers(req: AuthRequest, res: Response): Promise<void
   }
 
   const filtered = merged.filter((p: any) => !hiddenIds.has(p.id)).slice(0, LIMIT);
+  await cacheSet(key, filtered, TTL.SEARCH_USERS);
   res.json({ success: true, data: filtered });
 }

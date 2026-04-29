@@ -3,6 +3,7 @@ import { z } from "zod";
 import { supabaseAdmin } from "../lib/supabase";
 import { AuthRequest } from "../lib/types";
 import { checkFields } from "../services/moderation";
+import { cacheGet, cacheSet, cacheDel, CK, TTL } from "../lib/cache";
 import { broadcastFromDb } from "../lib/socketServer";
 
 export const createGroupSchema = z.object({
@@ -86,62 +87,62 @@ async function postSystemMsg(groupId: string, actingUserId: string, text: string
 export async function getGroupById(req: AuthRequest, res: Response): Promise<void> {
   const { id } = req.params;
   const userId = req.user.id;
+  const publicKey = CK.groupPublic(id);
 
-  const { data: group, error } = await supabaseAdmin
-    .from("groups")
-    .select("*")
-    .eq("id", id)
-    .single();
-
-  if (error || !group) {
-    res.status(404).json({ success: false, error: "Community not found" });
-    return;
-  }
-
-  const [{ data: memberRow }, { data: requestRow }, { data: ownerProfile }, { data: rawMessages }] = await Promise.all([
+  // Fetch user-specific membership in parallel with the cache check.
+  // The public group data (name, bio, owner, etc.) is cached; the user's
+  // join status is always queried fresh so it's never stale.
+  const [cachedPublic, memberRow, requestRow] = await Promise.all([
+    cacheGet<{ group: any; owner: any }>(publicKey),
     supabaseAdmin.from("group_members").select("role").eq("group_id", id).eq("user_id", userId).maybeSingle(),
     supabaseAdmin.from("group_join_requests").select("status").eq("group_id", id).eq("user_id", userId).maybeSingle(),
-    supabaseAdmin.from("profiles").select("id, name, avatar, color, avatar_url, username").eq("id", group.owner_id).single(),
-    supabaseAdmin.from("group_messages")
-      .select("id, text, media_type, created_at, user_id")
-      .eq("group_id", id)
-      .eq("is_system", false)
-      .eq("unsent", false)
-      .order("created_at", { ascending: false })
-      .limit(5),
   ]);
 
-  // Fetch profiles for message authors separately (avoids FK-join issues)
-  let recentMessages: any[] = [];
-  if (rawMessages && rawMessages.length > 0) {
-    const authorIds = [...new Set(rawMessages.map((m: any) => m.user_id))] as string[];
-    const { data: authorProfiles } = await supabaseAdmin
+  let groupBase: any;
+  let ownerProfile: any;
+
+  if (cachedPublic) {
+    groupBase    = cachedPublic.group;
+    ownerProfile = cachedPublic.owner;
+  } else {
+    const { data: group, error } = await supabaseAdmin
+      .from("groups")
+      .select("*")
+      .eq("id", id)
+      .single();
+
+    if (error || !group) {
+      res.status(404).json({ success: false, error: "Community not found" });
+      return;
+    }
+
+    const { data: owner } = await supabaseAdmin
       .from("profiles")
-      .select("id, name, color, avatar_url")
-      .in("id", authorIds);
-    const profileMap: Record<string, any> = {};
-    (authorProfiles || []).forEach((p: any) => { profileMap[p.id] = p; });
-    recentMessages = rawMessages.map((m: any) => ({
-      ...m,
-      profiles: profileMap[m.user_id] ?? null,
-    })).reverse();
+      .select("id, name, avatar, color, avatar_url, username")
+      .eq("id", group.owner_id)
+      .single();
+
+    groupBase    = group;
+    ownerProfile = owner ?? null;
+
+    // Cache the shared public data — TTL 2 min
+    await cacheSet(publicKey, { group: groupBase, owner: ownerProfile }, TTL.GROUP_PUBLIC);
   }
 
-  const isOwner = group.owner_id === userId;
-  const isJoined = !!memberRow || isOwner;
+  const isOwner = groupBase.owner_id === userId;
+  const isJoined = !!memberRow.data || isOwner;
   let joinStatus: "owner" | "joined" | "requested" | "none" = "none";
   if (isOwner) joinStatus = "owner";
-  else if (memberRow) joinStatus = "joined";
-  else if (requestRow?.status === "pending") joinStatus = "requested";
+  else if (memberRow.data) joinStatus = "joined";
+  else if (requestRow.data?.status === "pending") joinStatus = "requested";
 
   res.json({
     success: true,
     data: {
-      ...group,
+      ...groupBase,
       joinStatus,
       isJoined,
-      owner: ownerProfile ?? null,
-      recentMessages: (recentMessages || []).reverse(),
+      owner: ownerProfile,
     },
   });
 }
@@ -340,6 +341,9 @@ export async function updateGroup(req: AuthRequest, res: Response): Promise<void
     .update(body).eq("id", id).select().single();
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
 
+  // Bust public group cache so the detail page reflects the changes immediately
+  await cacheDel(CK.groupPublic(id));
+
   // Post system messages for each changed field
   if (before) {
     if (body.name && body.name !== before.name)
@@ -372,6 +376,10 @@ export async function deleteGroup(req: AuthRequest, res: Response): Promise<void
     supabaseAdmin.from("group_members").delete().eq("group_id", id),
   ]);
   await supabaseAdmin.from("groups").delete().eq("id", id);
+
+  // Bust the cached group so the detail page shows 404 immediately
+  await cacheDel(CK.groupPublic(id));
+
   res.json({ success: true, data: null });
 }
 

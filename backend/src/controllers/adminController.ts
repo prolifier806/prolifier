@@ -3,6 +3,7 @@ import { z } from "zod";
 import { supabaseAdmin } from "../lib/supabase";
 import { AuthRequest } from "../lib/types";
 import { invalidateRoleCache } from "../middleware/requireAuth";
+import { cacheGet, cacheSet, CK, TTL } from "../lib/cache";
 
 export const updateUserStatusSchema = z.object({
   status: z.enum(["active", "suspended", "banned"]),
@@ -345,6 +346,10 @@ export async function getUsers(req: AuthRequest, res: Response): Promise<void> {
 // ── Dashboard stats ───────────────────────────────────────────────────────────
 
 export async function getStats(_req: AuthRequest, res: Response): Promise<void> {
+  const key = CK.adminStats();
+  const cached = await cacheGet<any>(key);
+  if (cached) { res.json({ success: true, data: cached }); return; }
+
   const yesterday = new Date(Date.now() - 86_400_000).toISOString();
 
   const [totalUsersRes, activeUsersRes, totalPostsRes, pendingReportsRes,
@@ -358,18 +363,18 @@ export async function getStats(_req: AuthRequest, res: Response): Promise<void> 
     supabaseAdmin.from("profiles").select("*", { count: "exact", head: true }).gte("created_at", yesterday),
   ]);
 
-  res.json({
-    success: true,
-    data: {
-      totalUsers:      totalUsersRes.count      ?? 0,
-      activeUsers:     activeUsersRes.count     ?? 0,
-      totalPosts:      totalPostsRes.count      ?? 0,
-      pendingReports:  pendingReportsRes.count  ?? 0,
-      bannedUsers:     bannedUsersRes.count     ?? 0,
-      suspendedUsers:  suspendedUsersRes.count  ?? 0,
-      newUsersToday:   newUsersTodayRes.count   ?? 0,
-    },
-  });
+  const stats = {
+    totalUsers:      totalUsersRes.count      ?? 0,
+    activeUsers:     activeUsersRes.count     ?? 0,
+    totalPosts:      totalPostsRes.count      ?? 0,
+    pendingReports:  pendingReportsRes.count  ?? 0,
+    bannedUsers:     bannedUsersRes.count     ?? 0,
+    suspendedUsers:  suspendedUsersRes.count  ?? 0,
+    newUsersToday:   newUsersTodayRes.count   ?? 0,
+  };
+
+  await cacheSet(key, stats, TTL.ADMIN_STATS);
+  res.json({ success: true, data: stats });
 }
 
 // ── Posts list ────────────────────────────────────────────────────────────────
