@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { v4 as uuidv4 } from "uuid";
 import VideoPlayer from "@/components/VideoPlayer";
 import { MediaCollage } from "@/components/MediaCollage";
@@ -878,25 +878,26 @@ export default function Messages() {
       }),
   );
 
-  // Initial load — fire before paint so user never sees the top of the chat
-  useLayoutEffect(() => {
-    if (!isInitialLoadRef.current || messages.length === 0) return;
+  // Initial open: wait until spinner is gone AND messages are rendered, then jump to bottom
+  useEffect(() => {
+    if (!isInitialLoadRef.current) return;
+    if (loadingMsgs || messages.length === 0) return;
     isInitialLoadRef.current = false;
     const el = messagesAreaRef.current;
-    const scrollToBottom = () => { if (el) el.scrollTop = el.scrollHeight; };
+    if (!el) return;
+    const scrollToBottom = () => { el.scrollTop = el.scrollHeight; };
     scrollToBottom();
     requestAnimationFrame(() => { requestAnimationFrame(scrollToBottom); });
-    // Fallback: images/media may expand the container after layout
-    setTimeout(scrollToBottom, 100);
-    setTimeout(scrollToBottom, 400);
-  }, [messages.length]);
+    setTimeout(scrollToBottom, 150);
+    setTimeout(scrollToBottom, 500);
+  }, [loadingMsgs, messages.length]);
 
   // New message arrived — auto-scroll only if near the bottom
   useEffect(() => {
-    if (messages.length === 0 || isInitialLoadRef.current) return;
-    if (scrollBehaviorRef.current === "instant") return; // handled by useLayoutEffect above
+    if (messages.length === 0 || isInitialLoadRef.current || loadingMsgs) return;
+    if (scrollBehaviorRef.current === "instant") return;
     const el = messagesAreaRef.current;
-    if (!el) { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); return; }
+    if (!el) return;
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
     if (distanceFromBottom < 200) {
       requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });

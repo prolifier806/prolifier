@@ -964,12 +964,6 @@ export default function Groups() {
       // Scroll to bottom after React renders the messages — two rAFs let the
       // browser complete layout before we read scrollHeight, and the 150ms
       // timeout handles images/media that expand the container after layout.
-      if (isInitialLoadRef.current) {
-        const scrollToBottom = () => { const el = messagesAreaRef.current; if (el) el.scrollTop = el.scrollHeight; };
-        requestAnimationFrame(() => { requestAnimationFrame(scrollToBottom); });
-        setTimeout(scrollToBottom, 150);
-        setTimeout(scrollToBottom, 400);
-      }
       // Seed dedup set with all loaded IDs so incoming Socket.IO / CDC events
       // for already-loaded messages are silently ignored.
       knownMsgIdsRef.current = new Set(mapped.map((m: GroupMessage) => m.id));
@@ -1249,31 +1243,29 @@ export default function Groups() {
     });
   }, [showSettings]);
 
-  // Effect 2a: Initial group open — scroll to bottom synchronously before paint
-  // useLayoutEffect fires before the browser paints so the user never sees mid-chat
-  useLayoutEffect(() => {
-    if (!isInitialLoadRef.current || messages.length === 0) return;
+  // Effect 2a: Initial group open — wait for spinner to clear then jump to bottom
+  useEffect(() => {
+    if (!isInitialLoadRef.current) return;
+    if (loadingMessages || messages.length === 0) return;
     isInitialLoadRef.current = false;
     const el = messagesAreaRef.current;
-    const scrollToBottom = () => { if (el) el.scrollTop = el.scrollHeight; };
+    if (!el) return;
+    const scrollToBottom = () => { el.scrollTop = el.scrollHeight; };
     scrollToBottom();
-    // Double rAF: first frame builds layout, second frame applies scroll with correct scrollHeight
     requestAnimationFrame(() => { requestAnimationFrame(scrollToBottom); });
-    // Fallbacks for images/media that expand after layout
-    setTimeout(scrollToBottom, 100);
-    setTimeout(scrollToBottom, 400);
-  }, [messages.length]);
+    setTimeout(scrollToBottom, 150);
+    setTimeout(scrollToBottom, 500);
+  }, [loadingMessages, messages.length]);
 
   // Effect 2b: New message arrived — auto-scroll only if user is near the bottom
   useEffect(() => {
-    if (messages.length === 0) return;
-    if (savedScrollRef.current >= 0) return; // will be handled by effect 1
-    if (isInitialLoadRef.current) return; // handled by 2a
+    if (messages.length === 0 || isInitialLoadRef.current || loadingMessages) return;
+    if (savedScrollRef.current >= 0) return;
     const el = messagesAreaRef.current;
-    if (!el) { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); return; }
+    if (!el) return;
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
     if (distanceFromBottom < 200) {
-      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+      requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
     }
   }, [messages.length]);
 
