@@ -284,6 +284,7 @@ export default function Messages() {
   type ImgQuality = "480p" | "720p" | "hd";
   type VidQuality = "low" | "medium" | "original";
   const [multiImgModal, setMultiImgModal] = useState<{ files: { file: File; previewUrl: string }[] } | null>(null);
+  const [imgSlideIdx, setImgSlideIdx] = useState(0);
   const [vidModal, setVidModal] = useState<{ file: File; previewUrl: string } | null>(null);
   const [fileModal, setFileModal] = useState<{ file: File } | null>(null);
   const [imgCaption, setImgCaption] = useState("");
@@ -952,11 +953,13 @@ export default function Messages() {
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>, type: "image" | "video" | "file") => {
     if (!selectedId) return;
     if (type === "image") {
-      const fileList = Array.from(e.target.files ?? []).slice(0, 10);
+      const all = Array.from(e.target.files ?? []);
+      if (all.length > 10) toast({ title: "Max 10 images", description: "Only the first 10 were selected.", variant: "destructive" });
+      const fileList = all.slice(0, 10);
       e.target.value = "";
       if (!fileList.length) return;
       setMultiImgModal({ files: fileList.map(f => ({ file: f, previewUrl: URL.createObjectURL(f) })) });
-      setImgCaption(""); setImgQuality("720p");
+      setImgSlideIdx(0); setImgCaption(""); setImgQuality("720p");
       return;
     }
     const file = e.target.files?.[0];
@@ -2126,69 +2129,119 @@ export default function Messages() {
         </div>
       )}
       {/* Multi-image send modal */}
-      {multiImgModal && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-4"
-          onClick={e => { if (e.target === e.currentTarget) { multiImgModal.files.forEach(f => URL.revokeObjectURL(f.previewUrl)); setMultiImgModal(null); } }}>
-          <div className="w-full max-w-sm bg-card border border-border rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-border">
-              <p className="font-semibold text-foreground">
-                {multiImgModal.files.length === 1 ? "Send Image" : `Send ${multiImgModal.files.length} Images`}
-              </p>
-              <button onClick={() => { multiImgModal.files.forEach(f => URL.revokeObjectURL(f.previewUrl)); setMultiImgModal(null); }}
-                className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors">
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            {multiImgModal.files.length === 1 ? (
-              <div className="bg-black/10">
-                <img src={multiImgModal.files[0].previewUrl} alt="preview" className="w-full max-h-64 object-contain" />
-              </div>
-            ) : (
-              <div className="grid grid-cols-3 gap-1 p-2 bg-muted/30 max-h-48 overflow-y-auto">
-                {multiImgModal.files.map((item, i) => (
-                  <div key={i} className="relative aspect-square rounded-lg overflow-hidden bg-black/10">
-                    <img src={item.previewUrl} alt="" className="w-full h-full object-cover" />
-                    <button
-                      onClick={() => {
-                        URL.revokeObjectURL(item.previewUrl);
-                        const remaining = multiImgModal.files.filter((_, j) => j !== i);
-                        if (remaining.length === 0) { setMultiImgModal(null); } else { setMultiImgModal({ files: remaining }); }
-                      }}
-                      className="absolute top-0.5 right-0.5 h-5 w-5 rounded-full bg-black/60 flex items-center justify-center text-white hover:bg-black/80">
-                      <X className="h-3 w-3" />
-                    </button>
-                  </div>
-                ))}
-                <button onClick={() => imageRef.current?.click()}
-                  className="aspect-square rounded-lg border-2 border-dashed border-border flex items-center justify-center text-muted-foreground hover:border-primary hover:text-primary transition-colors">
-                  <span className="text-xl">+</span>
+      {multiImgModal && (() => {
+        const files = multiImgModal.files;
+        const idx = Math.min(imgSlideIdx, files.length - 1);
+        const go = (delta: number) => setImgSlideIdx(i => Math.max(0, Math.min(files.length - 1, i + delta)));
+        const removeAt = (i: number) => {
+          URL.revokeObjectURL(files[i].previewUrl);
+          const remaining = files.filter((_, j) => j !== i);
+          if (!remaining.length) { setMultiImgModal(null); return; }
+          setMultiImgModal({ files: remaining });
+          setImgSlideIdx(i => Math.min(i, remaining.length - 1));
+        };
+        const addMore = (e: React.ChangeEvent<HTMLInputElement>) => {
+          const picked = Array.from(e.target.files ?? []);
+          const slots = 10 - files.length;
+          if (picked.length > slots) toast({ title: "Max 10 images", description: `Only ${slots} more image${slots === 1 ? "" : "s"} can be added.`, variant: "destructive" });
+          const extra = picked.slice(0, slots);
+          e.target.value = "";
+          if (!extra.length) return;
+          const newItems = extra.map(f => ({ file: f, previewUrl: URL.createObjectURL(f) }));
+          setMultiImgModal({ files: [...files, ...newItems] });
+          setImgSlideIdx(files.length);
+        };
+        return (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+            onClick={e => { if (e.target === e.currentTarget) { files.forEach(f => URL.revokeObjectURL(f.previewUrl)); setMultiImgModal(null); } }}>
+            <div className="w-full max-w-sm bg-card border border-border rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+              {/* Header */}
+              <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-border">
+                <p className="font-semibold text-foreground">
+                  {files.length === 1 ? "Send Image" : `${idx + 1} / ${files.length} Images`}
+                </p>
+                <button onClick={() => { files.forEach(f => URL.revokeObjectURL(f.previewUrl)); setMultiImgModal(null); }}
+                  className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors">
+                  <X className="h-4 w-4" />
                 </button>
               </div>
-            )}
-            <div className="px-4 py-3 space-y-3">
-              <textarea value={imgCaption} onChange={e => setImgCaption(e.target.value)}
-                placeholder="Add a caption… (optional)" rows={2} maxLength={300}
-                className="w-full bg-muted rounded-xl px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none resize-none" />
-              <div>
-                <p className="text-xs font-medium text-muted-foreground mb-2">Quality</p>
-                <div className="grid grid-cols-3 gap-2">
-                  {([["480p", "480p", "Smaller"], ["720p", "720p", "Balanced"], ["hd", "HD", "Original"]] as [ImgQuality, string, string][]).map(([val, label, sub]) => (
-                    <button key={val} onClick={() => setImgQuality(val)}
-                      className={`flex flex-col items-center py-2 rounded-xl border text-xs transition-all ${imgQuality === val ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-foreground/30"}`}>
-                      <span className="font-semibold">{label}</span>
-                      <span className="text-[10px] opacity-70 mt-0.5">{sub}</span>
-                    </button>
-                  ))}
-                </div>
+
+              {/* Carousel preview */}
+              <div className="relative bg-black select-none" style={{ height: 220 }}>
+                <img key={idx} src={files[idx].previewUrl} alt="preview"
+                  className="w-full h-full object-contain" />
+                {/* Remove current */}
+                <button onClick={() => removeAt(idx)}
+                  className="absolute top-2 right-2 h-7 w-7 rounded-full bg-black/60 flex items-center justify-center text-white hover:bg-black/80 transition-colors z-10">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+                {/* Prev */}
+                {idx > 0 && (
+                  <button onClick={() => go(-1)}
+                    className="absolute left-2 top-1/2 -translate-y-1/2 h-8 w-8 rounded-full bg-black/50 flex items-center justify-center text-white hover:bg-black/75 transition-colors z-10">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+                  </button>
+                )}
+                {/* Next */}
+                {idx < files.length - 1 && (
+                  <button onClick={() => go(1)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8 rounded-full bg-black/50 flex items-center justify-center text-white hover:bg-black/75 transition-colors z-10">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                  </button>
+                )}
+                {/* Dot indicators */}
+                {files.length > 1 && (
+                  <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-1.5">
+                    {files.map((_, i) => (
+                      <button key={i} onClick={() => setImgSlideIdx(i)}
+                        className={`rounded-full transition-all ${i === idx ? "w-4 h-1.5 bg-white" : "w-1.5 h-1.5 bg-white/50"}`} />
+                    ))}
+                  </div>
+                )}
               </div>
-              <button onClick={sendImageMsg}
-                className="w-full h-10 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition-opacity flex items-center justify-center gap-2">
-                <Send className="h-4 w-4" /> Send
-              </button>
+
+              {/* Thumbnail strip */}
+              <div className="flex gap-1.5 px-3 py-2 overflow-x-auto bg-muted/20">
+                {files.map((item, i) => (
+                  <button key={i} onClick={() => setImgSlideIdx(i)}
+                    className={`relative shrink-0 h-12 w-12 rounded-lg overflow-hidden border-2 transition-all ${i === idx ? "border-primary" : "border-transparent opacity-60 hover:opacity-100"}`}>
+                    <img src={item.previewUrl} alt="" className="w-full h-full object-cover" />
+                  </button>
+                ))}
+                {files.length < 10 && (
+                  <label className="shrink-0 h-12 w-12 rounded-lg border-2 border-dashed border-border flex items-center justify-center text-muted-foreground hover:border-primary hover:text-primary transition-colors cursor-pointer">
+                    <span className="text-lg leading-none">+</span>
+                    <input type="file" accept="image/*" multiple className="hidden" onChange={addMore} />
+                  </label>
+                )}
+              </div>
+
+              {/* Caption + quality + send */}
+              <div className="px-4 py-3 space-y-3">
+                <textarea value={imgCaption} onChange={e => setImgCaption(e.target.value)}
+                  placeholder="Add a caption… (optional)" rows={2} maxLength={300}
+                  className="w-full bg-muted rounded-xl px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none resize-none" />
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-2">Quality</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    {([["480p", "480p", "Smaller"], ["720p", "720p", "Balanced"], ["hd", "HD", "Original"]] as [ImgQuality, string, string][]).map(([val, label, sub]) => (
+                      <button key={val} onClick={() => setImgQuality(val)}
+                        className={`flex flex-col items-center py-2 rounded-xl border text-xs transition-all ${imgQuality === val ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-foreground/30"}`}>
+                        <span className="font-semibold">{label}</span>
+                        <span className="text-[10px] opacity-70 mt-0.5">{sub}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <button onClick={sendImageMsg}
+                  className="w-full h-10 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition-opacity flex items-center justify-center gap-2">
+                  <Send className="h-4 w-4" /> {files.length === 1 ? "Send" : `Send ${files.length} Images`}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Video send modal */}
       {vidModal && (
