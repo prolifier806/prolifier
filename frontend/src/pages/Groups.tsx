@@ -549,6 +549,7 @@ export default function Groups() {
   const messagesAreaRef = useRef<HTMLDivElement>(null);
   const savedScrollRef = useRef<number>(-1); // -1 = scroll to bottom (default)
   const isInitialLoadRef = useRef(false); // true after openGroup until first scroll-to-bottom
+  const lockBottomUntilRef = useRef<number>(0); // epoch ms — keep scrolled to bottom while Date.now() < this
   const lightboxRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLInputElement>(null);
@@ -1229,6 +1230,20 @@ export default function Groups() {
     ),
   );
 
+  // ResizeObserver: keep chat locked to bottom for 1.5s after opening a group.
+  // Fires whenever the scroll container height changes (images loading, header reflow, etc.)
+  useEffect(() => {
+    const el = messagesAreaRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(() => {
+      if (Date.now() < lockBottomUntilRef.current) {
+        el.scrollTop = el.scrollHeight;
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
   // Effect 1: Restore saved scroll position when returning from settings
   useEffect(() => {
     if (showSettings) return; // settings just opened — do nothing
@@ -1250,11 +1265,10 @@ export default function Groups() {
     isInitialLoadRef.current = false;
     const el = messagesAreaRef.current;
     if (!el) return;
-    const scrollToBottom = () => { el.scrollTop = el.scrollHeight; };
-    scrollToBottom();
-    requestAnimationFrame(() => { requestAnimationFrame(scrollToBottom); });
-    setTimeout(scrollToBottom, 150);
-    setTimeout(scrollToBottom, 500);
+    // Lock to bottom for 1.5s so images/reflows can't push us back up
+    lockBottomUntilRef.current = Date.now() + 1500;
+    el.scrollTop = el.scrollHeight;
+    requestAnimationFrame(() => { requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; }); });
   }, [loadingMessages, messages.length]);
 
   // Effect 2b: New message arrived — auto-scroll only if user is near the bottom
