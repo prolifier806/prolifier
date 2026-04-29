@@ -2157,9 +2157,10 @@ export default function Messages() {
                   </div>
                 )}
                 {/* Save button */}
-                <a href={src} download target="_blank" rel="noreferrer" className="absolute bottom-4 right-4 h-9 px-3 rounded-full bg-white/10 hover:bg-white/20 flex items-center gap-2 text-white text-xs transition-colors">
+                <button onClick={async e => { e.stopPropagation(); const blob = await fetch(src).then(r => r.blob()); const ext = blob.type.split("/")[1] || "jpg"; const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `image.${ext}`; a.click(); URL.revokeObjectURL(a.href); }}
+                  className="absolute bottom-4 right-4 h-9 px-3 rounded-full bg-white/10 hover:bg-white/20 flex items-center gap-2 text-white text-xs transition-colors">
                   <Download className="h-4 w-4" /> Save
-                </a>
+                </button>
               </div>
             );
           })()}
