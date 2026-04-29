@@ -161,7 +161,7 @@ export function initSocketServer(httpServer: HttpServer, allowedOrigins: Set<str
 
     // ── message:send ───────────────────────────────────────────────────────
     socket.on("message:send", async (payload: MessageSendPayload) => {
-      const { clientId, groupId, text, mediaUrl, mediaType, replyToId } = payload;
+      const { clientId, groupId, text, mediaUrl, mediaType, mediaUrls, replyToId } = payload;
 
       // Guard: must be in the room (joined the group)
       if (!socket.rooms.has(`group:${groupId}`)) {
@@ -191,12 +191,13 @@ export function initSocketServer(httpServer: HttpServer, allowedOrigins: Set<str
 
       // ── Broadcast immediately (before DB write) so sender and others see it instantly
       const optimisticMsg: WsMessage = {
-        id: clientId, // use clientId as temp id until DB confirms
+        id: clientId,
         group_id: groupId,
         user_id: userId,
         text: text ?? null,
         media_url: mediaUrl ?? null,
         media_type: mediaType ?? null,
+        media_urls: mediaUrls ?? null,
         created_at: new Date().toISOString(),
         edited: false,
         unsent: false,
@@ -222,6 +223,7 @@ export function initSocketServer(httpServer: HttpServer, allowedOrigins: Set<str
           text: text || null,
           media_url: mediaUrl || null,
           media_type: mediaType || null,
+          media_urls: mediaUrls && mediaUrls.length > 0 ? mediaUrls : null,
           reply_to_id: replyToId || null,
           is_system: false,
           edited: false,
@@ -294,7 +296,7 @@ export function initSocketServer(httpServer: HttpServer, allowedOrigins: Set<str
 
     // ── dm:send ────────────────────────────────────────────────────────────
     socket.on("dm:send", async (payload: DmSendPayload) => {
-      const { clientId, receiverId, text, mediaUrl, mediaType, replyToId, replyToText } = payload;
+      const { clientId, receiverId, text, mediaUrl, mediaType, mediaUrls, replyToId, replyToText } = payload;
 
       // Character limit validation
       if (text && text.trim().length > 1500) {
@@ -321,6 +323,7 @@ export function initSocketServer(httpServer: HttpServer, allowedOrigins: Set<str
         text: text ?? null,
         media_url: mediaUrl ?? null,
         media_type: mediaType ?? null,
+        media_urls: mediaUrls ?? null,
         created_at: new Date().toISOString(),
         read: false,
         reply_to_id: replyToId ?? null,
@@ -337,6 +340,7 @@ export function initSocketServer(httpServer: HttpServer, allowedOrigins: Set<str
           text: text || null,
           media_url: mediaUrl || null,
           media_type: mediaType || "text",
+          media_urls: mediaUrls && mediaUrls.length > 0 ? mediaUrls : null,
           reply_to_id: replyToId || null,
         })
         .select("*")
@@ -439,6 +443,7 @@ function dbRowToDmMsg(row: any): WsDmMessage {
     text: row.text ?? null,
     media_url: row.media_url ?? null,
     media_type: row.media_type ?? null,
+    media_urls: row.media_urls ?? null,
     created_at: row.created_at,
     read: row.read ?? false,
     reply_to_id: row.reply_to_id ?? null,
@@ -454,6 +459,7 @@ function dbRowToWsMsg(row: any, author: Pick<SocketData, "name" | "color" | "ava
     text: row.text ?? null,
     media_url: row.media_url ?? null,
     media_type: row.media_type ?? null,
+    media_urls: row.media_urls ?? null,
     created_at: row.created_at,
     edited: row.edited ?? false,
     unsent: row.unsent ?? false,

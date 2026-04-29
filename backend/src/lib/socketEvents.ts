@@ -118,6 +118,7 @@ export interface MessageSendPayload {
   text: string | null;
   mediaUrl: string | null;
   mediaType: string | null;
+  mediaUrls: string[] | null;
   replyToId: string | null;
 }
 
@@ -128,6 +129,7 @@ export interface WsMessage {
   text: string | null;
   media_url: string | null;
   media_type: string | null;
+  media_urls: string[] | null;
   created_at: string;
   edited: boolean;
   unsent: boolean;
@@ -155,6 +157,7 @@ export interface DmSendPayload {
   text: string | null;
   mediaUrl: string | null;
   mediaType: string | null;
+  mediaUrls: string[] | null;
   replyToId: string | null;
   replyToText: string | null;
 }
@@ -179,6 +182,7 @@ export interface WsDmMessage {
   text: string | null;
   media_url: string | null;
   media_type: string | null;
+  media_urls: string[] | null;
   created_at: string;
   read: boolean;
   reply_to_id: string | null;

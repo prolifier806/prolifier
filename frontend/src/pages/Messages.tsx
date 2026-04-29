@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { v4 as uuidv4 } from "uuid";
 import VideoPlayer from "@/components/VideoPlayer";
+import { MediaCollage } from "@/components/MediaCollage";
 import { useRealtimeChannel } from "@/hooks/useRealtimeChannel";
 import { useDmSocket } from "@/hooks/useDmSocket";
 import { useSearchParams, useNavigate } from "react-router-dom";
@@ -38,6 +39,7 @@ type Message = {
   text: string | null;
   media_url: string | null;
   media_type: string | null;
+  media_urls?: string[] | null;
   created_at: string;
   read: boolean;
   reply_to_id: string | null;
@@ -281,7 +283,7 @@ export default function Messages() {
   // Upload preview modals (image / video / file)
   type ImgQuality = "480p" | "720p" | "hd";
   type VidQuality = "low" | "medium" | "original";
-  const [imgModal, setImgModal] = useState<{ file: File; previewUrl: string } | null>(null);
+  const [multiImgModal, setMultiImgModal] = useState<{ files: { file: File; previewUrl: string }[] } | null>(null);
   const [vidModal, setVidModal] = useState<{ file: File; previewUrl: string } | null>(null);
   const [fileModal, setFileModal] = useState<{ file: File } | null>(null);
   const [imgCaption, setImgCaption] = useState("");
@@ -329,6 +331,7 @@ export default function Messages() {
           return [...prev, {
             id: msg.id, sender_id: msg.sender_id,
             text: msg.text, media_url: msg.media_url, media_type: msg.media_type,
+            media_urls: msg.media_urls,
             created_at: msg.created_at, read: false,
             reply_to_id: msg.reply_to_id, reply_to_text: msg.reply_to_text,
           }];
@@ -940,19 +943,25 @@ export default function Messages() {
       text: trimmed || null,
       mediaUrl: mediaUrl || null,
       mediaType: mediaType || null,
+      mediaUrls: null,
       ...replySnapshot,
     });
   };
 
   // ── File upload — instant preview, background upload ────────────────
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>, type: "image" | "video" | "file") => {
-    const file = e.target.files?.[0];
-    if (!file || !selectedId) return;
+    if (!selectedId) return;
     e.target.value = "";
     if (type === "image") {
-      setImgModal({ file, previewUrl: URL.createObjectURL(file) });
+      const fileList = Array.from(e.target.files ?? []).slice(0, 10);
+      if (!fileList.length) return;
+      setMultiImgModal({ files: fileList.map(f => ({ file: f, previewUrl: URL.createObjectURL(f) })) });
       setImgCaption(""); setImgQuality("720p");
-    } else if (type === "video") {
+      return;
+    }
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (type === "video") {
       setVidModal({ file, previewUrl: URL.createObjectURL(file) });
       setVidCaption(""); setVidQuality("medium");
     } else {
@@ -979,37 +988,51 @@ export default function Messages() {
     });
 
   const sendImageMsg = () => {
-    if (!imgModal || !selectedId) return;
-    const { file, previewUrl } = imgModal;
+    if (!multiImgModal || !selectedId) return;
+    const items = multiImgModal.files;
     const caption = imgCaption.trim();
     if (caption.length > 300) { toast({ title: "Caption too long", variant: "destructive" }); return; }
     const quality = imgQuality;
     const convName = conversations.find(c => c.id === selectedId)?.name ?? "chat";
     const clientId = uuidv4();
     const replySnapshot = replyTo ? { replyToId: replyTo.id, replyToText: replyTo.text } : { replyToId: null, replyToText: null };
+    const previewUrls = items.map(i => i.previewUrl);
     scrollBehaviorRef.current = "smooth";
     setMessages(prev => [...prev, {
       id: clientId, sender_id: user.id, text: caption || null,
-      media_url: previewUrl, media_type: "image",
+      media_url: items.length === 1 ? previewUrls[0] : null,
+      media_urls: items.length > 1 ? previewUrls : null,
+      media_type: "image",
       created_at: new Date().toISOString(), read: false,
       reply_to_id: replySnapshot.replyToId, reply_to_text: replySnapshot.replyToText,
     }]);
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-    setImgModal(null); setImgCaption(""); setImgQuality("720p");
+    setMultiImgModal(null); setImgCaption(""); setImgQuality("720p");
     setReplyTo(null);
-    const jobId = uploadQueue.addJob(`Photo to ${convName}`);
+    const isSingle = items.length === 1;
+    const jobId = uploadQueue.addJob(isSingle ? `Photo to ${convName}` : `${items.length} photos to ${convName}`);
     (async () => {
       try {
-        let fileToUpload = file;
-        if (quality === "480p") fileToUpload = await resizeImage(file, 854, 480);
-        if (quality === "720p") fileToUpload = await resizeImage(file, 1280, 720);
-        const { url } = await uploadPostImage(fileToUpload, "chat", pct => uploadQueue.updateJob(jobId, { progress: pct }));
-        URL.revokeObjectURL(previewUrl);
-        setMessages(prev => prev.map(m => m.id === clientId ? { ...m, media_url: url } : m));
-        sendDm({ clientId, receiverId: selectedId, text: caption || null, mediaUrl: url, mediaType: "image", ...replySnapshot });
+        const uploaded = await Promise.all(items.map(async ({ file }, idx) => {
+          let fileToUpload = file;
+          if (quality === "480p") fileToUpload = await resizeImage(file, 854, 480);
+          if (quality === "720p") fileToUpload = await resizeImage(file, 1280, 720);
+          const { url } = await uploadPostImage(fileToUpload, "chat", pct => {
+            if (idx === 0) uploadQueue.updateJob(jobId, { progress: Math.round(pct / items.length) });
+          });
+          return url;
+        }));
+        previewUrls.forEach(u => URL.revokeObjectURL(u));
+        if (isSingle) {
+          setMessages(prev => prev.map(m => m.id === clientId ? { ...m, media_url: uploaded[0], media_urls: null } : m));
+          sendDm({ clientId, receiverId: selectedId, text: caption || null, mediaUrl: uploaded[0], mediaType: "image", mediaUrls: null, ...replySnapshot });
+        } else {
+          setMessages(prev => prev.map(m => m.id === clientId ? { ...m, media_url: null, media_urls: uploaded } : m));
+          sendDm({ clientId, receiverId: selectedId, text: caption || null, mediaUrl: null, mediaType: "image", mediaUrls: uploaded, ...replySnapshot });
+        }
         uploadQueue.updateJob(jobId, { status: "done", progress: 100 });
       } catch (err: any) {
-        URL.revokeObjectURL(previewUrl);
+        previewUrls.forEach(u => URL.revokeObjectURL(u));
         setMessages(prev => prev.filter(m => m.id !== clientId));
         uploadQueue.updateJob(jobId, { status: "failed" });
         toast({ title: err.message || "Upload failed", variant: "destructive" });
@@ -1041,7 +1064,7 @@ export default function Messages() {
         const result = await apiUploadVideo(file, "chat", pct => uploadQueue.updateJob(jobId, { progress: pct }));
         URL.revokeObjectURL(previewUrl);
         setMessages(prev => prev.map(m => m.id === clientId ? { ...m, media_url: result.fallbackUrl } : m));
-        sendDm({ clientId, receiverId: selectedId, text: caption || null, mediaUrl: result.fallbackUrl, mediaType: "video", ...replySnapshot });
+        sendDm({ clientId, receiverId: selectedId, text: caption || null, mediaUrl: result.fallbackUrl, mediaType: "video", mediaUrls: null, ...replySnapshot });
         uploadQueue.updateJob(jobId, { status: "done", progress: 100 });
       } catch (err: any) {
         URL.revokeObjectURL(previewUrl);
@@ -1075,7 +1098,7 @@ export default function Messages() {
           reply_to_id: replySnapshot.replyToId, reply_to_text: replySnapshot.replyToText,
         }]);
         bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-        sendDm({ clientId, receiverId: selectedId, text: payload, mediaUrl: url, mediaType: "file", ...replySnapshot });
+        sendDm({ clientId, receiverId: selectedId, text: payload, mediaUrl: url, mediaType: "file", mediaUrls: null, ...replySnapshot });
         uploadQueue.updateJob(jobId, { status: "done", progress: 100 });
       } catch (err: any) {
         uploadQueue.updateJob(jobId, { status: "failed" });
@@ -1361,8 +1384,42 @@ export default function Messages() {
       }
     }
 
+    // ── Multi-image collage ───────────────────────────────────────────────
+    if (m.media_type === "image" && m.media_urls && m.media_urls.length >= 2) {
+      return (
+        <div key={m.id} className={rowCls}>
+          {isMe && replyBtn(true)}
+          {isMe && msgMenuBtn}
+          {isMe && reactionBtn}
+          <div className="relative" style={{ maxWidth: 300 }}>
+            <div style={{ borderRadius: radius, overflow: "hidden", background: bgColor }}>
+              <ReplyStrip isMe={isMe} />
+              <div style={{ padding: m.reply_to_text ? "6px 0 0" : "0" }}>
+                <MediaCollage
+                  urls={m.media_urls}
+                  maxWidth={280}
+                  onOpen={reportSelectionMode ? () => {} : url => setMediaPreview({ type: "image", url })}
+                />
+              </div>
+              {m.text && (
+                <div style={{ padding: "6px 12px 2px", fontSize: 14, lineHeight: 1.4,
+                  whiteSpace: "pre-wrap", wordBreak: "break-word", color: textColor }}>
+                  {renderTextWithLinks(m.text, isMe)}
+                </div>
+              )}
+              <Meta m={m} isMe={isMe} />
+            </div>
+            <ReactionPills />
+          </div>
+          {!isMe && reactionBtn}
+          {!isMe && replyBtn()}
+        </div>
+      );
+    }
+
     // ── Image message ─────────────────────────────────────────────────────
-    if (m.media_type === "image" && m.media_url) {
+    if (m.media_type === "image" && (m.media_url || (m.media_urls && m.media_urls.length === 1))) {
+      const imgUrl = m.media_url ?? m.media_urls![0];
       return (
         <div key={m.id} className={rowCls}>
           {isMe && replyBtn(true)}
@@ -1372,12 +1429,12 @@ export default function Messages() {
             <div style={{ borderRadius:radius, overflow:"hidden", background:bgColor }}>
               <ReplyStrip isMe={isMe} />
               <img
-                src={m.media_url}
+                src={imgUrl}
                 alt="image"
                 style={{ display:"block", width:"100%", height:"auto", cursor:"pointer",
                   marginTop: m.reply_to_text ? 6 : 0 }}
                 loading="lazy"
-                onClick={reportSelectionMode ? undefined : () => setMediaPreview({ type:"image", url:m.media_url! })}
+                onClick={reportSelectionMode ? undefined : () => setMediaPreview({ type:"image", url:imgUrl })}
               />
               {m.text && (
                 <div style={{ padding:"6px 12px 2px", fontSize:14, lineHeight:1.4,
@@ -1500,7 +1557,7 @@ export default function Messages() {
 
   return (
     <Layout>
-      <input ref={imageRef} type="file" accept="image/*" className="hidden" onChange={e => handleFileInput(e, "image")} />
+      <input ref={imageRef} type="file" accept="image/*" multiple className="hidden" onChange={e => handleFileInput(e, "image")} />
       <input ref={videoRef} type="file" accept="video/mp4,video/quicktime,.mp4,.mov" className="hidden" onChange={e => handleFileInput(e, "video")} />
       <input ref={fileRef} type="file" className="hidden" onChange={e => handleFileInput(e, "file")} />
 
@@ -2067,21 +2124,46 @@ export default function Messages() {
           )}
         </div>
       )}
-      {/* Image send modal */}
-      {imgModal && (
+      {/* Multi-image send modal */}
+      {multiImgModal && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-4"
-          onClick={e => { if (e.target === e.currentTarget) { URL.revokeObjectURL(imgModal.previewUrl); setImgModal(null); } }}>
+          onClick={e => { if (e.target === e.currentTarget) { multiImgModal.files.forEach(f => URL.revokeObjectURL(f.previewUrl)); setMultiImgModal(null); } }}>
           <div className="w-full max-w-sm bg-card border border-border rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-border">
-              <p className="font-semibold text-foreground">Send Image</p>
-              <button onClick={() => { URL.revokeObjectURL(imgModal.previewUrl); setImgModal(null); }}
+              <p className="font-semibold text-foreground">
+                {multiImgModal.files.length === 1 ? "Send Image" : `Send ${multiImgModal.files.length} Images`}
+              </p>
+              <button onClick={() => { multiImgModal.files.forEach(f => URL.revokeObjectURL(f.previewUrl)); setMultiImgModal(null); }}
                 className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors">
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <div className="relative bg-black/10">
-              <img src={imgModal.previewUrl} alt="preview" className="w-full max-h-64 object-contain" />
-            </div>
+            {multiImgModal.files.length === 1 ? (
+              <div className="bg-black/10">
+                <img src={multiImgModal.files[0].previewUrl} alt="preview" className="w-full max-h-64 object-contain" />
+              </div>
+            ) : (
+              <div className="grid grid-cols-3 gap-1 p-2 bg-muted/30 max-h-48 overflow-y-auto">
+                {multiImgModal.files.map((item, i) => (
+                  <div key={i} className="relative aspect-square rounded-lg overflow-hidden bg-black/10">
+                    <img src={item.previewUrl} alt="" className="w-full h-full object-cover" />
+                    <button
+                      onClick={() => {
+                        URL.revokeObjectURL(item.previewUrl);
+                        const remaining = multiImgModal.files.filter((_, j) => j !== i);
+                        if (remaining.length === 0) { setMultiImgModal(null); } else { setMultiImgModal({ files: remaining }); }
+                      }}
+                      className="absolute top-0.5 right-0.5 h-5 w-5 rounded-full bg-black/60 flex items-center justify-center text-white hover:bg-black/80">
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+                <button onClick={() => imageRef.current?.click()}
+                  className="aspect-square rounded-lg border-2 border-dashed border-border flex items-center justify-center text-muted-foreground hover:border-primary hover:text-primary transition-colors">
+                  <span className="text-xl">+</span>
+                </button>
+              </div>
+            )}
             <div className="px-4 py-3 space-y-3">
               <textarea value={imgCaption} onChange={e => setImgCaption(e.target.value)}
                 placeholder="Add a caption… (optional)" rows={2} maxLength={300}

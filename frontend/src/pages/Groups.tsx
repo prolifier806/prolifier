@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, memo } from "react";
+import { MediaCollage } from "@/components/MediaCollage";
 import { useParams } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
 import { useRealtimeChannel } from "@/hooks/useRealtimeChannel";
@@ -58,6 +59,7 @@ type GroupMessage = {
   text: string | null;
   media_url: string | null;
   media_type: string | null;
+  media_urls?: string[] | null;
   created_at: string;
   edited: boolean;
   deleted: boolean;
@@ -512,7 +514,7 @@ export default function Groups() {
   // Image / Video send modals
   type ImgQuality = "480p" | "720p" | "hd";
   type VidQuality = "low" | "medium" | "original";
-  const [imgModal, setImgModal] = useState<{ file: File; previewUrl: string } | null>(null);
+  const [multiImgModal, setMultiImgModal] = useState<{ files: { file: File; previewUrl: string }[] } | null>(null);
   const [vidModal, setVidModal] = useState<{ file: File; previewUrl: string } | null>(null);
   const [fileModal, setFileModal] = useState<{ file: File } | null>(null);
   const [vidCaption, setVidCaption] = useState("");
@@ -619,7 +621,7 @@ export default function Groups() {
       }
       setMessages(prev => [...prev, {
         id: msg.id, group_id: msg.group_id, user_id: msg.user_id,
-        text: msg.text, media_url: msg.media_url, media_type: msg.media_type,
+        text: msg.text, media_url: msg.media_url, media_type: msg.media_type, media_urls: msg.media_urls,
         created_at: msg.created_at, edited: msg.edited, deleted: false,
         unsent: msg.unsent, removed_by_admin: msg.removed_by_admin,
         is_system: msg.is_system, reply_to_id: msg.reply_to_id,
@@ -913,7 +915,7 @@ export default function Groups() {
       // then reverse to display oldest-first (bottom of chat).
       const { data: msgsDesc, error } = await (supabase as any)
         .from("group_messages")
-        .select("id, group_id, user_id, text, media_url, media_type, created_at, edited, unsent, removed_by_admin, is_system, reply_to_id")
+        .select("id, group_id, user_id, text, media_url, media_type, media_urls, created_at, edited, unsent, removed_by_admin, is_system, reply_to_id")
         .eq("group_id", groupId)
         .order("created_at", { ascending: false })
         .limit(100);
@@ -1117,7 +1119,7 @@ export default function Groups() {
             // replaced the UUID, but this catches any edge-case timing gap)
             const newMsg = {
               id: row.id, group_id: row.group_id, user_id: row.user_id,
-              text: row.text, media_url: row.media_url, media_type: row.media_type,
+              text: row.text, media_url: row.media_url, media_type: row.media_type, media_urls: row.media_urls,
               created_at: row.created_at, edited: row.edited ?? false, deleted: false,
               unsent: row.unsent ?? false, removed_by_admin: row.removed_by_admin ?? false, is_system: row.is_system ?? false,
               author_name: profileCache.current[row.user_id]?.name || "…",
@@ -1572,8 +1574,8 @@ export default function Groups() {
 
   // Called when user confirms send in the image modal
   const sendImageMsg = () => {
-    if (!imgModal || !activeGroup) return;
-    const { file, previewUrl } = imgModal;
+    if (!multiImgModal || !activeGroup) return;
+    const items = multiImgModal.files;
     const caption = imgCaption.trim();
     if (caption.length > 300) {
       toast({ title: "Message exceeds maximum character limit", variant: "destructive" });
@@ -1584,10 +1586,15 @@ export default function Groups() {
     const groupName = activeGroup.name;
     const clientId = uuidv4();
     knownMsgIdsRef.current.add(clientId);
+    const previewUrls = items.map(i => i.previewUrl);
+    const isSingle = items.length === 1;
 
     setMessages(prev => [...prev, {
       id: clientId, group_id: groupId, user_id: user.id,
-      text: caption || null, media_url: previewUrl, media_type: "image",
+      text: caption || null,
+      media_url: isSingle ? previewUrls[0] : null,
+      media_urls: !isSingle ? previewUrls : null,
+      media_type: "image",
       created_at: new Date().toISOString(), edited: false, deleted: false,
       unsent: false, removed_by_admin: false, is_system: false,
       author_name: user.name, author_color: user.color,
@@ -1595,21 +1602,31 @@ export default function Groups() {
       reply_to_id: null, reply_to_text: null, reply_to_author: null,
     }]);
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-    setImgModal(null); setImgCaption(""); setImgQuality("720p");
+    setMultiImgModal(null); setImgCaption(""); setImgQuality("720p");
 
-    const jobId = uploadQueue.addJob(`Image to ${groupName}`);
+    const jobId = uploadQueue.addJob(isSingle ? `Image to ${groupName}` : `${items.length} images to ${groupName}`);
     (async () => {
       try {
-        let fileToUpload = file;
-        if (quality === "480p") fileToUpload = await resizeImage(file, 854, 480);
-        if (quality === "720p") fileToUpload = await resizeImage(file, 1280, 720);
-        const uploaded = await uploadPostImage(fileToUpload, "chat", pct => uploadQueue.updateJob(jobId, { progress: pct }));
-        URL.revokeObjectURL(previewUrl);
-        setMessages(prev => prev.map(m => m.id === clientId ? { ...m, media_url: uploaded.url } : m));
-        socketSend({ clientId, groupId, text: caption || null, mediaUrl: uploaded.url, mediaType: "image", replyToId: null });
+        const uploaded = await Promise.all(items.map(async ({ file }, idx) => {
+          let fileToUpload = file;
+          if (quality === "480p") fileToUpload = await resizeImage(file, 854, 480);
+          if (quality === "720p") fileToUpload = await resizeImage(file, 1280, 720);
+          const { url } = await uploadPostImage(fileToUpload, "chat", pct => {
+            if (idx === 0) uploadQueue.updateJob(jobId, { progress: Math.round(pct / items.length) });
+          });
+          return url;
+        }));
+        previewUrls.forEach(u => URL.revokeObjectURL(u));
+        if (isSingle) {
+          setMessages(prev => prev.map(m => m.id === clientId ? { ...m, media_url: uploaded[0], media_urls: null } : m));
+          socketSend({ clientId, groupId, text: caption || null, mediaUrl: uploaded[0], mediaType: "image", mediaUrls: null, replyToId: null });
+        } else {
+          setMessages(prev => prev.map(m => m.id === clientId ? { ...m, media_url: null, media_urls: uploaded } : m));
+          socketSend({ clientId, groupId, text: caption || null, mediaUrl: null, mediaType: "image", mediaUrls: uploaded, replyToId: null });
+        }
         uploadQueue.updateJob(jobId, { status: "done", progress: 100 });
       } catch {
-        URL.revokeObjectURL(previewUrl);
+        previewUrls.forEach(u => URL.revokeObjectURL(u));
         setMessages(prev => prev.filter(m => m.id !== clientId));
         uploadQueue.updateJob(jobId, { status: "failed" });
       }
@@ -1647,7 +1664,7 @@ export default function Groups() {
         const uploaded = await uploadVideo(file, "chat", pct => uploadQueue.updateJob(jobId, { progress: pct }));
         URL.revokeObjectURL(previewUrl);
         setMessages(prev => prev.map(m => m.id === clientId ? { ...m, media_url: uploaded.fallbackUrl } : m));
-        socketSend({ clientId, groupId, text: caption || null, mediaUrl: uploaded.fallbackUrl, mediaType: "video", replyToId: null });
+        socketSend({ clientId, groupId, text: caption || null, mediaUrl: uploaded.fallbackUrl, mediaType: "video", mediaUrls: null, replyToId: null });
         uploadQueue.updateJob(jobId, { status: "done", progress: 100 });
       } catch {
         URL.revokeObjectURL(previewUrl);
@@ -1697,15 +1714,18 @@ export default function Groups() {
   };
 
   const handleFileInput = async (e: React.ChangeEvent<HTMLInputElement>, type: MediaType) => {
-    const file = e.target.files?.[0];
-    if (!file || !activeGroup) return;
+    if (!activeGroup) return;
     if (type === "image") {
-      setImgModal({ file, previewUrl: URL.createObjectURL(file) });
+      const fileList = Array.from(e.target.files ?? []).slice(0, 10);
+      if (!fileList.length) { e.target.value = ""; return; }
+      setMultiImgModal({ files: fileList.map(f => ({ file: f, previewUrl: URL.createObjectURL(f) })) });
       setImgCaption("");
       setImgQuality("720p");
       e.target.value = "";
       return;
     }
+    const file = e.target.files?.[0];
+    if (!file) { e.target.value = ""; return; }
     if (type === "video") {
       setVidModal({ file, previewUrl: URL.createObjectURL(file) });
       setVidCaption("");
@@ -1810,7 +1830,7 @@ export default function Groups() {
       // Fetch 50 messages up to and including the target timestamp
       const { data: msgsDesc, error } = await (supabase as any)
         .from("group_messages")
-        .select("id, group_id, user_id, text, media_url, media_type, created_at, edited, unsent, removed_by_admin, is_system")
+        .select("id, group_id, user_id, text, media_url, media_type, media_urls, created_at, edited, unsent, removed_by_admin, is_system")
         .eq("group_id", activeGroup.id)
         .lte("created_at", createdAt)
         .order("created_at", { ascending: false })
@@ -1828,7 +1848,7 @@ export default function Groups() {
 
       const mapped: GroupMessage[] = msgs.map((row: any) => ({
         id: row.id, group_id: row.group_id, user_id: row.user_id,
-        text: row.text, media_url: row.media_url, media_type: row.media_type,
+        text: row.text, media_url: row.media_url, media_type: row.media_type, media_urls: row.media_urls,
         created_at: row.created_at, edited: row.edited ?? false,
         deleted: false, unsent: row.unsent ?? false,
         removed_by_admin: row.removed_by_admin ?? false, is_system: row.is_system ?? false,
@@ -2257,11 +2277,16 @@ export default function Groups() {
                       )}
                     </div>
                   )}
-                  {m.media_type === "image" && m.media_url ? (
+                  {m.media_type === "image" && m.media_urls && m.media_urls.length >= 2 ? (
+                    <div className="rounded-2xl overflow-hidden bg-primary">
+                      <MediaCollage urls={m.media_urls} maxWidth={280} onOpen={url => setLightbox({ type: "image", url })} />
+                      {m.text && <p className="px-3 py-1.5 text-sm text-primary-foreground">{m.text}</p>}
+                    </div>
+                  ) : m.media_type === "image" && (m.media_url || (m.media_urls && m.media_urls.length === 1)) ? (
                     <ImageMsg
-                      url={m.media_url} text={m.text} isMe={true}
+                      url={m.media_url ?? m.media_urls![0]} text={m.text} isMe={true}
                       reply={m.reply_to_id ? { author: m.reply_to_author, text: m.reply_to_text } : null}
-                      onLightbox={() => setLightbox({ type: "image", url: m.media_url! })}
+                      onLightbox={() => setLightbox({ type: "image", url: m.media_url ?? m.media_urls![0] })}
                       renderCaption={t => renderTextWithLinks(t, members, true, (uid) => navigate(`/profile/${uid}`))}
                     />
                   ) : (
@@ -2436,11 +2461,16 @@ export default function Groups() {
                     )}
                     </div>
                   )}
-                  {m.media_type === "image" && m.media_url ? (
+                  {m.media_type === "image" && m.media_urls && m.media_urls.length >= 2 ? (
+                    <div className="rounded-2xl overflow-hidden bg-muted border border-border/50">
+                      <MediaCollage urls={m.media_urls} maxWidth={280} onOpen={url => setLightbox({ type: "image", url })} />
+                      {m.text && <p className="px-3 py-1.5 text-sm text-foreground">{m.text}</p>}
+                    </div>
+                  ) : m.media_type === "image" && (m.media_url || (m.media_urls && m.media_urls.length === 1)) ? (
                     <ImageMsg
-                      url={m.media_url} text={m.text} isMe={false}
+                      url={m.media_url ?? m.media_urls![0]} text={m.text} isMe={false}
                       reply={m.reply_to_id ? { author: m.reply_to_author, text: m.reply_to_text } : null}
-                      onLightbox={() => setLightbox({ type: "image", url: m.media_url! })}
+                      onLightbox={() => setLightbox({ type: "image", url: m.media_url ?? m.media_urls![0] })}
                       renderCaption={t => renderTextWithLinks(t, members, false, (uid) => navigate(`/profile/${uid}`))}
                     />
                   ) : (
@@ -3518,7 +3548,7 @@ export default function Groups() {
           {/* Input bar — voice removed */}
           {isJoined && !reportSelectionMode && (
             <div className="border-t border-border shrink-0">
-              <input ref={imageRef} type="file" accept="image/*" className="hidden" onChange={e => handleFileInput(e, "image")} />
+              <input ref={imageRef} type="file" accept="image/*" multiple className="hidden" onChange={e => handleFileInput(e, "image")} />
               <input ref={videoRef} type="file" accept="video/*" className="hidden" onChange={e => handleFileInput(e, "video")} />
               <input ref={fileRef} type="file" className="hidden" onChange={e => handleFileInput(e, "file")} />
               {/* Reply preview strip */}
@@ -3686,20 +3716,45 @@ export default function Groups() {
         )}
 
         {/* Image send modal */}
-        {imgModal && (
+        {multiImgModal && (
           <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-4"
-            onClick={e => { if (e.target === e.currentTarget) setImgModal(null); }}>
+            onClick={e => { if (e.target === e.currentTarget) { multiImgModal.files.forEach(f => URL.revokeObjectURL(f.previewUrl)); setMultiImgModal(null); } }}>
             <div className="w-full max-w-sm bg-card border border-border rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
               <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-border">
-                <p className="font-semibold text-foreground">Send Image</p>
-                <button onClick={() => setImgModal(null)}
+                <p className="font-semibold text-foreground">
+                  {multiImgModal.files.length === 1 ? "Send Image" : `Send ${multiImgModal.files.length} Images`}
+                </p>
+                <button onClick={() => { multiImgModal.files.forEach(f => URL.revokeObjectURL(f.previewUrl)); setMultiImgModal(null); }}
                   className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors">
                   <X className="h-4 w-4" />
                 </button>
               </div>
-              <div className="relative bg-black/10">
-                <img src={imgModal.previewUrl} alt="preview" className="w-full max-h-64 object-contain" />
-              </div>
+              {multiImgModal.files.length === 1 ? (
+                <div className="relative bg-black/10">
+                  <img src={multiImgModal.files[0].previewUrl} alt="preview" className="w-full max-h-64 object-contain" />
+                </div>
+              ) : (
+                <div className="grid grid-cols-3 gap-1 p-2 bg-muted/30 max-h-48 overflow-y-auto">
+                  {multiImgModal.files.map((item, i) => (
+                    <div key={i} className="relative aspect-square rounded-lg overflow-hidden bg-black/10">
+                      <img src={item.previewUrl} alt="" className="w-full h-full object-cover" />
+                      <button
+                        onClick={() => {
+                          URL.revokeObjectURL(item.previewUrl);
+                          const remaining = multiImgModal.files.filter((_, j) => j !== i);
+                          if (remaining.length === 0) { setMultiImgModal(null); } else { setMultiImgModal({ files: remaining }); }
+                        }}
+                        className="absolute top-0.5 right-0.5 h-5 w-5 rounded-full bg-black/60 flex items-center justify-center text-white hover:bg-black/80">
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+                  <button onClick={() => imageRef.current?.click()}
+                    className="aspect-square rounded-lg border-2 border-dashed border-border flex items-center justify-center text-muted-foreground hover:border-primary hover:text-primary transition-colors">
+                    <span className="text-xl">+</span>
+                  </button>
+                </div>
+              )}
               <div className="px-4 py-3 space-y-3">
                 <textarea value={imgCaption} onChange={e => setImgCaption(e.target.value)}
                   placeholder="Add a caption… (optional)" rows={2} maxLength={300}
