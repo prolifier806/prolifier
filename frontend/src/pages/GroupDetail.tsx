@@ -44,7 +44,7 @@ export default function GroupDetail() {
     setLoading(true);
     getGroupById(groupId)
       .then(res => {
-        if (res.success && res.data) setGroup(res.data);
+        if (res) setGroup(res);
         else toast({ title: "Community not found", variant: "destructive" });
       })
       .catch(() => toast({ title: "Failed to load community", variant: "destructive" }))
