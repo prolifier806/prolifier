@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, Users, Lock, Globe, MessageCircle, Calendar, Crown, Image, Video, Paperclip, Mic } from "lucide-react";
+import { ArrowLeft, Users, Lock, Globe, MessageCircle, Calendar, Crown } from "lucide-react";
 import Layout from "@/components/Layout";
 import { useUser } from "@/context/UserContext";
 import { toast } from "@/hooks/use-toast";
@@ -8,26 +8,6 @@ import { getGroupById, joinGroup, leaveGroup, requestToJoin, cancelJoinRequest }
 
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
-}
-
-function fmtTime(iso: string) {
-  return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
-
-function msgPreview(msg: any): string {
-  if (msg.media_type === "image") return "📷 Image";
-  if (msg.media_type === "video") return "🎥 Video";
-  if (msg.media_type === "audio") return "🎤 Voice message";
-  if (msg.media_type === "file") return "📎 File";
-  return msg.text || "";
-}
-
-function MsgPreviewIcon({ type }: { type: string | null }) {
-  if (type === "image") return <Image className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />;
-  if (type === "video") return <Video className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />;
-  if (type === "audio") return <Mic className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />;
-  if (type === "file") return <Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />;
-  return null;
 }
 
 export default function GroupDetail() {
@@ -245,49 +225,6 @@ export default function GroupDetail() {
           </div>
         </div>
 
-        {/* Recent activity */}
-        {group.recentMessages?.length > 0 && (
-          <div className="bg-card border border-border rounded-2xl overflow-hidden">
-            <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-              <p className="text-sm font-semibold text-foreground">Recent Activity</p>
-              {isJoined && (
-                <button onClick={openChat} className="text-xs text-primary hover:underline">
-                  View all →
-                </button>
-              )}
-            </div>
-            <div className="divide-y divide-border">
-              {group.recentMessages.map((msg: any) => (
-                <div key={msg.id} className="flex items-start gap-3 px-4 py-3">
-                  <div className={`h-7 w-7 rounded-full ${msg.profiles?.avatar_url ? "" : msg.profiles?.color || "bg-primary"} flex items-center justify-center text-white text-xs font-semibold overflow-hidden shrink-0 mt-0.5`}>
-                    {msg.profiles?.avatar_url
-                      ? <img src={msg.profiles.avatar_url} alt={msg.profiles?.name} className="w-full h-full object-cover" />
-                      : (msg.profiles?.name?.[0] || "?").toUpperCase()}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-xs font-semibold text-foreground truncate">{msg.profiles?.name || "Unknown"}</span>
-                      <span className="text-[10px] text-muted-foreground shrink-0">{fmtTime(msg.created_at)}</span>
-                    </div>
-                    <div className="flex items-center gap-1 mt-0.5">
-                      <MsgPreviewIcon type={msg.media_type} />
-                      <p className="text-xs text-muted-foreground truncate">{msgPreview(msg)}</p>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-            {!isJoined && (
-              <div className="px-4 py-3 bg-muted/30 text-center">
-                <p className="text-xs text-muted-foreground">
-                  {group.visibility === "private"
-                    ? "Join this private community to participate."
-                    : "Join to participate in the conversation."}
-                </p>
-              </div>
-            )}
-          </div>
-        )}
       </div>
     </Layout>
   );

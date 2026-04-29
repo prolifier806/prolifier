@@ -3915,7 +3915,7 @@ export default function Groups() {
               const unread = unreadCounts[g.id] ?? 0;
               const requested = requestedIds.has(g.id);
               return (
-                <div key={g.id} onClick={() => navigate(`/group/${g.id}`)}
+                <div key={g.id} onClick={() => (joined || isMine) ? openGroup(g) : navigate(`/group/${g.id}`)}
                   className="flex flex-col rounded-2xl border border-border bg-card hover:shadow-md hover:-translate-y-0.5 transition-all duration-150 cursor-pointer overflow-hidden group">
                   <div className="h-2 w-full bg-gradient-to-r from-primary/60 to-accent/60" />
                   <div className="flex flex-col flex-1 p-5">
