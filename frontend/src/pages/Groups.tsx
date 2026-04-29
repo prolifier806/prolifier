@@ -965,16 +965,10 @@ export default function Groups() {
       // browser complete layout before we read scrollHeight, and the 150ms
       // timeout handles images/media that expand the container after layout.
       if (isInitialLoadRef.current) {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            const el = messagesAreaRef.current;
-            if (el) el.scrollTop = el.scrollHeight;
-          });
-        });
-        setTimeout(() => {
-          const el = messagesAreaRef.current;
-          if (el) el.scrollTop = el.scrollHeight;
-        }, 150);
+        const scrollToBottom = () => { const el = messagesAreaRef.current; if (el) el.scrollTop = el.scrollHeight; };
+        requestAnimationFrame(() => { requestAnimationFrame(scrollToBottom); });
+        setTimeout(scrollToBottom, 150);
+        setTimeout(scrollToBottom, 400);
       }
       // Seed dedup set with all loaded IDs so incoming Socket.IO / CDC events
       // for already-loaded messages are silently ignored.
@@ -1265,8 +1259,9 @@ export default function Groups() {
     scrollToBottom();
     // Double rAF: first frame builds layout, second frame applies scroll with correct scrollHeight
     requestAnimationFrame(() => { requestAnimationFrame(scrollToBottom); });
-    // Fallback for images/media that expand after layout
+    // Fallbacks for images/media that expand after layout
     setTimeout(scrollToBottom, 100);
+    setTimeout(scrollToBottom, 400);
   }, [messages.length]);
 
   // Effect 2b: New message arrived — auto-scroll only if user is near the bottom

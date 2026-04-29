@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from "react";
 import { v4 as uuidv4 } from "uuid";
 import VideoPlayer from "@/components/VideoPlayer";
 import { MediaCollage } from "@/components/MediaCollage";
@@ -231,6 +231,8 @@ export default function Messages() {
   const uploadQueue = useUploadQueue();
 
   const bottomRef = useRef<HTMLDivElement>(null);
+  const messagesAreaRef = useRef<HTMLDivElement>(null);
+  const isInitialLoadRef = useRef(false);
   const scrollBehaviorRef = useRef<"smooth" | "instant">("instant");
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const imageRef = useRef<HTMLInputElement>(null);
@@ -685,6 +687,7 @@ export default function Messages() {
 
       const rows: Message[] = (data || []).reverse();
       scrollBehaviorRef.current = "instant";
+      isInitialLoadRef.current = true;
       setMessages(rows);
       setReactions({});
       if (rows.length > 0) {
@@ -875,15 +878,30 @@ export default function Messages() {
       }),
   );
 
+  // Initial load — fire before paint so user never sees the top of the chat
+  useLayoutEffect(() => {
+    if (!isInitialLoadRef.current || messages.length === 0) return;
+    isInitialLoadRef.current = false;
+    const el = messagesAreaRef.current;
+    const scrollToBottom = () => { if (el) el.scrollTop = el.scrollHeight; };
+    scrollToBottom();
+    requestAnimationFrame(() => { requestAnimationFrame(scrollToBottom); });
+    // Fallback: images/media may expand the container after layout
+    setTimeout(scrollToBottom, 100);
+    setTimeout(scrollToBottom, 400);
+  }, [messages.length]);
+
+  // New message arrived — auto-scroll only if near the bottom
   useEffect(() => {
-    // Double-rAF: first frame commits layout, second frame scrolls after paint
-    const id = requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        bottomRef.current?.scrollIntoView({ behavior: scrollBehaviorRef.current });
-      });
-    });
-    return () => cancelAnimationFrame(id);
-  }, [messages]);
+    if (messages.length === 0 || isInitialLoadRef.current) return;
+    if (scrollBehaviorRef.current === "instant") return; // handled by useLayoutEffect above
+    const el = messagesAreaRef.current;
+    if (!el) { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); return; }
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (distanceFromBottom < 200) {
+      requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
+    }
+  }, [messages.length]);
 
   // ── Select conversation ──────────────────────────────────────────────
   const selectConvo = (otherId: string) => {
@@ -1783,7 +1801,7 @@ export default function Messages() {
               )}
 
               {/* Messages */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              <div ref={messagesAreaRef} className="flex-1 overflow-y-auto p-4 space-y-4">
                 {loadingMsgs ? (
                   <div className="flex items-center justify-center py-12">
                     <div className="h-5 w-5 rounded-full border-2 border-primary border-t-transparent animate-spin" />
