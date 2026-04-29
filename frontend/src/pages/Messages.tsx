@@ -951,15 +951,16 @@ export default function Messages() {
   // ── File upload — instant preview, background upload ────────────────
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>, type: "image" | "video" | "file") => {
     if (!selectedId) return;
-    e.target.value = "";
     if (type === "image") {
       const fileList = Array.from(e.target.files ?? []).slice(0, 10);
+      e.target.value = "";
       if (!fileList.length) return;
       setMultiImgModal({ files: fileList.map(f => ({ file: f, previewUrl: URL.createObjectURL(f) })) });
       setImgCaption(""); setImgQuality("720p");
       return;
     }
     const file = e.target.files?.[0];
+    e.target.value = "";
     if (!file) return;
     if (type === "video") {
       setVidModal({ file, previewUrl: URL.createObjectURL(file) });
