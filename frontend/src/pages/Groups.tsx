@@ -520,7 +520,8 @@ export default function Groups() {
   const [fileModal, setFileModal] = useState<{ file: File } | null>(null);
   const [vidCaption, setVidCaption] = useState("");
   const [vidQuality, setVidQuality] = useState<VidQuality>("medium");
-  const [lightbox, setLightbox] = useState<{ type: "image" | "video"; url: string; startTime?: number } | null>(null);
+  const [lightbox, setLightbox] = useState<{ type: "image" | "video"; url: string; urls?: string[]; lbIdx?: number; startTime?: number } | null>(null);
+  const [lbIdx, setLbIdx] = useState(0);
   const [imgCaption, setImgCaption] = useState("");
   const [imgQuality, setImgQuality] = useState<ImgQuality>("720p");
   const [fileCaption, setFileCaption] = useState("");
@@ -2282,7 +2283,7 @@ export default function Groups() {
                   )}
                   {m.media_type === "image" && m.media_urls && m.media_urls.length >= 2 ? (
                     <div className="rounded-2xl overflow-hidden bg-primary">
-                      <MediaCollage urls={m.media_urls} maxWidth={280} onOpen={url => setLightbox({ type: "image", url })} />
+                      <MediaCollage urls={m.media_urls} maxWidth={280} onOpen={(url) => { const i = m.media_urls!.indexOf(url); setLightbox({ type: "image", url, urls: m.media_urls!, lbIdx: i < 0 ? 0 : i }); }} />
                       {m.text && <p className="px-3 py-1.5 text-sm text-primary-foreground">{m.text}</p>}
                     </div>
                   ) : m.media_type === "image" && (m.media_url || (m.media_urls && m.media_urls.length === 1)) ? (
@@ -2466,7 +2467,7 @@ export default function Groups() {
                   )}
                   {m.media_type === "image" && m.media_urls && m.media_urls.length >= 2 ? (
                     <div className="rounded-2xl overflow-hidden bg-muted border border-border/50">
-                      <MediaCollage urls={m.media_urls} maxWidth={280} onOpen={url => setLightbox({ type: "image", url })} />
+                      <MediaCollage urls={m.media_urls} maxWidth={280} onOpen={(url) => { const i = m.media_urls!.indexOf(url); setLightbox({ type: "image", url, urls: m.media_urls!, lbIdx: i < 0 ? 0 : i }); }} />
                       {m.text && <p className="px-3 py-1.5 text-sm text-foreground">{m.text}</p>}
                     </div>
                   ) : m.media_type === "image" && (m.media_url || (m.media_urls && m.media_urls.length === 1)) ? (
@@ -3660,20 +3661,62 @@ export default function Groups() {
         )}
 
         {/* Lightbox — images only; videos use native requestFullscreen */}
-        {lightbox && lightbox.type === "image" && (
-          <div ref={lightboxRef} className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm"
-            onClick={() => setLightbox(null)}>
-            <button onClick={() => setLightbox(null)}
-              className="absolute top-4 right-4 h-9 w-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors z-10">
-              <X className="h-5 w-5" />
-            </button>
-            <img src={lightbox.url} alt="full size" className="max-w-[95vw] max-h-[90vh] object-contain rounded-xl shadow-2xl" onClick={e => e.stopPropagation()} />
-            <a href={lightbox.url} download target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
-              className="absolute bottom-4 right-4 h-9 px-3 rounded-full bg-white/10 hover:bg-white/20 flex items-center gap-2 text-white text-xs transition-colors">
-              <Download className="h-4 w-4" /> Save
-            </a>
-          </div>
-        )}
+        {lightbox && lightbox.type === "image" && (() => {
+          const urls = lightbox.urls && lightbox.urls.length > 1 ? lightbox.urls : null;
+          const cur = urls ? lbIdx : 0;
+          const src = urls ? urls[cur] : lightbox.url;
+          const goLb = (d: number) => setLbIdx(i => Math.max(0, Math.min(urls!.length - 1, i + d)));
+          return (
+            <div ref={lightboxRef} className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/90 backdrop-blur-sm"
+              onClick={() => setLightbox(null)}>
+              <button onClick={() => setLightbox(null)}
+                className="absolute top-4 right-4 h-9 w-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors z-20">
+                <X className="h-5 w-5" />
+              </button>
+              <div className="flex flex-col items-center w-full h-full" onClick={e => e.stopPropagation()}>
+                {/* Counter */}
+                {urls && <p className="text-white/60 text-xs mb-2">{cur + 1} / {urls.length}</p>}
+                {/* Main image + arrows */}
+                <div className="relative flex items-center justify-center flex-1 w-full px-12">
+                  <img key={src} src={src} alt="full size" className="max-w-full max-h-[75vh] object-contain rounded-xl shadow-2xl" />
+                  {urls && cur > 0 && (
+                    <button onClick={() => goLb(-1)} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", width: 40, height: 40, borderRadius: "50%", background: "rgba(255,255,255,0.15)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+                    </button>
+                  )}
+                  {urls && cur < urls.length - 1 && (
+                    <button onClick={() => goLb(1)} style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", width: 40, height: 40, borderRadius: "50%", background: "rgba(255,255,255,0.15)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                    </button>
+                  )}
+                </div>
+                {/* Dots */}
+                {urls && urls.length > 1 && (
+                  <div className="flex gap-1.5 mt-3">
+                    {urls.map((_, i) => (
+                      <button key={i} onClick={() => setLbIdx(i)} style={{ width: i === cur ? 20 : 8, height: 8, borderRadius: 4, background: i === cur ? "white" : "rgba(255,255,255,0.35)", border: "none", cursor: "pointer", transition: "all 0.2s", padding: 0 }} />
+                    ))}
+                  </div>
+                )}
+                {/* Thumbnail strip */}
+                {urls && (
+                  <div className="flex gap-2 mt-3 mb-4 overflow-x-auto max-w-[90vw] px-2">
+                    {urls.map((u, i) => (
+                      <button key={i} onClick={() => setLbIdx(i)} style={{ flexShrink: 0, width: 52, height: 52, borderRadius: 8, overflow: "hidden", border: i === cur ? "2px solid white" : "2px solid rgba(255,255,255,0.2)", padding: 0, cursor: "pointer", background: "#000" }}>
+                        <img src={u} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", opacity: i === cur ? 1 : 0.5 }} />
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {/* Save */}
+                <a href={src} download target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
+                  className="absolute bottom-4 right-4 h-9 px-3 rounded-full bg-white/10 hover:bg-white/20 flex items-center gap-2 text-white text-xs transition-colors">
+                  <Download className="h-4 w-4" /> Save
+                </a>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Report type picker sheet — shown before entering selection mode */}
         {showReportTypeSheet && (
