@@ -3,7 +3,6 @@ import { z } from "zod";
 import { supabaseAdmin } from "../lib/supabase";
 import { AuthRequest } from "../lib/types";
 import { invalidateRoleCache } from "../middleware/requireAuth";
-import { cacheGet, cacheSet, CK, TTL } from "../lib/cache";
 
 export const updateUserStatusSchema = z.object({
   status: z.enum(["active", "suspended", "banned"]),
@@ -346,10 +345,6 @@ export async function getUsers(req: AuthRequest, res: Response): Promise<void> {
 // ── Dashboard stats ───────────────────────────────────────────────────────────
 
 export async function getStats(_req: AuthRequest, res: Response): Promise<void> {
-  const key = CK.adminStats();
-  const cached = await cacheGet<any>(key);
-  if (cached) { res.json({ success: true, data: cached }); return; }
-
   const yesterday = new Date(Date.now() - 86_400_000).toISOString();
 
   const [totalUsersRes, activeUsersRes, totalPostsRes, pendingReportsRes,
@@ -373,7 +368,6 @@ export async function getStats(_req: AuthRequest, res: Response): Promise<void> 
     newUsersToday:   newUsersTodayRes.count   ?? 0,
   };
 
-  await cacheSet(key, stats, TTL.ADMIN_STATS);
   res.json({ success: true, data: stats });
 }
 

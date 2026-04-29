@@ -3,7 +3,6 @@ import { z } from "zod";
 import { supabaseAdmin } from "../lib/supabase";
 import { AuthRequest } from "../lib/types";
 import { checkFields } from "../services/moderation";
-import { cacheGet, cacheSet, cacheDel, CK, TTL } from "../lib/cache";
 import { broadcastFromDb } from "../lib/socketServer";
 
 export const createGroupSchema = z.object({
@@ -87,49 +86,25 @@ async function postSystemMsg(groupId: string, actingUserId: string, text: string
 export async function getGroupById(req: AuthRequest, res: Response): Promise<void> {
   const { id } = req.params;
   const userId = req.user.id;
-  const publicKey = CK.groupPublic(id);
 
-  // Fetch user-specific membership in parallel with the cache check.
-  // The public group data (name, bio, owner, etc.) is cached; the user's
-  // join status is always queried fresh so it's never stale.
-  const [cachedPublic, memberRow, requestRow] = await Promise.all([
-    cacheGet<{ group: any; owner: any }>(publicKey),
+  const [{ data: group, error }, memberRow, requestRow] = await Promise.all([
+    supabaseAdmin.from("groups").select("*").eq("id", id).single(),
     supabaseAdmin.from("group_members").select("role").eq("group_id", id).eq("user_id", userId).maybeSingle(),
     supabaseAdmin.from("group_join_requests").select("status").eq("group_id", id).eq("user_id", userId).maybeSingle(),
   ]);
 
-  let groupBase: any;
-  let ownerProfile: any;
-
-  if (cachedPublic) {
-    groupBase    = cachedPublic.group;
-    ownerProfile = cachedPublic.owner;
-  } else {
-    const { data: group, error } = await supabaseAdmin
-      .from("groups")
-      .select("*")
-      .eq("id", id)
-      .single();
-
-    if (error || !group) {
-      res.status(404).json({ success: false, error: "Community not found" });
-      return;
-    }
-
-    const { data: owner } = await supabaseAdmin
-      .from("profiles")
-      .select("id, name, avatar, color, avatar_url, username")
-      .eq("id", group.owner_id)
-      .single();
-
-    groupBase    = group;
-    ownerProfile = owner ?? null;
-
-    // Cache the shared public data — TTL 2 min
-    await cacheSet(publicKey, { group: groupBase, owner: ownerProfile }, TTL.GROUP_PUBLIC);
+  if (error || !group) {
+    res.status(404).json({ success: false, error: "Community not found" });
+    return;
   }
 
-  const isOwner = groupBase.owner_id === userId;
+  const { data: owner } = await supabaseAdmin
+    .from("profiles")
+    .select("id, name, avatar, color, avatar_url, username")
+    .eq("id", group.owner_id)
+    .single();
+
+  const isOwner = group.owner_id === userId;
   const isJoined = !!memberRow.data || isOwner;
   let joinStatus: "owner" | "joined" | "requested" | "none" = "none";
   if (isOwner) joinStatus = "owner";
@@ -139,10 +114,10 @@ export async function getGroupById(req: AuthRequest, res: Response): Promise<voi
   res.json({
     success: true,
     data: {
-      ...groupBase,
+      ...group,
       joinStatus,
       isJoined,
-      owner: ownerProfile,
+      owner: owner ?? null,
     },
   });
 }
@@ -341,9 +316,6 @@ export async function updateGroup(req: AuthRequest, res: Response): Promise<void
     .update(body).eq("id", id).select().single();
   if (error) { res.status(500).json({ success: false, error: error.message }); return; }
 
-  // Bust public group cache so the detail page reflects the changes immediately
-  await cacheDel(CK.groupPublic(id));
-
   // Post system messages for each changed field
   if (before) {
     if (body.name && body.name !== before.name)
@@ -376,10 +348,6 @@ export async function deleteGroup(req: AuthRequest, res: Response): Promise<void
     supabaseAdmin.from("group_members").delete().eq("group_id", id),
   ]);
   await supabaseAdmin.from("groups").delete().eq("id", id);
-
-  // Bust the cached group so the detail page shows 404 immediately
-  await cacheDel(CK.groupPublic(id));
-
   res.json({ success: true, data: null });
 }
 
