@@ -547,9 +547,11 @@ export default function Groups() {
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const messagesAreaRef = useRef<HTMLDivElement>(null);
-  const savedScrollRef = useRef<number>(-1); // -1 = scroll to bottom (default)
-  const isInitialLoadRef = useRef(false); // true after openGroup until first scroll-to-bottom
-  const lockBottomUntilRef = useRef<number>(0); // epoch ms — keep scrolled to bottom while Date.now() < this
+  const savedScrollRef = useRef<number>(-1); // -1 means "no saved position"
+  const isInitialLoadRef = useRef(false); // true from openGroup until first messages render
+
+  const isNearBottom = (el: HTMLDivElement) =>
+    el.scrollHeight - el.scrollTop - el.clientHeight < 100;
   const lightboxRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLInputElement>(null);
@@ -967,9 +969,6 @@ export default function Groups() {
         author_role: profileMap[row.user_id]?.role,
       }));
       setMessages(mapped);
-      // Scroll to bottom after React renders the messages — two rAFs let the
-      // browser complete layout before we read scrollHeight, and the 150ms
-      // timeout handles images/media that expand the container after layout.
       // Seed dedup set with all loaded IDs so incoming Socket.IO / CDC events
       // for already-loaded messages are silently ignored.
       knownMsgIdsRef.current = new Set(mapped.map((m: GroupMessage) => m.id));
@@ -1235,57 +1234,33 @@ export default function Groups() {
     ),
   );
 
-  // ResizeObserver: keep chat locked to bottom for 1.5s after opening a group.
-  // Fires whenever the scroll container height changes (images loading, header reflow, etc.)
+  // Restore scroll position when returning from the settings panel
   useEffect(() => {
-    const el = messagesAreaRef.current;
-    if (!el) return;
-    const observer = new ResizeObserver(() => {
-      if (Date.now() < lockBottomUntilRef.current) {
-        el.scrollTop = el.scrollHeight;
-      }
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-
-  // Effect 1: Restore saved scroll position when returning from settings
-  useEffect(() => {
-    if (showSettings) return; // settings just opened — do nothing
-    if (savedScrollRef.current < 0) return; // no saved position
+    if (showSettings) return;
+    if (savedScrollRef.current < 0) return;
     const pos = savedScrollRef.current;
     savedScrollRef.current = -1;
-    // Double rAF: first frame mounts the chat DOM, second applies scroll
     requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        if (messagesAreaRef.current) messagesAreaRef.current.scrollTop = pos;
-      });
+      if (messagesAreaRef.current) messagesAreaRef.current.scrollTop = pos;
     });
   }, [showSettings]);
 
-  // Effect 2a: Initial group open — wait for spinner to clear then jump to bottom
+  // Scroll to bottom once when a group first opens and messages are ready
   useEffect(() => {
     if (!isInitialLoadRef.current) return;
     if (loadingMessages || messages.length === 0) return;
     isInitialLoadRef.current = false;
     const el = messagesAreaRef.current;
     if (!el) return;
-    // Lock to bottom for 1.5s so images/reflows can't push us back up
-    lockBottomUntilRef.current = Date.now() + 1500;
     el.scrollTop = el.scrollHeight;
-    requestAnimationFrame(() => { requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; }); });
   }, [loadingMessages, messages.length]);
 
-  // Effect 2b: New message arrived — auto-scroll only if user is near the bottom
+  // Auto-scroll on new incoming message — only if already near the bottom
   useEffect(() => {
-    if (messages.length === 0 || isInitialLoadRef.current || loadingMessages) return;
-    if (savedScrollRef.current >= 0) return;
+    if (isInitialLoadRef.current || loadingMessages || messages.length === 0) return;
     const el = messagesAreaRef.current;
-    if (!el) return;
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    if (distanceFromBottom < 200) {
-      requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
-    }
+    if (!el || !isNearBottom(el)) return;
+    el.scrollTop = el.scrollHeight;
   }, [messages.length]);
 
   // Lightbox fullscreen
