@@ -12,7 +12,6 @@ import { useUser } from "@/context/UserContext";
 import { supabase } from "@/lib/supabase";
 import { createNotification } from "@/api/notifications";
 import { isAbortError } from "@/api/client";
-import { useRealtimeChannel } from "@/hooks/useRealtimeChannel";
 import {
   discoverProfiles,
   getProfile,
@@ -325,30 +324,6 @@ export default function Discover() {
       .eq("read", false)
       .then(({ count }: any) => setRequestCount(count ?? 0));
   }, [user.id]);
-
-  // Realtime: live connection status updates
-  useRealtimeChannel(
-    user.id ? `discover-conns-${user.id}` : null,
-    ch => ch
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "connections" }, (payload) => {
-        const row = payload.new as any;
-        const involvesMe = row.requester_id === user.id || row.receiver_id === user.id;
-        if (!involvesMe) return;
-        const otherId = row.requester_id === user.id ? row.receiver_id : row.requester_id;
-        if (row.status === "accepted") {
-          setConnected(prev => new Set([...prev, otherId]));
-          setPending(prev => { const n = new Set(prev); n.delete(otherId); return n; });
-        }
-      })
-      .on("postgres_changes", { event: "DELETE", schema: "public", table: "connections" }, (payload) => {
-        const row = payload.old as any;
-        const involvesMe = row.requester_id === user.id || row.receiver_id === user.id;
-        if (!involvesMe) return;
-        const otherId = row.requester_id === user.id ? row.receiver_id : row.requester_id;
-        setConnected(prev => { const n = new Set(prev); n.delete(otherId); return n; });
-        setPending(prev => { const n = new Set(prev); n.delete(otherId); return n; });
-      }),
-  );
 
   const handleUnblock = async (id: string, name: string) => {
     try {

@@ -2,7 +2,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Supabase client with:
 // - 10-second fetch timeout (prevents infinite hanging requests)
-// - Web Locks bypass (avoids 5s initialization freeze on new tabs)
 // - Explicit client identification for Supabase logs
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -57,10 +56,6 @@ export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
     detectSessionInUrl: true,
     flowType: "implicit",
     storageKey: "prolifier_auth_v1",
-    // Bypass Web Locks to prevent 5s freeze when a new tab initializes
-    // while another tab holds the lock. Token refresh races are idempotent
-    // on the Supabase server side.
-    lock: (_name, _timeout, fn) => fn(),
   },
   global: {
     headers: {

@@ -3,6 +3,43 @@ import { supabaseAdmin } from "../lib/supabase";
 import { AuthRequest } from "../lib/types";
 
 /**
+ * Short-lived cache keyed by the raw access token.
+ * Eliminates the supabaseAdmin.auth.getUser() network call for back-to-back
+ * requests that arrive with the same token (typical within a single page load).
+ * TTL is 60s — well under the 1-hour token lifetime, so expired tokens are
+ * never served from cache.
+ */
+interface CachedToken {
+  userId: string;
+  email: string;
+  expiresAt: number;
+}
+const tokenCache = new Map<string, CachedToken>();
+const TOKEN_CACHE_TTL_MS = 60 * 1000; // 60 seconds
+
+function getCachedToken(token: string): CachedToken | null {
+  const entry = tokenCache.get(token);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    tokenCache.delete(token);
+    return null;
+  }
+  return entry;
+}
+
+function setCachedToken(token: string, userId: string, email: string): void {
+  tokenCache.set(token, { userId, email, expiresAt: Date.now() + TOKEN_CACHE_TTL_MS });
+  // Evict stale entries if cache grows large
+  if (tokenCache.size > 5_000) {
+    const now = Date.now();
+    for (const [t, entry] of tokenCache) {
+      if (now > entry.expiresAt) tokenCache.delete(t);
+      if (tokenCache.size <= 4_000) break;
+    }
+  }
+}
+
+/**
  * In-memory profile cache — avoids a DB round-trip on every authenticated request.
  * WHY: Without this, every API call fires 2 DB queries (auth.getUser + profiles.select).
  * At 1000 concurrent users that's 2000 DB queries/sec just for auth.
@@ -69,14 +106,28 @@ export async function requireAuth(
 
   const token = authHeader.slice(7);
 
-  const { data, error } = await supabaseAdmin.auth.getUser(token);
+  // Fast path: use cached identity if the same token was verified recently.
+  // auth.getUser() makes an HTTP call to Supabase Auth on every request —
+  // this cache eliminates that call for the vast majority of back-to-back requests.
+  let userId: string;
+  let userEmail: string;
 
-  if (error || !data.user) {
-    res.status(401).json({ success: false, error: "Invalid or expired token" });
-    return;
+  const cachedToken = getCachedToken(token);
+  if (cachedToken) {
+    userId = cachedToken.userId;
+    userEmail = cachedToken.email;
+  } else {
+    const { data, error } = await supabaseAdmin.auth.getUser(token);
+
+    if (error || !data.user) {
+      res.status(401).json({ success: false, error: "Invalid or expired token" });
+      return;
+    }
+
+    userId = data.user.id;
+    userEmail = data.user.email ?? "";
+    setCachedToken(token, userId, userEmail);
   }
-
-  const userId = data.user.id;
 
   // Use cached profile if fresh — avoids a DB query on every request
   let cached = getCachedProfile(userId);
@@ -110,7 +161,7 @@ export async function requireAuth(
 
   req.user = {
     id: userId,
-    email: data.user.email ?? "",
+    email: userEmail,
     role: cached.role,
   };
 

@@ -53,11 +53,17 @@ async function getToken(): Promise<string | null> {
   return session.access_token;
 }
 
-// Force-refresh token once — used for 401 retry
+// Single in-flight refresh — any parallel callers wait on the same promise
+// instead of each firing a separate /token?grant_type=refresh_token request.
+let _refreshPromise: Promise<string | null> | null = null;
+
 async function forceRefreshToken(): Promise<string | null> {
-  const { data, error } = await supabase.auth.refreshSession();
-  if (error || !data.session) return null;
-  return data.session.access_token;
+  if (_refreshPromise) return _refreshPromise;
+  _refreshPromise = supabase.auth
+    .refreshSession()
+    .then(({ data, error }) => (error || !data.session ? null : data.session.access_token))
+    .finally(() => { _refreshPromise = null; });
+  return _refreshPromise;
 }
 
 /**

@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { useRealtimeChannel } from "@/hooks/useRealtimeChannel";
 import { useNavigate } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -216,14 +215,6 @@ export default function Profile() {
   useEffect(() => {
     if (user.id) loadAnalytics();
   }, [user.id, loadAnalytics]);
-
-  // Real-time: update connection count when connections change
-  useRealtimeChannel(
-    user.id ? `profile-connections-${user.id}` : null,
-    ch => ch
-      .on("postgres_changes", { event: "*", schema: "public", table: "connections", filter: `requester_id=eq.${user.id}` }, () => loadAnalyticsRef.current())
-      .on("postgres_changes", { event: "*", schema: "public", table: "connections", filter: `receiver_id=eq.${user.id}` }, () => loadAnalyticsRef.current()),
-  );
 
   // Close location dropdown on outside click
   useEffect(() => {
