@@ -1245,8 +1245,10 @@ export default function Groups() {
     });
   }, [showSettings]);
 
-  // Scroll to bottom once when a group first opens and messages are ready
-  useEffect(() => {
+  // Scroll to bottom BEFORE the browser paints when a group first opens.
+  // useLayoutEffect runs synchronously after React commits the DOM but before
+  // the first paint — the user never sees scrollTop=0 (top/middle flash).
+  useLayoutEffect(() => {
     if (!isInitialLoadRef.current) return;
     if (loadingMessages || messages.length === 0) return;
     isInitialLoadRef.current = false;
