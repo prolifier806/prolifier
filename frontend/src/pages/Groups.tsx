@@ -894,7 +894,12 @@ export default function Groups() {
     }
   }, [user.id]);
 
-  useEffect(() => { fetchGroups(); }, [fetchGroups]);
+  // Delay 800ms so Groups.tsx queries don't overlap with Layout.tsx badge-count
+  // queries that fire simultaneously on mount — both compete for PgBouncer slots.
+  useEffect(() => {
+    const t = setTimeout(() => fetchGroups(), 800);
+    return () => clearTimeout(t);
+  }, [fetchGroups]);
 
   // Deep-link: /groups/:id — auto-open or prompt to join
   useEffect(() => {

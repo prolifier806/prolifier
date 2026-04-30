@@ -54,9 +54,11 @@ export default function Layout({ children }: { children: ReactNode }) {
     if (!user.id) return;
 
     // --- Initial fetch (one-time on mount) ---
+    // Mutes are included here so all badge-related queries fire in a single
+    // Promise.all instead of 3 parallel + 1 separate fire-and-forget.
     const fetchCounts = async () => {
       lastFetchRef.current = Date.now();
-      const [notifRes, msgRes, discoverRes] = await Promise.all([
+      const [notifRes, msgRes, discoverRes, mutesRes] = await Promise.all([
         (supabase as any)
           .from("notifications")
           .select("id", { count: "exact", head: true })
@@ -75,7 +77,13 @@ export default function Layout({ children }: { children: ReactNode }) {
           .eq("receiver_id", user.id)
           .eq("status", "pending")
           .eq("read", false),
+        (supabase as any)
+          .from("mutes")
+          .select("muted_id")
+          .eq("muter_id", user.id),
       ]);
+
+      mutedByMeRef.current = new Set((mutesRes.data || []).map((m: any) => m.muted_id));
 
       const path = window.location.pathname;
       const cleared = sessionClearedRef.current;
@@ -92,15 +100,6 @@ export default function Layout({ children }: { children: ReactNode }) {
     };
 
     fetchCounts();
-
-    // Load muted users so badge increments can skip them
-    (supabase as any)
-      .from("mutes")
-      .select("muted_id")
-      .eq("muter_id", user.id)
-      .then(({ data }: any) => {
-        mutedByMeRef.current = new Set((data || []).map((m: any) => m.muted_id));
-      });
 
     // --- Realtime: increment badges on new events ---
     const channel = supabase
@@ -344,7 +343,9 @@ export default function Layout({ children }: { children: ReactNode }) {
       } catch { /* ignore */ }
     };
 
-    fetchGroupsUnread();
+    // Delay 1.5s so this doesn't overlap with the badge-count Promise.all above.
+    // The groups-unread badge is non-critical on first render.
+    const groupsTimer = setTimeout(fetchGroupsUnread, 1500);
 
     // Keep in sync when Groups.tsx updates the count (always — including while on /groups
     // so that reading chats clears the badge before the user navigates away)
@@ -354,6 +355,7 @@ export default function Layout({ children }: { children: ReactNode }) {
     };
     window.addEventListener("prolifier:groups-unread", handler);
     return () => {
+      clearTimeout(groupsTimer);
       window.removeEventListener("prolifier:groups-unread", handler);
       if (groupMsgChannelRef.current) {
         supabase.removeChannel(groupMsgChannelRef.current);
