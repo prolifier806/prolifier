@@ -95,3 +95,11 @@
 
 video::-webkit-media-controls-fullscreen-button { display: none !important; }
 video::-webkit-media-controls-picture-in-picture-button { display: none !important; }
+
+@keyframes group-chat-slide-in {
+  from { transform: translateX(100vw); }
+  to   { transform: translateX(0); }
+}
+.group-chat-enter {
+  animation: group-chat-slide-in 200ms ease-out both;
+}

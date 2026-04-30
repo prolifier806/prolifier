@@ -3282,8 +3282,8 @@ export default function Groups() {
         {reactionPickerMsgId !== null && <div className="fixed inset-0 z-40" onClick={() => setReactionPickerMsgId(null)} />}
         {showShare && <ShareLinkModal group={activeGroup} onClose={() => setShowShare(false)} />}
 
-        <div className="w-full overflow-x-hidden animate-in slide-in-from-right duration-200">
-        <div className="flex h-[calc(100vh-4rem)] md:h-screen max-w-3xl mx-auto flex-col relative">
+        <div className="overflow-x-hidden">
+        <div className="flex h-[calc(100vh-4rem)] md:h-screen max-w-3xl mx-auto flex-col relative group-chat-enter">
           {/* Header */}
           <div className="px-4 py-3 border-b border-border flex items-center gap-3 shrink-0 bg-card/80 backdrop-blur-sm">
             <button onClick={() => {
