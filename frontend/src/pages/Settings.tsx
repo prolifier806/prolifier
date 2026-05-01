@@ -5,9 +5,8 @@ import { Input } from "@/components/ui/input";
 import {
   Sun, Moon, Shield, Lock, UserX, ChevronRight, ArrowLeft,
   Eye, EyeOff, X, Mail, Monitor, LogOut, HelpCircle, FileText, Smartphone,
-  MapPin, RefreshCw, ImageIcon, Wifi,
+  MapPin, RefreshCw,
 } from "lucide-react";
-import { getMediaPrefs, setMediaPrefs, PREFS_EVENT, MediaPrefs } from "@/lib/mediaCache";
 import Layout from "@/components/Layout";
 import { toast } from "@/hooks/use-toast";
 import { useTheme } from "@/context/ThemeContext";
@@ -50,18 +49,6 @@ export default function Settings() {
   const { theme, toggleTheme } = useTheme();
   const { user, signOut } = useUser();
   const navigate = useNavigate();
-
-  // Media prefs
-  const [mediaPrefs, setMediaPrefsState] = useState<MediaPrefs>(getMediaPrefs);
-  useEffect(() => {
-    const handler = (e: Event) => setMediaPrefsState((e as CustomEvent<MediaPrefs>).detail);
-    window.addEventListener(PREFS_EVENT, handler);
-    return () => window.removeEventListener(PREFS_EVENT, handler);
-  }, []);
-  const toggleAutoDownload = () => {
-    const next = { ...mediaPrefs, autoDownloadWifi: !mediaPrefs.autoDownloadWifi };
-    setMediaPrefs(next);
-  };
 
   // Blocked users
   const [blockedList, setBlockedList] = useState<BlockedUser[]>([]);
@@ -364,33 +351,6 @@ export default function Settings() {
                 onClick={() => { toggleTheme(); toast({ title: theme === "dark" ? "Switched to light mode" : "Switched to dark mode" }); }}
                 className="flex items-center gap-2 h-9 px-3 rounded-lg border border-border bg-secondary text-sm font-medium text-foreground hover:bg-muted transition-colors">
                 {theme === "dark" ? <><Sun className="h-4 w-4" /> Light</> : <><Moon className="h-4 w-4" /> Dark</>}
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Media */}
-        <div className="rounded-xl border border-border bg-card overflow-hidden">
-          <div className="px-5 py-4 border-b border-border flex items-center gap-2">
-            <ImageIcon className="h-4 w-4 text-primary" />
-            <h2 className="text-sm font-semibold text-foreground">Media</h2>
-          </div>
-          <div className="divide-y divide-border">
-            <div className="flex items-center justify-between px-5 py-4">
-              <div className="flex items-center gap-3">
-                <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0">
-                  <Wifi className="h-4 w-4 text-muted-foreground" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-foreground">Auto-download on Wi-Fi</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">Automatically load images when in view</p>
-                </div>
-              </div>
-              <button
-                onClick={toggleAutoDownload}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${mediaPrefs.autoDownloadWifi ? "bg-primary" : "bg-muted"}`}
-              >
-                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${mediaPrefs.autoDownloadWifi ? "translate-x-6" : "translate-x-1"}`} />
               </button>
             </div>
           </div>

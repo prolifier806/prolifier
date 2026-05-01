@@ -2,8 +2,6 @@ import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { v4 as uuidv4 } from "uuid";
 import VideoPlayer from "@/components/VideoPlayer";
 import { MediaCollage } from "@/components/MediaCollage";
-import { ChatImage } from "@/components/ChatImage";
-import { ChatVideo } from "@/components/ChatVideo";
 import { useRealtimeChannel } from "@/hooks/useRealtimeChannel";
 import { useDmSocket } from "@/hooks/useDmSocket";
 import { useSearchParams, useNavigate } from "react-router-dom";
@@ -1454,9 +1452,12 @@ export default function Messages() {
           <div className="relative" style={{ maxWidth:300 }}>
             <div style={{ borderRadius:radius, overflow:"hidden", background:bgColor }}>
               <ReplyStrip isMe={isMe} />
-              <ChatImage
-                url={imgUrl}
-                style={{ marginTop: m.reply_to_text ? 6 : 0 }}
+              <img
+                src={imgUrl}
+                alt="image"
+                style={{ display:"block", width:"100%", height:"auto", cursor:"pointer",
+                  marginTop: m.reply_to_text ? 6 : 0 }}
+                loading="lazy"
                 onClick={reportSelectionMode ? undefined : () => setMediaPreview({ type:"image", url:imgUrl })}
               />
               {m.text && (
@@ -1519,7 +1520,13 @@ export default function Messages() {
             <div style={textBubble}>
               <ReplyStrip isMe={isMe} />
               <div className="relative group/vid" style={{ marginTop: m.reply_to_text ? 8 : 0 }}>
-                <ChatVideo url={m.media_url} controlsList="nodownload noplaybackrate nopictureinpicture nofullscreen" />
+                <video
+                  src={m.media_url}
+                  controls
+                  controlsList="nodownload noplaybackrate nopictureinpicture nofullscreen"
+                  disablePictureInPicture
+                  className="block w-full bg-black"
+                />
                 <button
                   onClick={() => setMediaPreview({ type:"video", url:m.media_url! })}
                   className="absolute top-2 left-2 h-7 w-7 rounded-full bg-black/50 hover:bg-black/75 flex items-center justify-center text-white opacity-0 group-hover/vid:opacity-100 transition-opacity z-10"
