@@ -18,74 +18,83 @@ export function ChatVideo({ url, className, controlsList = "nodownload noplaybac
     setLoaded(true);
   };
 
-  if (!loaded) {
-    return (
-      <div
-        style={{
-          position: "relative",
-          width: "100%",
-          aspectRatio: "16/9",
-          overflow: "hidden",
-          borderRadius: 8,
-          background: "#0d0d0d",
-          cursor: "pointer",
-          ...style,
-        }}
-        onClick={handleLoad}
-      >
-        {/* Blurred dark gradient background — mimics Telegram video placeholder */}
-        <div
+  // Outer wrapper always holds 16:9 so size never changes before/after load
+  return (
+    <div
+      style={{
+        position: "relative",
+        width: "100%",
+        aspectRatio: "16/9",
+        overflow: "hidden",
+        borderRadius: 8,
+        background: "#0d0d0d",
+        ...style,
+      }}
+    >
+      {loaded ? (
+        <video
+          src={url}
+          controls
+          controlsList={controlsList}
+          disablePictureInPicture
+          preload="metadata"
+          className={className}
           style={{
             position: "absolute",
             inset: 0,
-            background: "linear-gradient(135deg, #1c1c2e 0%, #16213e 60%, #0f3460 100%)",
-            filter: "blur(8px)",
-            opacity: 0.9,
-            transform: "scale(1.08)",
+            width: "100%",
+            height: "100%",
+            display: "block",
+            objectFit: "contain",
+            background: "#000",
           }}
         />
-
-        {/* Centered play/download button */}
+      ) : (
         <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
+          style={{ position: "absolute", inset: 0, cursor: "pointer" }}
+          onClick={handleLoad}
         >
+          {/* Blurred gradient — Telegram-style video placeholder */}
           <div
             style={{
-              width: 52,
-              height: 52,
-              borderRadius: "50%",
-              background: "rgba(0,0,0,0.55)",
-              backdropFilter: "blur(6px)",
-              WebkitBackdropFilter: "blur(6px)",
+              position: "absolute",
+              inset: 0,
+              background: "linear-gradient(135deg, #1c1c2e 0%, #16213e 60%, #0f3460 100%)",
+              filter: "blur(8px)",
+              opacity: 0.9,
+              transform: "scale(1.08)",
+            }}
+          />
+
+          {/* Centered circular play button */}
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              boxShadow: "0 2px 12px rgba(0,0,0,0.5)",
             }}
           >
-            {/* Play triangle — offset right slightly like standard play icons */}
-            <Play size={22} color="#fff" fill="#fff" style={{ marginLeft: 3 }} />
+            <div
+              style={{
+                width: 52,
+                height: 52,
+                borderRadius: "50%",
+                background: "rgba(0,0,0,0.55)",
+                backdropFilter: "blur(6px)",
+                WebkitBackdropFilter: "blur(6px)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                boxShadow: "0 2px 12px rgba(0,0,0,0.5)",
+              }}
+            >
+              <Play size={22} color="#fff" fill="#fff" style={{ marginLeft: 3 }} />
+            </div>
           </div>
         </div>
-      </div>
-    );
-  }
-
-  return (
-    <video
-      src={url}
-      controls
-      controlsList={controlsList}
-      disablePictureInPicture
-      preload="metadata"
-      className={className ?? "block w-full bg-black"}
-      style={{ borderRadius: 8, ...style }}
-    />
+      )}
+    </div>
   );
 }
