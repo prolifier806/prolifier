@@ -100,5 +100,5 @@ video::-webkit-media-controls-picture-in-picture-button { display: none !importa
   from { opacity: 0; }
 }
 .group-chat-enter {
-  animation: group-chat-fade-in 180ms ease-out both;
+  animation: group-chat-fade-in 180ms ease-out backwards;
 }
