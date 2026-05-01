@@ -1,4 +1,5 @@
 import React from "react";
+import { ChatImage } from "@/components/ChatImage";
 
 interface MediaCollageProps {
   urls: string[];
@@ -17,40 +18,28 @@ export function MediaCollage({ urls, onOpen, maxWidth = 280 }: MediaCollageProps
     backgroundColor: "#111",
   };
 
-  const imgStyle: React.CSSProperties = {
-    width: "100%",
-    height: "100%",
-    objectFit: "cover",
-    display: "block",
-  };
-
-  const Img = ({ url, extra }: { url: string; extra?: React.ReactNode }) => (
-    <div style={cellStyle} onClick={() => onOpen(url)}>
-      <img src={url} alt="" style={imgStyle} loading="lazy" draggable={false} />
-      {extra}
-    </div>
-  );
+  const gap = 2;
+  const half = (maxWidth - gap) / 2;
 
   // ── 1 image — full width ──────────────────────────────────────────────────
   if (count === 1) {
     return (
-      <div style={{ width: maxWidth, borderRadius: 12, overflow: "hidden", cursor: "pointer" }}
-        onClick={() => onOpen(urls[0])}>
-        <img src={urls[0]} alt="" style={{ width: "100%", height: "auto", display: "block" }} loading="lazy" />
+      <div style={{ width: maxWidth, borderRadius: 12, overflow: "hidden" }}>
+        <ChatImage url={urls[0]} onClick={() => onOpen(urls[0])} />
       </div>
     );
   }
-
-  const gap = 2;
-  const half = (maxWidth - gap) / 2;
-  const third = (maxWidth - gap * 2) / 3;
 
   // ── 2 images — side by side ───────────────────────────────────────────────
   if (count === 2) {
     return (
       <div style={{ display: "flex", gap, width: maxWidth, borderRadius: 12, overflow: "hidden" }}>
-        <div style={{ ...cellStyle, width: half, height: half }}><img src={urls[0]} alt="" style={imgStyle} loading="lazy" onClick={() => onOpen(urls[0])} /></div>
-        <div style={{ ...cellStyle, width: half, height: half }}><img src={urls[1]} alt="" style={imgStyle} loading="lazy" onClick={() => onOpen(urls[1])} /></div>
+        <div style={{ ...cellStyle, width: half, height: half }}>
+          <ChatImage url={urls[0]} onClick={() => onOpen(urls[0])} fill />
+        </div>
+        <div style={{ ...cellStyle, width: half, height: half }}>
+          <ChatImage url={urls[1]} onClick={() => onOpen(urls[1])} fill />
+        </div>
       </div>
     );
   }
@@ -62,15 +51,15 @@ export function MediaCollage({ urls, onOpen, maxWidth = 280 }: MediaCollageProps
     const smallH = (big - gap) / 2;
     return (
       <div style={{ display: "flex", gap, width: maxWidth, borderRadius: 12, overflow: "hidden" }}>
-        <div style={{ ...cellStyle, width: big, height: big }} onClick={() => onOpen(urls[0])}>
-          <img src={urls[0]} alt="" style={imgStyle} loading="lazy" />
+        <div style={{ ...cellStyle, width: big, height: big }}>
+          <ChatImage url={urls[0]} onClick={() => onOpen(urls[0])} fill />
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap, width: small }}>
-          <div style={{ ...cellStyle, height: smallH }} onClick={() => onOpen(urls[1])}>
-            <img src={urls[1]} alt="" style={imgStyle} loading="lazy" />
+          <div style={{ ...cellStyle, height: smallH }}>
+            <ChatImage url={urls[1]} onClick={() => onOpen(urls[1])} fill />
           </div>
-          <div style={{ ...cellStyle, height: smallH }} onClick={() => onOpen(urls[2])}>
-            <img src={urls[2]} alt="" style={imgStyle} loading="lazy" />
+          <div style={{ ...cellStyle, height: smallH }}>
+            <ChatImage url={urls[2]} onClick={() => onOpen(urls[2])} fill />
           </div>
         </div>
       </div>
@@ -80,10 +69,10 @@ export function MediaCollage({ urls, onOpen, maxWidth = 280 }: MediaCollageProps
   // ── 4 images — 2×2 grid ──────────────────────────────────────────────────
   if (count === 4) {
     return (
-      <div style={{ display: "grid", gridTemplateColumns: `1fr 1fr`, gap, width: maxWidth, borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap, width: maxWidth, borderRadius: 12, overflow: "hidden" }}>
         {urls.map((url, i) => (
-          <div key={i} style={{ ...cellStyle, height: half }} onClick={() => onOpen(url)}>
-            <img src={url} alt="" style={imgStyle} loading="lazy" />
+          <div key={i} style={{ ...cellStyle, height: half }}>
+            <ChatImage url={url} onClick={() => onOpen(url)} fill />
           </div>
         ))}
       </div>
@@ -94,12 +83,12 @@ export function MediaCollage({ urls, onOpen, maxWidth = 280 }: MediaCollageProps
   const shown = urls.slice(0, 4);
   const more = count - 4;
   return (
-    <div style={{ display: "grid", gridTemplateColumns: `1fr 1fr`, gap, width: maxWidth, borderRadius: 12, overflow: "hidden" }}>
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap, width: maxWidth, borderRadius: 12, overflow: "hidden" }}>
       {shown.map((url, i) => {
         const isLast = i === 3;
         return (
-          <div key={i} style={{ ...cellStyle, height: half }} onClick={() => onOpen(url)}>
-            <img src={url} alt="" style={{ ...imgStyle, filter: isLast && more > 0 ? "brightness(0.45)" : undefined }} loading="lazy" />
+          <div key={i} style={{ ...cellStyle, height: half, position: "relative" }}>
+            <ChatImage url={url} onClick={() => onOpen(url)} fill style={{ filter: isLast && more > 0 ? "brightness(0.45)" : undefined }} />
             {isLast && more > 0 && (
               <div style={{
                 position: "absolute", inset: 0,
