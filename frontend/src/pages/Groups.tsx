@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, memo } from "react";
 import { MediaCollage } from "@/components/MediaCollage";
+import { ChatImage } from "@/components/ChatImage";
+import { ChatVideo } from "@/components/ChatVideo";
 import { useParams } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
 import { useRealtimeChannel } from "@/hooks/useRealtimeChannel";
@@ -247,7 +249,6 @@ function ImageMsg({
   onLightbox: () => void;
   renderCaption: (t: string) => React.ReactNode;
 }) {
-  const [portrait, setPortrait] = useState(false);
   const captionBg = isMe ? "hsl(var(--primary))" : "hsl(var(--muted))";
   const captionColor = isMe ? "hsl(var(--primary-foreground))" : "hsl(var(--foreground))";
   const replyBorder = isMe ? "rgba(255,255,255,0.45)" : "hsl(var(--primary))";
@@ -262,24 +263,7 @@ function ImageMsg({
           <p style={{ fontSize: 11, color: replyTextColor }}>{reply.text ? reply.text.slice(0, 80) : "📎 Media"}</p>
         </div>
       )}
-      <button onClick={onLightbox} className="block w-full" style={{ display: "block" }}>
-        <img
-          src={url}
-          alt="shared"
-          className="block w-full"
-          style={{
-            height: "auto",
-            aspectRatio: portrait ? "3 / 4" : undefined,
-            objectFit: portrait ? "cover" : undefined,
-            objectPosition: "center top",
-          }}
-          onLoad={e => {
-            const img = e.currentTarget;
-            setPortrait(img.naturalHeight > img.naturalWidth * 1.2);
-          }}
-          loading="lazy"
-        />
-      </button>
+      <ChatImage url={url} onClick={onLightbox} />
       {text?.trim() ? (
         <div style={{ background: captionBg, color: captionColor, padding: "6px 12px 10px", fontSize: 13, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
           {renderCaption(text.trim())}
@@ -2289,7 +2273,7 @@ export default function Groups() {
                       )}
                       {m.media_type === "video" && m.media_url && (
                         <div className="relative inline-block group/vid" style={{ maxWidth: "360px", width: "100%" }}>
-                          <video src={m.media_url} controls controlsList="nodownload noplaybackrate nopictureinpicture" disablePictureInPicture className="block w-full bg-black" />
+                          <ChatVideo url={m.media_url} controlsList="nodownload noplaybackrate nopictureinpicture" />
                           <button onClick={e => { const vid = e.currentTarget.parentElement?.querySelector("video") as HTMLVideoElement | null; if (vid) { (vid.requestFullscreen?.() as any) ?? (vid as any).webkitRequestFullscreen?.(); } }}
                             className="absolute top-2 left-2 h-7 w-7 rounded-full bg-black/50 hover:bg-black/75 flex items-center justify-center text-white opacity-0 group-hover/vid:opacity-100 transition-opacity z-10"
                             title="Fullscreen">
@@ -2473,7 +2457,7 @@ export default function Groups() {
                       )}
                       {m.media_type === "video" && m.media_url && (
                         <div className="relative inline-block group/vid" style={{ maxWidth: "360px", width: "100%" }}>
-                          <video src={m.media_url} controls controlsList="nodownload noplaybackrate nopictureinpicture" disablePictureInPicture className="block w-full bg-black" />
+                          <ChatVideo url={m.media_url} controlsList="nodownload noplaybackrate nopictureinpicture" />
                           <button onClick={e => { const vid = e.currentTarget.parentElement?.querySelector("video") as HTMLVideoElement | null; if (vid) { (vid.requestFullscreen?.() as any) ?? (vid as any).webkitRequestFullscreen?.(); } }}
                             className="absolute top-2 left-2 h-7 w-7 rounded-full bg-black/50 hover:bg-black/75 flex items-center justify-center text-white opacity-0 group-hover/vid:opacity-100 transition-opacity z-10"
                             title="Fullscreen">
