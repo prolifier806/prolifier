@@ -1238,7 +1238,11 @@ export default function Groups() {
     isInitialLoadRef.current = false;
     const el = messagesAreaRef.current;
     if (!el) return;
-    el.scrollTop = el.scrollHeight;
+    const scrollToBottom = () => { el.scrollTop = el.scrollHeight; };
+    scrollToBottom();
+    requestAnimationFrame(() => { requestAnimationFrame(scrollToBottom); });
+    setTimeout(scrollToBottom, 150);
+    setTimeout(scrollToBottom, 500);
   }, [loadingMessages, messages.length]);
 
   // Auto-scroll on new incoming message — only if already near the bottom
@@ -2201,6 +2205,24 @@ export default function Groups() {
                 {isSelected && <Check className="h-3 w-3 text-primary-foreground" />}
               </div>
             )}
+            {!reportSelectionMode && isJoined && (
+              <button onClick={e => { e.stopPropagation(); setReactionPickerMsgId(reactionPickerMsgId === m.id ? null : m.id); }}
+                className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-muted/80 transition-all shrink-0 self-end mb-1">
+                <Smile className="h-3.5 w-3.5" />
+              </button>
+            )}
+            {!reportSelectionMode && canMenu && (
+              <button onClick={e => { e.stopPropagation(); setMsgMenuId(menuOpen ? null : m.id); }}
+                className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-muted/80 transition-all shrink-0 self-end mb-1">
+                <MoreHorizontal className="h-3.5 w-3.5" />
+              </button>
+            )}
+            {!reportSelectionMode && isJoined && (
+              <button onClick={e => { e.stopPropagation(); setReplyTo(m); inputRef.current?.focus(); }}
+                className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-muted/80 transition-all shrink-0 self-end mb-1">
+                <CornerUpLeft className="h-3.5 w-3.5" />
+              </button>
+            )}
             <div className="max-w-[72%] min-w-0 flex flex-col items-end">
               {!isContinuation && (
                 <div className="flex items-center gap-1.5 mb-1 mr-1">
@@ -2225,29 +2247,6 @@ export default function Groups() {
                 </div>
               ) : (
                 <div className="relative group/bbl w-full flex flex-col items-end">
-                  {/* Hover actions — appear to the left of own bubble; hidden in report mode */}
-                  {!reportSelectionMode && (
-                    <div className="absolute right-full top-0 pr-1 transition-opacity opacity-0 group-hover/bbl:opacity-100 flex items-center gap-0.5 z-10">
-                      {isJoined && (
-                        <button onClick={e => { e.stopPropagation(); setReactionPickerMsgId(reactionPickerMsgId === m.id ? null : m.id); }}
-                          className="h-7 w-7 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground">
-                          <Smile className="h-3.5 w-3.5" />
-                        </button>
-                      )}
-                      {canMenu && (
-                        <button onClick={e => { e.stopPropagation(); setMsgMenuId(menuOpen ? null : m.id); }}
-                          className="h-7 w-7 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground">
-                          <MoreHorizontal className="h-3.5 w-3.5" />
-                        </button>
-                      )}
-                      {isJoined && (
-                        <button onClick={e => { e.stopPropagation(); setReplyTo(m); inputRef.current?.focus(); }}
-                          className="h-7 w-7 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground">
-                          <CornerUpLeft className="h-3.5 w-3.5" />
-                        </button>
-                      )}
-                    </div>
-                  )}
                   {m.media_type === "image" && m.media_urls && m.media_urls.length >= 2 ? (
                     <div className="rounded-2xl overflow-hidden bg-primary">
                       <MediaCollage urls={m.media_urls} maxWidth={280} onOpen={(url) => { const i = m.media_urls!.indexOf(url); setLightbox({ type: "image", url, urls: m.media_urls!, lbIdx: i < 0 ? 0 : i }); }} />
@@ -2409,29 +2408,6 @@ export default function Groups() {
                 </div>
               ) : (
                 <div className="relative group/bbl">
-                  {/* Hover actions — appear to the right of others' bubble; hidden in report mode */}
-                  {!reportSelectionMode && (
-                    <div className="absolute left-full top-0 pl-1 transition-opacity opacity-0 group-hover/bbl:opacity-100 flex items-center gap-0.5 z-10">
-                    {isJoined && (
-                      <button onClick={e => { e.stopPropagation(); setReplyTo(m); inputRef.current?.focus(); }}
-                        className="h-7 w-7 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground">
-                        <CornerUpLeft className="h-3.5 w-3.5" />
-                      </button>
-                    )}
-                    {isJoined && (
-                      <button onClick={e => { e.stopPropagation(); setReactionPickerMsgId(reactionPickerMsgId === m.id ? null : m.id); }}
-                        className="h-7 w-7 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground">
-                        <Smile className="h-3.5 w-3.5" />
-                      </button>
-                    )}
-                    {canMenu && (
-                      <button onClick={e => { e.stopPropagation(); setMsgMenuId(menuOpen ? null : m.id); }}
-                        className="h-7 w-7 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground">
-                        <MoreHorizontal className="h-3.5 w-3.5" />
-                      </button>
-                    )}
-                    </div>
-                  )}
                   {m.media_type === "image" && m.media_urls && m.media_urls.length >= 2 ? (
                     <div className="rounded-2xl overflow-hidden bg-muted border border-border/50">
                       <MediaCollage urls={m.media_urls} maxWidth={280} onOpen={(url) => { const i = m.media_urls!.indexOf(url); setLightbox({ type: "image", url, urls: m.media_urls!, lbIdx: i < 0 ? 0 : i }); }} />
@@ -2535,6 +2511,24 @@ export default function Groups() {
                 </div>
               )}
             </div>
+            {!reportSelectionMode && isJoined && (
+              <button onClick={e => { e.stopPropagation(); setReplyTo(m); inputRef.current?.focus(); }}
+                className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-muted/80 transition-all shrink-0 self-end mb-1">
+                <CornerUpLeft className="h-3.5 w-3.5" />
+              </button>
+            )}
+            {!reportSelectionMode && isJoined && (
+              <button onClick={e => { e.stopPropagation(); setReactionPickerMsgId(reactionPickerMsgId === m.id ? null : m.id); }}
+                className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-muted/80 transition-all shrink-0 self-end mb-1">
+                <Smile className="h-3.5 w-3.5" />
+              </button>
+            )}
+            {!reportSelectionMode && canMenu && (
+              <button onClick={e => { e.stopPropagation(); setMsgMenuId(menuOpen ? null : m.id); }}
+                className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-muted/80 transition-all shrink-0 self-end mb-1">
+                <MoreHorizontal className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
         );
       }
