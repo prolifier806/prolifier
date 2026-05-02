@@ -3369,7 +3369,7 @@ export default function Groups() {
           )}
 
           {/* Messages area */}
-          <div ref={messagesAreaRef} className="flex-1 overflow-y-auto p-4">
+          <div ref={messagesAreaRef} className="flex-1 overflow-y-auto p-4" style={{ overflowAnchor: "none" }}>
             {!isJoined && (
               <div className="text-center py-10">
                 <p className="text-sm text-muted-foreground mb-3">

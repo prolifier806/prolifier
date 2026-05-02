@@ -1794,7 +1794,7 @@ export default function Messages() {
               )}
 
               {/* Messages */}
-              <div ref={messagesAreaRef} className="flex-1 overflow-y-auto p-4 space-y-4">
+              <div ref={messagesAreaRef} className="flex-1 overflow-y-auto p-4 space-y-4" style={{ overflowAnchor: "none" }}>
                 {loadingMsgs ? (
                   <div className="flex items-center justify-center py-12">
                     <div className="h-5 w-5 rounded-full border-2 border-primary border-t-transparent animate-spin" />
