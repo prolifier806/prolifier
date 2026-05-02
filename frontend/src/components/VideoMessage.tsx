@@ -68,22 +68,11 @@ export function VideoMessage({ url, controlsList = "nodownload noplaybackrate no
   }
 
   // ── Before / during download ──────────────────────────────────────────────
-  // preload="none" — no network request so nothing gets cancelled when the
-  // element unmounts after the full download completes.
-  // aspectRatio keeps the container at 16:9 so there is no layout shift.
+  // Use a plain div placeholder — no <video src> so the browser makes zero
+  // network requests, nothing to cancel when this unmounts after download.
   return (
     <div ref={containerRef} style={{ position: "relative", width: "100%", borderRadius: 10, overflow: "hidden" }}>
-      <video
-        src={url}
-        preload="none"
-        className="block w-full bg-black"
-        style={{
-          borderRadius: 10,
-          aspectRatio: "16/9",
-          filter: "blur(8px)",
-          transform: "scale(1.06)",
-        }}
-      />
+      <div style={{ width: "100%", aspectRatio: "16/9", background: "#111", borderRadius: 10 }} />
 
       {/* Overlay — click triggers full download */}
       <div
