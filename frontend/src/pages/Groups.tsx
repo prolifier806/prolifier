@@ -415,6 +415,7 @@ export default function Groups() {
   const [reactions, setReactions] = useState<ReactionMap>({});
   // Which message's emoji picker is open
   const [reactionPickerMsgId, setReactionPickerMsgId] = useState<string | null>(null);
+  const [reactionPickerPos, setReactionPickerPos] = useState<{ top: number; left?: number; right?: number } | null>(null);
 
   // Chat search
   type SearchResult = { id: string; text: string; snippet: string; media_url: string | null; media_type: string | null; created_at: string; sender: { id: string; name: string; color: string; avatar_url: string | null } };
@@ -1238,11 +1239,14 @@ export default function Groups() {
     isInitialLoadRef.current = false;
     const el = messagesAreaRef.current;
     if (!el) return;
-    const scrollToBottom = () => { el.scrollTop = el.scrollHeight; };
-    scrollToBottom();
-    requestAnimationFrame(() => { requestAnimationFrame(scrollToBottom); });
-    setTimeout(scrollToBottom, 150);
-    setTimeout(scrollToBottom, 500);
+    el.scrollTop = el.scrollHeight;
+    // Keep scrolling to bottom as images/videos load and expand — stop after 2s
+    const deadline = Date.now() + 2000;
+    const ro = new ResizeObserver(() => {
+      if (Date.now() < deadline) el.scrollTop = el.scrollHeight;
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
   }, [loadingMessages, messages.length]);
 
   // Auto-scroll on new incoming message — only if already near the bottom
@@ -2206,7 +2210,7 @@ export default function Groups() {
               </div>
             )}
             {!reportSelectionMode && isJoined && (
-              <button onClick={e => { e.stopPropagation(); setReactionPickerMsgId(reactionPickerMsgId === m.id ? null : m.id); }}
+              <button onClick={e => { e.stopPropagation(); const rect = (e.currentTarget as HTMLElement).getBoundingClientRect(); const pickerH = 48; const goDown = rect.top < pickerH + 16; const top = goDown ? rect.bottom + 4 : rect.top - pickerH - 4; if (reactionPickerMsgId === m.id) { setReactionPickerMsgId(null); setReactionPickerPos(null); } else { setReactionPickerMsgId(m.id); setReactionPickerPos({ top, right: window.innerWidth - rect.right }); } }}
                 className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-muted/80 transition-all shrink-0 self-end mb-1">
                 <Smile className="h-3.5 w-3.5" />
               </button>
@@ -2319,18 +2323,6 @@ export default function Groups() {
                         <Trash2 className="h-3.5 w-3.5" />
                         Unsend
                       </button>
-                    </div>
-                  )}
-                  {/* Emoji picker — hidden in report mode */}
-                  {!reportSelectionMode && reactionPickerMsgId === m.id && (
-                    <div className="absolute right-0 bottom-full mb-1 z-50 bg-card border border-border rounded-2xl shadow-xl px-2 py-1.5 flex gap-1"
-                      onClick={e => e.stopPropagation()}>
-                      {QUICK_EMOJIS.map(e => (
-                        <button key={e} onClick={() => handleReaction(m.id, e)}
-                          className="text-lg hover:scale-125 transition-transform px-0.5 leading-none">
-                          {e}
-                        </button>
-                      ))}
                     </div>
                   )}
                   {/* Reaction pills — hidden in report mode */}
@@ -2480,18 +2472,6 @@ export default function Groups() {
                       )}
                     </div>
                   )}
-                  {/* Emoji picker — hidden in report mode */}
-                  {!reportSelectionMode && reactionPickerMsgId === m.id && (
-                    <div className="absolute left-0 bottom-full mb-1 z-50 bg-card border border-border rounded-2xl shadow-xl px-2 py-1.5 flex gap-1"
-                      onClick={e => e.stopPropagation()}>
-                      {QUICK_EMOJIS.map(e => (
-                        <button key={e} onClick={() => handleReaction(m.id, e)}
-                          className="text-lg hover:scale-125 transition-transform px-0.5 leading-none">
-                          {e}
-                        </button>
-                      ))}
-                    </div>
-                  )}
                   {/* Reaction pills — hidden in report mode */}
                   {!reportSelectionMode && reactions[m.id] && Object.keys(reactions[m.id]).length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-1">
@@ -2518,7 +2498,7 @@ export default function Groups() {
               </button>
             )}
             {!reportSelectionMode && isJoined && (
-              <button onClick={e => { e.stopPropagation(); setReactionPickerMsgId(reactionPickerMsgId === m.id ? null : m.id); }}
+              <button onClick={e => { e.stopPropagation(); const rect = (e.currentTarget as HTMLElement).getBoundingClientRect(); const pickerH = 48; const goDown = rect.top < pickerH + 16; const top = goDown ? rect.bottom + 4 : rect.top - pickerH - 4; if (reactionPickerMsgId === m.id) { setReactionPickerMsgId(null); setReactionPickerPos(null); } else { setReactionPickerMsgId(m.id); setReactionPickerPos({ top, left: rect.left }); } }}
                 className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-muted/80 transition-all shrink-0 self-end mb-1">
                 <Smile className="h-3.5 w-3.5" />
               </button>
@@ -3398,6 +3378,23 @@ export default function Groups() {
             <div ref={bottomRef} />
           </div>
 
+          {/* Fixed reaction picker — rendered outside scroll container so it never clips */}
+          {reactionPickerMsgId !== null && reactionPickerPos !== null && (
+            <div
+              style={{ position: "fixed", top: reactionPickerPos.top, left: reactionPickerPos.left, right: reactionPickerPos.right, zIndex: 200 }}
+              className="bg-card border border-border rounded-2xl shadow-xl px-2 py-1.5 flex gap-1"
+              onClick={e => e.stopPropagation()}>
+              {QUICK_EMOJIS.map(e => (
+                <button key={e} onClick={() => { handleReaction(reactionPickerMsgId, e); setReactionPickerMsgId(null); setReactionPickerPos(null); }}
+                  className="text-lg hover:scale-125 transition-transform px-0.5 leading-none">
+                  {e}
+                </button>
+              ))}
+            </div>
+          )}
+          {reactionPickerMsgId !== null && (
+            <div className="fixed inset-0 z-[199]" onClick={() => { setReactionPickerMsgId(null); setReactionPickerPos(null); }} />
+          )}
           {/* Jump to mention button */}
           {mentionMsgIds.length > 0 && (
             <div className="absolute bottom-16 right-4 z-40">
