@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Play, AlertCircle } from "lucide-react";
+import { Play, AlertCircle, Download } from "lucide-react";
 import { useMediaLoader } from "@/hooks/useMediaLoader";
 import { shouldAutoDownload } from "@/lib/mediaPrefs";
 import { ProgressRing, fmtBytes } from "@/components/ProgressRing";
@@ -132,7 +132,16 @@ export function VideoMessage({ url, controlsList = "nodownload noplaybackrate no
             <AlertCircle size={22} color="#fff" />
           </div>
         ) : (
-          <PlayBtn />
+          /* Idle — download icon (play only appears after full download) */
+          <div style={{
+            width: 52, height: 52, borderRadius: "50%",
+            background: "rgba(0,0,0,0.6)",
+            backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            boxShadow: "0 2px 18px rgba(0,0,0,0.55)",
+          }}>
+            <Download size={22} color="#fff" strokeWidth={2.2} />
+          </div>
         )}
       </div>
     </div>
