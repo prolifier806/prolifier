@@ -532,6 +532,7 @@ export default function Groups() {
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const messagesAreaRef = useRef<HTMLDivElement>(null);
+  const messagesContentRef = useRef<HTMLDivElement>(null);
   const savedScrollRef = useRef<number>(-1); // -1 means "no saved position"
   const isInitialLoadRef = useRef(false); // true from openGroup until first messages render
 
@@ -1238,14 +1239,17 @@ export default function Groups() {
     if (loadingMessages || messages.length === 0) return;
     isInitialLoadRef.current = false;
     const el = messagesAreaRef.current;
-    if (!el) return;
+    const content = messagesContentRef.current;
+    if (!el || !content) return;
     el.scrollTop = el.scrollHeight;
-    // Keep scrolling to bottom as images/videos load and expand — stop after 2s
+    // Observe the inner content div — its height grows as images/videos load.
+    // The scroll container itself has a fixed height (flex-1) so observing it
+    // would never fire. Stop after 2s to avoid fighting user scroll.
     const deadline = Date.now() + 2000;
     const ro = new ResizeObserver(() => {
       if (Date.now() < deadline) el.scrollTop = el.scrollHeight;
     });
-    ro.observe(el);
+    ro.observe(content);
     return () => ro.disconnect();
   }, [loadingMessages, messages.length]);
 
@@ -3367,15 +3371,17 @@ export default function Groups() {
                 <div className="h-6 w-6 rounded-full border-2 border-primary border-t-transparent animate-spin" />
               </div>
             )}
-            {isJoined && !loadingMessages && messages.length === 0 && (
-              <div className="text-center py-12 text-muted-foreground">
-                <MessageCircle className="h-8 w-8 mx-auto mb-2 opacity-20" />
-                <p className="text-sm font-medium">Welcome to {activeGroup.name}!</p>
-                <p className="text-xs mt-1">Be the first to say something 👋</p>
-              </div>
-            )}
-            {isJoined && !loadingMessages && renderMessageList()}
-            <div ref={bottomRef} />
+            <div ref={messagesContentRef}>
+              {isJoined && !loadingMessages && messages.length === 0 && (
+                <div className="text-center py-12 text-muted-foreground">
+                  <MessageCircle className="h-8 w-8 mx-auto mb-2 opacity-20" />
+                  <p className="text-sm font-medium">Welcome to {activeGroup.name}!</p>
+                  <p className="text-xs mt-1">Be the first to say something 👋</p>
+                </div>
+              )}
+              {isJoined && !loadingMessages && renderMessageList()}
+              <div ref={bottomRef} />
+            </div>
           </div>
 
           {/* Fixed reaction picker — rendered outside scroll container so it never clips */}
