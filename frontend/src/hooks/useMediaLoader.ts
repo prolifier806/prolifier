@@ -12,10 +12,12 @@ export interface UseMediaLoaderResult {
 }
 
 export function useMediaLoader(fileId: string, url: string): UseMediaLoaderResult {
-  // Initialise synchronously from memory cache to avoid any placeholder flash
-  const [state, setState] = useState<MediaState>(() =>
-    downloadManager.fromMemory(fileId) ? "loaded" : "idle"
-  );
+  // Synchronous init: memory hit → loaded instantly; localStorage flag → loaded (blob coming from IDB)
+  const [state, setState] = useState<MediaState>(() => {
+    if (downloadManager.fromMemory(fileId)) return "loaded";
+    if (downloadManager.wasDownloaded(fileId)) return "loaded";
+    return "idle";
+  });
   const [objectUrl, setObjectUrl] = useState<string | null>(() =>
     downloadManager.fromMemory(fileId)
   );

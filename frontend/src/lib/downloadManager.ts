@@ -3,6 +3,25 @@ import { dbGet, dbSet } from "./mediaDb";
 // ── Memory cache (session-persistent) ────────────────────────────────────────
 const memCache = new Map<string, { blob: Blob; objectUrl: string }>();
 
+// ── localStorage-backed download registry ─────────────────────────────────────
+// Synchronous — used to skip the async IDB round-trip on page reload.
+const DL_LS_KEY = "prolifier_dl_ids";
+
+function loadDlIds(): Set<string> {
+  try { return new Set(JSON.parse(localStorage.getItem(DL_LS_KEY) || "[]")); }
+  catch { return new Set(); }
+}
+
+const dlIds = loadDlIds();
+
+function persistDlId(fileId: string) {
+  dlIds.add(fileId);
+  try {
+    const arr = [...dlIds].slice(-800); // cap at 800 entries
+    localStorage.setItem(DL_LS_KEY, JSON.stringify(arr));
+  } catch {}
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 export interface DownloadProgress {
   loaded: number; // bytes received
@@ -63,7 +82,8 @@ async function execute(item: DownloadItem) {
 
     const objectUrl = URL.createObjectURL(blob);
     memCache.set(item.fileId, { blob, objectUrl });
-    dbSet(item.fileId, blob); // fire-and-forget persistence
+    dbSet(item.fileId, blob);    // fire-and-forget IDB persistence
+    persistDlId(item.fileId);   // synchronous localStorage flag for fast reload check
 
     item.listeners.forEach(cb => cb.onComplete(objectUrl));
   } catch (err) {
@@ -133,6 +153,11 @@ export const downloadManager = {
   /** Synchronous memory-cache lookup */
   fromMemory(fileId: string): string | null {
     return memCache.get(fileId)?.objectUrl ?? null;
+  },
+
+  /** Synchronous check — true if this fileId was ever fully downloaded */
+  wasDownloaded(fileId: string): boolean {
+    return dlIds.has(fileId);
   },
 
   /** Async IDB lookup — also populates memory cache on hit */

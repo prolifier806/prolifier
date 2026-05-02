@@ -11,11 +11,23 @@ interface MediaMessageProps {
   fill?: boolean;
 }
 
-// Session-level revealed set — images stay unblurred for the session
-const revealed = new Set<string>();
+// localStorage-backed revealed set — persists across refreshes
+const REVEALED_KEY = "prolifier_img_revealed";
+function loadRevealedSet(): Set<string> {
+  try { return new Set(JSON.parse(localStorage.getItem(REVEALED_KEY) || "[]")); }
+  catch { return new Set(); }
+}
+const revealedSet = loadRevealedSet();
+function markRevealedPersist(url: string) {
+  revealedSet.add(url);
+  try {
+    const arr = [...revealedSet].slice(-800);
+    localStorage.setItem(REVEALED_KEY, JSON.stringify(arr));
+  } catch {}
+}
 
 export function MediaMessage({ url, onClick, fill = false }: MediaMessageProps) {
-  const [isRevealed, setRevealed] = useState(() => revealed.has(url));
+  const [isRevealed, setRevealed] = useState(() => revealedSet.has(url));
   const [portrait, setPortrait] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -24,7 +36,7 @@ export function MediaMessage({ url, onClick, fill = false }: MediaMessageProps) 
   useEffect(() => { isRevealedRef.current = isRevealed; }, [isRevealed]);
 
   const reveal = () => {
-    revealed.add(url);
+    markRevealedPersist(url);
     setRevealed(true);
   };
 
