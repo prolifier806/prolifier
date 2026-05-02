@@ -2155,10 +2155,21 @@ export default function Groups() {
       if (m.is_system) {
         // JOINREQ messages are legacy — hide them from chat (requests live in settings now)
         if (m.text?.startsWith("||JOINREQ||")) return;
+        // For join/leave/action messages where user_id is the actor, resolve their
+        // current name so renames are reflected without a DB migration.
+        let sysText = m.text || "";
+        if (m.user_id && m.author_name) {
+          // These patterns have the actor's name at the very start of the text
+          const actorStartPatterns = / joined | left | renamed | updated | changed | made the community/;
+          if (actorStartPatterns.test(sysText)) {
+            const match = sysText.match(/^(.+?)( joined | left | renamed | updated | changed | made the community)/);
+            if (match) sysText = m.author_name + sysText.slice(match[1].length);
+          }
+        }
         els.push(
           <div key={m.id} className="flex justify-center my-2">
             <span className="text-[11px] text-muted-foreground bg-muted px-3 py-1 rounded-full select-none">
-              {m.text}
+              {sysText}
             </span>
           </div>
         );

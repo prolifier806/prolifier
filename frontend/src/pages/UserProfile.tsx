@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, MapPin, Github, Globe, Twitter, MessageCircle, UserPlus, Heart, Handshake, Check, UserX, ShieldOff, X, Flag } from "lucide-react";
+import { ArrowLeft, MapPin, Github, Globe, Twitter, MessageCircle, UserPlus, Heart, Check, UserX, ShieldOff, X, Flag } from "lucide-react";
 import Layout from "@/components/Layout";
 import { toast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
@@ -37,13 +37,11 @@ type ProfileData = {
   location: string;
   bio: string;
   project: string;
-  skills: string[];
   lookingFor: string[];
   github: string;
   website: string;
   twitter: string;
   openToCollab: boolean;
-  startupStage: string;
   role: string;
 };
 
@@ -53,14 +51,6 @@ type UserPost = {
   content: string;
   time: string;
   likes: number;
-};
-
-type UserCollab = {
-  id: string;
-  title: string;
-  looking: string;
-  description: string;
-  skills: string[];
 };
 
 type UserConnection = {
@@ -131,7 +121,6 @@ export default function UserProfile() {
 
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [posts, setPosts] = useState<UserPost[]>([]);
-  const [collabs, setCollabs] = useState<UserCollab[]>([]);
   const [userConnections, setUserConnections] = useState<UserConnection[]>([]);
   const [connectionCount, setConnectionCount] = useState(0);
   const [connectionsLoaded, setConnectionsLoaded] = useState(false);
@@ -181,13 +170,11 @@ export default function UserProfile() {
           location: p.location || "",
           bio: p.bio || "",
           project: p.project || "",
-          skills: p.skills || [],
           lookingFor: p.looking_for || [],
           github: p.github || "",
           website: p.website || "",
           twitter: p.twitter || "",
           openToCollab: p.open_to_collab ?? true,
-          startupStage: p.startup_stage || "",
           role: p.role || "user",
         });
 
@@ -209,10 +196,9 @@ export default function UserProfile() {
         // ── Step 3: blocked user sees no content — stop here ─────────────
         if (ownerHasBlockedMe) return;
 
-        // ── Step 4: load posts / collabs / connection state / their conn count ──
-        const [postsRes, collabsRes, [connSentRes, connRecvRes], theirConnsRes] = await Promise.all([
+        // ── Step 4: load posts / connection state / their conn count ──
+        const [postsRes, [connSentRes, connRecvRes], theirConnsRes] = await Promise.all([
           (supabase as any).from("posts").select("id, tag, content, created_at, likes").eq("user_id", id).order("created_at", { ascending: false }).limit(20),
-          (supabase as any).from("collabs").select("id, title, looking, description, skills").eq("user_id", id).order("created_at", { ascending: false }).limit(10),
           Promise.all([
             (supabase as any).from("connections").select("id, status").eq("requester_id", user.id).eq("receiver_id", id).maybeSingle(),
             (supabase as any).from("connections").select("id, status").eq("requester_id", id).eq("receiver_id", user.id).maybeSingle(),
@@ -225,11 +211,6 @@ export default function UserProfile() {
         setPosts((postsRes.data || []).map((post: any) => ({
           id: post.id, tag: post.tag, content: post.content,
           time: timeAgo(post.created_at), likes: post.likes || 0,
-        })));
-
-        setCollabs((collabsRes.data || []).map((c: any) => ({
-          id: c.id, title: c.title, looking: c.looking,
-          description: c.description, skills: c.skills || [],
         })));
 
         const connSent = connSentRes.data;
@@ -474,24 +455,6 @@ export default function UserProfile() {
             </div>
           )}
 
-          {profile.skills.length > 0 && (
-            <div className="mb-4">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Skills & expertise</p>
-              <div className="flex flex-wrap gap-1.5">
-                {profile.skills.map(s => <Badge key={s} variant="outline" className="text-xs">{s}</Badge>)}
-              </div>
-            </div>
-          )}
-
-          {profile.startupStage && profile.startupStage !== "None" && (
-            <div className="mb-4">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Startup Stage</p>
-              <span className="inline-flex items-center text-xs font-semibold px-2.5 py-1 rounded-full bg-primary/10 text-primary border border-primary/20">
-                {profile.startupStage}
-              </span>
-            </div>
-          )}
-
           {profile.lookingFor.length > 0 && (
             <div className="mb-4">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Looking for</p>
@@ -512,8 +475,8 @@ export default function UserProfile() {
             </div>
           )}
 
-          <div className="pt-4 border-t border-border grid grid-cols-3 text-center divide-x divide-border">
-            {[[String(posts.length), "Posts"], [String(collabs.length), "Collab Posts"], [String(connectionCount), "Connections"]].map(([n, l]) => (
+          <div className="pt-4 border-t border-border grid grid-cols-2 text-center divide-x divide-border">
+            {[[String(posts.length), "Posts"], [String(connectionCount), "Connections"]].map(([n, l]) => (
               <div key={l} className="px-2">
                 <p className="text-2xl font-bold text-foreground">{n}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">{l}</p>
@@ -542,9 +505,6 @@ export default function UserProfile() {
             <TabsList className="w-full rounded-none border-b border-border bg-transparent h-11">
               <TabsTrigger value="posts" className="flex-1 rounded-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:shadow-none">
                 Posts ({posts.length})
-              </TabsTrigger>
-              <TabsTrigger value="collabs" className="flex-1 rounded-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:shadow-none">
-                Collab Posts ({collabs.length})
               </TabsTrigger>
               <TabsTrigger value="connections" className="flex-1 rounded-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:shadow-none">
                 Connections ({connectionCount})
@@ -606,43 +566,6 @@ export default function UserProfile() {
               )}
             </TabsContent>
 
-            <TabsContent value="collabs" className="p-0">
-              {collabs.length === 0 ? (
-                <div className="text-center py-10 text-muted-foreground text-sm">No collabs yet</div>
-              ) : (
-                <div className="divide-y divide-border">
-                  {collabs.map(collab => (
-                    <div key={collab.id} className="px-5 py-4">
-                      <div className="flex items-start justify-between gap-2 mb-2 flex-wrap">
-                        <button
-                          className="text-sm font-semibold text-foreground hover:underline text-left"
-                          onClick={() => navigate(`/feed?tab=collabs&collab=${collab.id}`)}
-                        >{collab.title}</button>
-                        <Badge variant="outline" className="text-xs shrink-0">Co-founder role: {collab.looking}</Badge>
-                      </div>
-                      <p className="text-sm text-muted-foreground leading-relaxed mb-3">{collab.description}</p>
-                      <div className="flex flex-wrap gap-1.5 mb-3">
-                        {collab.skills.map(s => <Badge key={s} variant="secondary" className="text-xs">{s}</Badge>)}
-                      </div>
-                      <Button size="sm" variant="default" className="gap-1.5 h-7 text-xs"
-                        onClick={() => {
-                          navigate(`/messages?with=${profile.id}`);
-                          createNotification({
-                            userId: profile.id,
-                            type: "collab",
-                            text: `${user.name} is interested in your collab "${collab.title}"`,
-                            subtext: `Looking for: ${collab.looking}`,
-                            action: "messages",
-                            actorId: user.id,
-                          });
-                        }}>
-                        <Handshake className="h-3.5 w-3.5" /> Express Interest
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </TabsContent>
           </Tabs>
         </div>
 

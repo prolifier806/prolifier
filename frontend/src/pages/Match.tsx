@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Search, Users, ChevronLeft, ChevronRight,
-  X, Check, Send, Shuffle,
+  X, Check, Send, Shuffle, Settings2,
 } from "lucide-react";
 import Layout from "@/components/Layout";
 import { supabase } from "@/lib/supabase";
@@ -11,7 +11,7 @@ import { toast } from "@/hooks/use-toast";
 
 /*
   ══════════════════════════════════════════════════════════════════
-  SQL — run once in Supabase SQL editor before deploying:
+  SQL — run once in Supabase SQL editor:
 
   CREATE TABLE IF NOT EXISTS match_profiles (
     id              uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -32,35 +32,40 @@ import { toast } from "@/hooks/use-toast";
   CREATE POLICY "mp_insert" ON match_profiles FOR INSERT WITH CHECK (auth.uid() = id);
   CREATE POLICY "mp_update" ON match_profiles FOR UPDATE USING (auth.uid() = id);
   CREATE POLICY "mp_delete" ON match_profiles FOR DELETE USING (auth.uid() = id);
+
+  Also run this to refresh the schema cache:
+  NOTIFY pgrst, 'reload schema';
   ══════════════════════════════════════════════════════════════════
 */
 
 // ── Skill categories ──────────────────────────────────────────────────────────
 const SKILL_CATS: Record<string, string[]> = {
-  Engineering: ["Frontend", "Backend", "AI/ML", "Data"],
-  Design:      ["UI/UX", "Graphic", "Branding"],
-  Product:     ["Product", "Strategy"],
-  Business:    ["Marketing", "Sales", "Growth", "Ops"],
+  Engineering:  ["Frontend", "Backend", "Full Stack", "Mobile", "AI/ML", "Data/Analytics", "DevOps/Cloud", "Blockchain", "Cybersecurity", "Embedded/IoT"],
+  Design:       ["UI/UX", "Graphic Design", "Branding", "Motion/Animation", "3D/AR/VR", "Illustration", "Video Editing", "Photography"],
+  Product:      ["Product Management", "Strategy", "User Research", "Agile/Scrum", "Business Analysis"],
+  Business:     ["Marketing", "Sales", "Growth Hacking", "Operations", "Finance/Accounting", "Legal/Compliance", "Fundraising"],
+  Content:      ["Content Writing", "Copywriting", "Social Media", "SEO/SEM", "Community Building", "Video Production", "Podcasting"],
+  Creative:     ["Music Production", "Game Design", "AR/VR Development", "No-Code/Low-Code"],
 };
 
 // ── Option lists ──────────────────────────────────────────────────────────────
 const COMMITMENT     = ["Exploring", "Part-time", "Full-time"] as const;
 const EXPERIENCE     = ["Beginner", "Intermediate", "Experienced"] as const;
-const IDEA_STATUS    = ["I have an idea", "Exploring", "No idea"] as const;
-const LOC_PREF       = ["Same country", "Nearby", "Open to anywhere"] as const;
-const STARTUP_STAGES = ["Idea", "MVP", "Traction", "Scaling", "None"] as const;
-const EQUITY_PREFS   = ["Open to discuss", "Equal", "Flexible"] as const;
+const IDEA_STATUS    = ["I have an idea", "Exploring ideas", "No idea yet"] as const;
+const LOC_PREF       = ["Same country", "Nearby timezone", "Open to anywhere"] as const;
+const STARTUP_STAGES = ["Idea", "MVP", "Traction", "Scaling", "Not started"] as const;
+const EQUITY_PREFS   = ["Open to discuss", "Equal split", "Flexible"] as const;
 
 const FORM_STEPS = [
-  { title: "What are you building?",   sub: "Tell potential co-founders what you're working on",          optional: false },
-  { title: "Skills you HAVE",          sub: "Select up to 5 — what you bring to the table",               optional: false },
-  { title: "Skills you NEED",          sub: "Select up to 5 — what you're looking for in a co-founder",   optional: false },
-  { title: "Commitment level",         sub: "How much time can you dedicate?",                             optional: false },
-  { title: "Experience level",         sub: "How experienced are you overall?",                            optional: false },
-  { title: "Idea status",              sub: "Where are you in the idea phase?",                            optional: false },
-  { title: "Location preference",      sub: "Who do you want to collaborate with?",                        optional: false },
-  { title: "Startup stage",            sub: "What stage is your project at?",                              optional: true  },
-  { title: "Equity preference",        sub: "What's your equity approach?",                                optional: true  },
+  { title: "What are you building?",   sub: "Tell potential co-founders what you're working on",        optional: false },
+  { title: "Skills you HAVE",          sub: "Select up to 8 — what you bring to the table",             optional: false },
+  { title: "Skills you NEED",          sub: "Select up to 8 — what you're looking for in a co-founder", optional: false },
+  { title: "Commitment level",         sub: "How much time can you dedicate?",                           optional: false },
+  { title: "Experience level",         sub: "How experienced are you overall?",                          optional: false },
+  { title: "Idea status",              sub: "Where are you in the idea phase?",                          optional: false },
+  { title: "Location preference",      sub: "Who do you want to collaborate with?",                      optional: false },
+  { title: "Startup stage",            sub: "What stage is your project at?",                            optional: true  },
+  { title: "Equity preference",        sub: "What's your equity approach?",                              optional: true  },
 ];
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -87,22 +92,19 @@ interface MatchProfile extends MatchData {
   project?:  string;
 }
 
-// ── Match scoring ─────────────────────────────────────────────────────────────
-function computeScore(
-  me: MatchData,
-  other: MatchProfile,
-  seen: Set<string>,
-  skipped: Set<string>,
-): number {
-  const n2h = me.skills_need.filter(s => other.skills_have.includes(s)).length;
-  const h2n = other.skills_need.filter(s => me.skills_have.includes(s)).length;
-  let sc = (n2h + h2n) * 100;
+// ── Match scoring (deterministic — random only for final tiebreak) ────────────
+function skillMatchCount(me: MatchData, other: MatchProfile): number {
+  return me.skills_need.filter(s => other.skills_have.includes(s)).length
+       + other.skills_need.filter(s => me.skills_have.includes(s)).length;
+}
+
+function computeScore(me: MatchData, other: MatchProfile): number {
+  let sc = skillMatchCount(me, other) * 1000; // primary: skill matches (dominant weight)
   if (me.commitment && me.commitment === other.commitment) sc += 30;
   if (me.experience_level && me.experience_level === other.experience_level) sc += 20;
   if (me.location_pref === "Open to anywhere" || other.location_pref === "Open to anywhere") sc += 10;
-  if (seen.has(other.id)) sc -= 20;
-  if (skipped.has(other.id)) sc -= 50;
-  return sc + Math.random() * 5;
+  sc += Math.random() * 4; // tiebreaker only — can never overcome even 1 skill match difference
+  return sc;
 }
 
 // ── Daily intro limit ─────────────────────────────────────────────────────────
@@ -127,15 +129,6 @@ function bumpIntroCount() {
 }
 
 // ── Utility ───────────────────────────────────────────────────────────────────
-function shuffle<T>(arr: T[]): T[] {
-  const a = [...arr];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-}
-
 function initials(name: string) {
   return name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase() || "?";
 }
@@ -147,6 +140,7 @@ export default function Match() {
 
   const [loading, setLoading]   = useState(true);
   const [myData,  setMyData]    = useState<MatchData | null>(null);
+  const [editingPrefs, setEditingPrefs] = useState(false);
   const [mode,    setMode]      = useState<"match" | "search">("match");
 
   // Match pool
@@ -154,11 +148,10 @@ export default function Match() {
   const [ranked,     setRanked]     = useState<MatchProfile[]>([]);
   const [idx,        setIdx]        = useState(0);
   const [seenIds,    setSeenIds]    = useState<Set<string>>(new Set());
-  const [skippedIds, setSkippedIds] = useState<Set<string>>(new Set());
 
   // Intro modal
   const [introTarget, setIntroTarget] = useState<MatchProfile | null>(null);
-  const [introText,   setIntroText]   = useState("Hey, I found your profile via Match and I'm interested in collaborating.");
+  const [introText,   setIntroText]   = useState("");
 
   // Search
   const [searchQuery,   setSearchQuery]   = useState("");
@@ -192,6 +185,22 @@ export default function Match() {
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
+
+  // ── Pre-fill form when editing existing prefs ──────────────────────────────
+  const openEditPrefs = () => {
+    if (!myData) return;
+    setFormBuilding("");         // building is not stored in match_profiles, just reset
+    setFormHave(myData.skills_have);
+    setFormNeed(myData.skills_need);
+    setFormCommitment(myData.commitment || "");
+    setFormExperience(myData.experience_level || "");
+    setFormIdea(myData.idea_status || "");
+    setFormLocPref(myData.location_pref || "");
+    setFormStage(myData.startup_stage || "");
+    setFormEquity(myData.equity_pref || "");
+    setFormStep(1); // skip "what are you building" — start from skills
+    setEditingPrefs(true);
+  };
 
   // ── Load match pool + search users ────────────────────────────────────────
   const loadPool = async (me: MatchData) => {
@@ -234,7 +243,7 @@ export default function Match() {
     }));
 
     setPool(poolProfiles);
-    doRank(me, poolProfiles, new Set(), new Set());
+    doRank(me, poolProfiles);
 
     const searchUsers: MatchProfile[] = (usersRes.data || []).map((p: any) => ({
       id: p.id, name: p.name || "User", username: p.username || undefined,
@@ -245,16 +254,12 @@ export default function Match() {
       experience_level: "", idea_status: "", location_pref: "",
     }));
     setAllUsers(searchUsers);
-    setSearchResults(shuffle(searchUsers).slice(0, 30));
+    setSearchResults(searchUsers.slice(0, 30));
   };
 
-  const doRank = useCallback((
-    me: MatchData, profiles: MatchProfile[],
-    seen: Set<string>, skipped: Set<string>,
-  ) => {
-    const sorted = [...profiles].sort(
-      (a, b) => computeScore(me, b, seen, skipped) - computeScore(me, a, seen, skipped)
-    );
+  // ── Rank: deterministic by skill score, tiny random tiebreak ─────────────
+  const doRank = useCallback((me: MatchData, profiles: MatchProfile[]) => {
+    const sorted = [...profiles].sort((a, b) => computeScore(me, b) - computeScore(me, a));
     setRanked(sorted);
     setIdx(0);
   }, []);
@@ -262,7 +267,7 @@ export default function Match() {
   // ── Search filter ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (!searchQuery.trim()) {
-      setSearchResults(shuffle([...allUsers]).slice(0, 30));
+      setSearchResults(allUsers.slice(0, 30));
       return;
     }
     const q = searchQuery.toLowerCase();
@@ -275,7 +280,7 @@ export default function Match() {
     );
   }, [searchQuery, allUsers]);
 
-  // ── Save onboarding form ───────────────────────────────────────────────────
+  // ── Save onboarding / edit form ────────────────────────────────────────────
   const saveForm = async () => {
     if (!user) return;
     setSaving(true);
@@ -293,11 +298,12 @@ export default function Match() {
       .from("match_profiles")
       .upsert({ id: user.id, ...payload, updated_at: new Date().toISOString() });
     if (error) {
-      toast({ title: "Error saving", description: error.message, variant: "destructive" });
+      toast({ title: "Something went wrong. Try again.", variant: "destructive" });
       setSaving(false);
       return;
     }
     setMyData(payload);
+    setEditingPrefs(false);
     await loadPool(payload);
     setSaving(false);
   };
@@ -305,10 +311,7 @@ export default function Match() {
   // ── Skip action ────────────────────────────────────────────────────────────
   const handleSkip = () => {
     const cur = ranked[idx];
-    if (cur) {
-      setSeenIds(prev   => new Set([...prev, cur.id]));
-      setSkippedIds(prev => new Set([...prev, cur.id]));
-    }
+    if (cur) setSeenIds(prev => new Set([...prev, cur.id]));
     setIdx(i => i + 1);
   };
 
@@ -325,7 +328,6 @@ export default function Match() {
   const confirmIntro = () => {
     if (!introTarget) return;
     bumpIntroCount();
-    // Advance the card
     const cur = ranked[idx];
     if (cur?.id === introTarget.id) {
       setSeenIds(prev => new Set([...prev, cur.id]));
@@ -368,7 +370,7 @@ export default function Match() {
     </span>
   );
 
-  // ── Skill picker (form steps 1 + 2) ───────────────────────────────────────
+  // ── Skill picker ───────────────────────────────────────────────────────────
   const SkillPicker = ({ selected, onChange, max }: {
     selected: string[]; onChange: (v: string[]) => void; max: number;
   }) => (
@@ -399,7 +401,7 @@ export default function Match() {
     </div>
   );
 
-  // ── Radio group (form steps 3–8) ───────────────────────────────────────────
+  // ── Radio group ────────────────────────────────────────────────────────────
   const RadioGroup = ({ options, value, onChange }: {
     options: readonly string[]; value: string; onChange: (v: string) => void;
   }) => (
@@ -422,31 +424,27 @@ export default function Match() {
 
   // ── Big match card ─────────────────────────────────────────────────────────
   const MatchCard = ({ p }: { p: MatchProfile }) => {
-    const matchCount = myData
-      ? myData.skills_need.filter(s => p.skills_have.includes(s)).length
-        + p.skills_need.filter(s => myData.skills_have.includes(s)).length
-      : 0;
+    const n2h = myData ? myData.skills_need.filter(s => p.skills_have.includes(s)).length : 0;
+    const h2n = myData ? p.skills_need.filter(s => myData.skills_have.includes(s)).length : 0;
+    const matchCount = n2h + h2n;
 
     return (
       <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-sm">
-        {/* Header */}
         <div className="p-4 pb-3 flex items-center gap-3">
           <Avatar p={p} size={12} />
           <div className="min-w-0 flex-1">
             <p className="font-semibold text-foreground leading-tight truncate">{p.name}</p>
-            {p.username && <p className="text-xs text-muted-foreground">@{p.username}</p>}
             {p.location && <p className="text-xs text-muted-foreground mt-0.5">{p.location}</p>}
           </div>
           {matchCount > 0 && (
             <div className="shrink-0 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30">
               <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                {matchCount} match{matchCount > 1 ? "es" : ""}
+                {matchCount} skill match{matchCount > 1 ? "es" : ""}
               </span>
             </div>
           )}
         </div>
 
-        {/* Body */}
         <div className="px-4 pb-4 space-y-3">
           {p.project && (
             <div>
@@ -490,11 +488,11 @@ export default function Match() {
           )}
           {(p.commitment || p.experience_level || p.idea_status || p.startup_stage || p.equity_pref) && (
             <div className="flex flex-wrap gap-1.5 pt-0.5">
-              {p.commitment      && <InfoPill label={p.commitment} />}
+              {p.commitment       && <InfoPill label={p.commitment} />}
               {p.experience_level && <InfoPill label={p.experience_level} />}
-              {p.idea_status     && <InfoPill label={p.idea_status} />}
-              {p.startup_stage   && <InfoPill label={p.startup_stage} />}
-              {p.equity_pref     && <InfoPill label={`Equity: ${p.equity_pref}`} />}
+              {p.idea_status      && <InfoPill label={p.idea_status} />}
+              {p.startup_stage    && <InfoPill label={p.startup_stage} />}
+              {p.equity_pref      && <InfoPill label={`Equity: ${p.equity_pref}`} />}
             </div>
           )}
         </div>
@@ -518,7 +516,7 @@ export default function Match() {
     </button>
   );
 
-  // ─── Onboarding step content ───────────────────────────────────────────────
+  // ── Onboarding step content ────────────────────────────────────────────────
   const renderFormStep = () => {
     switch (formStep) {
       case 0: return (
@@ -527,14 +525,14 @@ export default function Match() {
           rows={4}
           className="w-full px-3 py-2.5 rounded-xl bg-secondary border border-border text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-primary resize-none" />
       );
-      case 1: return <SkillPicker selected={formHave} onChange={setFormHave} max={5} />;
-      case 2: return <SkillPicker selected={formNeed} onChange={setFormNeed} max={5} />;
-      case 3: return <RadioGroup options={COMMITMENT}  value={formCommitment} onChange={setFormCommitment} />;
-      case 4: return <RadioGroup options={EXPERIENCE}  value={formExperience} onChange={setFormExperience} />;
-      case 5: return <RadioGroup options={IDEA_STATUS} value={formIdea}       onChange={setFormIdea} />;
-      case 6: return <RadioGroup options={LOC_PREF}    value={formLocPref}    onChange={setFormLocPref} />;
-      case 7: return <RadioGroup options={STARTUP_STAGES} value={formStage}   onChange={setFormStage} />;
-      case 8: return <RadioGroup options={EQUITY_PREFS}   value={formEquity}  onChange={setFormEquity} />;
+      case 1: return <SkillPicker selected={formHave} onChange={setFormHave} max={8} />;
+      case 2: return <SkillPicker selected={formNeed} onChange={setFormNeed} max={8} />;
+      case 3: return <RadioGroup options={COMMITMENT}     value={formCommitment} onChange={setFormCommitment} />;
+      case 4: return <RadioGroup options={EXPERIENCE}     value={formExperience} onChange={setFormExperience} />;
+      case 5: return <RadioGroup options={IDEA_STATUS}    value={formIdea}       onChange={setFormIdea} />;
+      case 6: return <RadioGroup options={LOC_PREF}       value={formLocPref}    onChange={setFormLocPref} />;
+      case 7: return <RadioGroup options={STARTUP_STAGES} value={formStage}      onChange={setFormStage} />;
+      case 8: return <RadioGroup options={EQUITY_PREFS}   value={formEquity}     onChange={setFormEquity} />;
       default: return null;
     }
   };
@@ -553,18 +551,27 @@ export default function Match() {
     );
   }
 
-  // ── ONBOARDING ─────────────────────────────────────────────────────────────
-  if (!myData) {
+  // ── ONBOARDING / EDIT FORM ─────────────────────────────────────────────────
+  if (!myData || editingPrefs) {
     const isLast = formStep === FORM_STEPS.length - 1;
     const step   = FORM_STEPS[formStep];
     return (
       <Layout>
         <div className="max-w-lg mx-auto px-4 py-6">
           <div className="mb-5">
-            <div className="flex items-center gap-2 mb-1">
-              <span className="text-2xl">🤝</span>
-              <h1 className="text-xl font-bold text-foreground">Find your co-founder</h1>
-            </div>
+            {editingPrefs ? (
+              <div className="flex items-center gap-2 mb-1">
+                <button onClick={() => setEditingPrefs(false)} className="text-muted-foreground hover:text-foreground">
+                  <ChevronLeft className="h-5 w-5" />
+                </button>
+                <h1 className="text-xl font-bold text-foreground">Edit Preferences</h1>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-2xl">🤝</span>
+                <h1 className="text-xl font-bold text-foreground">Find your co-founder</h1>
+              </div>
+            )}
             <p className="text-sm text-muted-foreground">Answer a few questions to get matched with the right people.</p>
           </div>
 
@@ -575,7 +582,6 @@ export default function Match() {
             ))}
           </div>
 
-          {/* Step */}
           <h2 className="text-base font-semibold text-foreground mb-0.5">
             {step.title}
             {step.optional && <span className="text-xs font-normal text-muted-foreground ml-2">(optional)</span>}
@@ -598,7 +604,7 @@ export default function Match() {
               {saving
                 ? <div className="h-4 w-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
                 : isLast
-                  ? <><Check className="h-4 w-4" /> Finish</>
+                  ? <><Check className="h-4 w-4" /> {editingPrefs ? "Save Preferences" : "Finish"}</>
                   : <>{step.optional && !canAdvance(formStep) ? "Skip" : "Next"} <ChevronRight className="h-4 w-4" /></>
               }
             </button>
@@ -610,7 +616,8 @@ export default function Match() {
 
   // ── MAIN UI ────────────────────────────────────────────────────────────────
   const currentProfile = ranked[idx] ?? null;
-  const exhausted      = idx >= ranked.length;
+  const exhausted      = idx >= ranked.length && ranked.length > 0;
+  const noProfiles     = pool.length === 0;
   const introsLeft     = INTRO_LIMIT - getIntroCount();
 
   return (
@@ -623,26 +630,32 @@ export default function Match() {
             <span className="text-lg">🤝</span>
             <h1 className="text-lg font-bold text-foreground">Match</h1>
           </div>
-          <div className="flex items-center bg-muted rounded-lg p-0.5 gap-0.5">
-            <button onClick={() => setMode("match")}
-              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${mode === "match" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
-              Match
+          <div className="flex items-center gap-2">
+            <button onClick={openEditPrefs}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+              <Settings2 className="h-3.5 w-3.5" /> Edit Preferences
             </button>
-            <button onClick={() => { setMode("search"); setSearchQuery(""); }}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${mode === "search" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
-              <Search className="h-3.5 w-3.5" /> Search
-            </button>
+            <div className="flex items-center bg-muted rounded-lg p-0.5 gap-0.5">
+              <button onClick={() => setMode("match")}
+                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${mode === "match" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
+                Match
+              </button>
+              <button onClick={() => { setMode("search"); setSearchQuery(""); }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${mode === "search" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
+                <Search className="h-3.5 w-3.5" /> Search
+              </button>
+            </div>
           </div>
         </div>
 
         {/* ── MATCH MODE ──────────────────────────────────────────────────────── */}
         {mode === "match" && (
           <>
-            {/* Not enough users */}
-            {pool.length < 1 && (
+            {/* No profiles yet */}
+            {noProfiles && (
               <div className="text-center py-20">
                 <Users className="h-12 w-12 mx-auto mb-3 text-muted-foreground/30" />
-                <p className="font-semibold text-foreground mb-1">No matches yet</p>
+                <p className="font-semibold text-foreground mb-1">No profiles yet</p>
                 <p className="text-sm text-muted-foreground max-w-xs mx-auto">
                   You'll be matched when more people complete their Match profile.
                 </p>
@@ -650,25 +663,24 @@ export default function Match() {
             )}
 
             {/* Exhausted all profiles */}
-            {pool.length >= 1 && exhausted && (
+            {!noProfiles && exhausted && (
               <div className="text-center py-20">
                 <div className="text-4xl mb-3">🎉</div>
                 <p className="font-semibold text-foreground mb-1">You've seen all profiles</p>
                 <p className="text-sm text-muted-foreground mb-5">Check back later for new matches.</p>
                 <button
                   onClick={() => {
-                    if (myData) doRank(myData, pool, new Set(), new Set());
+                    if (myData) doRank(myData, pool);
                     setSeenIds(new Set());
-                    setSkippedIds(new Set());
                   }}
                   className="flex items-center gap-2 mx-auto px-5 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors">
-                  <Shuffle className="h-4 w-4" /> Start over
+                  <Shuffle className="h-4 w-4" /> See again
                 </button>
               </div>
             )}
 
             {/* Current card */}
-            {pool.length >= 1 && !exhausted && currentProfile && (
+            {!noProfiles && !exhausted && currentProfile && (
               <>
                 <p className="text-xs text-muted-foreground text-center mb-3">
                   {idx + 1} of {ranked.length}

@@ -549,16 +549,11 @@ export default function Discover() {
                               </span>
                             )}
                           </button>
-                          <div className="flex items-center justify-between gap-2">
-                            {p.username
-                              ? <p className="text-xs text-muted-foreground/70 leading-tight">@{p.username}</p>
-                              : <span />}
-                            {p.location && (
-                              <p className="text-xs text-muted-foreground flex items-center gap-1 shrink-0">
-                                <MapPin className="h-3 w-3 shrink-0" /> {p.location}
-                              </p>
-                            )}
-                          </div>
+                          {p.location && (
+                            <p className="text-xs text-muted-foreground flex items-center gap-1">
+                              <MapPin className="h-3 w-3 shrink-0" /> {p.location}
+                            </p>
+                          )}
                           <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full border mt-1 ${
                             p.openToCollab
                               ? "bg-emerald-500 text-white border-emerald-500"
@@ -576,16 +571,6 @@ export default function Discover() {
                           <p className="text-xs text-muted-foreground mb-2">
                             Building: <span className="text-primary font-medium">{p.project}</span>
                           </p>
-                        )}
-                        {p.skills.length > 0 && (
-                          <div className="flex flex-wrap gap-1.5 mb-3">
-                            {p.skills.slice(0, 4).map(s => (
-                              <Badge key={s} variant="outline" className="text-xs">{s}</Badge>
-                            ))}
-                            {p.skills.length > 4 && (
-                              <Badge variant="outline" className="text-xs text-muted-foreground">+{p.skills.length - 4}</Badge>
-                            )}
-                          </div>
                         )}
                       </div>
 
