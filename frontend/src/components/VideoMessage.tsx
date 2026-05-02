@@ -9,16 +9,6 @@ interface VideoMessageProps {
   controlsList?: string;
 }
 
-const Placeholder = () => (
-  <div style={{
-    position: "absolute", inset: 0,
-    background: "linear-gradient(135deg, #1c1c2e 0%, #16213e 55%, #0f3460 100%)",
-    filter: "blur(10px)",
-    transform: "scale(1.12)",
-    opacity: 0.96,
-  }} />
-);
-
 export function VideoMessage({ url, controlsList = "nodownload noplaybackrate nopictureinpicture" }: VideoMessageProps) {
   const { state, objectUrl, progress, startDownload, cancelDownload } = useMediaLoader(url, url);
   const [playing, setPlaying] = useState(false);
@@ -55,10 +45,7 @@ export function VideoMessage({ url, controlsList = "nodownload noplaybackrate no
     else if (state === "loaded") setPlaying(true);
   };
 
-  // ── LOADED ────────────────────────────────────────────────────────────────
-  // Video renders at its natural aspect ratio (width: 100%, height: auto)
-  // exactly like the original <video className="block w-full bg-black" />.
-  // Play-button overlay sits on top until the user taps play.
+  // ── After full download: show real video player ───────────────────────────
   if (state === "loaded" && objectUrl) {
     return (
       <div ref={containerRef} style={{ position: "relative", width: "100%", borderRadius: 10, overflow: "hidden" }}>
@@ -74,32 +61,22 @@ export function VideoMessage({ url, controlsList = "nodownload noplaybackrate no
           />
         ) : (
           <>
-            {/* Thumbnail frame — metadata only, no playback, natural size */}
+            {/* Natural-size thumbnail frame */}
             <video
               src={objectUrl}
               preload="metadata"
               className="block w-full bg-black"
               style={{ borderRadius: 10 }}
             />
-            {/* Play button overlay */}
             <div
               onClick={handleOverlayClick}
               style={{
                 position: "absolute", inset: 0,
                 display: "flex", alignItems: "center", justifyContent: "center",
-                background: "rgba(0,0,0,0.22)",
-                cursor: "pointer",
+                background: "rgba(0,0,0,0.22)", cursor: "pointer",
               }}
             >
-              <div style={{
-                width: 56, height: 56, borderRadius: "50%",
-                background: "rgba(0,0,0,0.6)",
-                backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                boxShadow: "0 2px 18px rgba(0,0,0,0.55)",
-              }}>
-                <Play size={24} color="#fff" fill="#fff" style={{ marginLeft: 3 }} />
-              </div>
+              <PlayBtn />
             </div>
           </>
         )}
@@ -107,57 +84,71 @@ export function VideoMessage({ url, controlsList = "nodownload noplaybackrate no
     );
   }
 
-  // ── PLACEHOLDER (idle / downloading / error) ──────────────────────────────
-  // 16:9 spacer while waiting — matches typical video proportions so the
-  // chat slot is close to the final video size, minimising perceived shift.
+  // ── Before / during download ──────────────────────────────────────────────
+  // Use preload="metadata" on the original URL so the browser fetches only
+  // the video header (dimensions + first frame, typically < 100 KB).
+  // This gives us the correct aspect ratio immediately with no layout shift,
+  // and we show it blurred with an overlay until the full blob is ready.
   return (
-    <div
-      ref={containerRef}
-      style={{ position: "relative", width: "100%", overflow: "hidden", borderRadius: 10, background: "#000" }}
-    >
-      {/* 16:9 spacer */}
-      <div style={{ paddingTop: "56.25%", pointerEvents: "none" }} aria-hidden="true" />
+    <div ref={containerRef} style={{ position: "relative", width: "100%", borderRadius: 10, overflow: "hidden" }}>
+      {/* Thumbnail via metadata — defines container height at true video ratio */}
+      <video
+        src={url}
+        preload="metadata"
+        className="block w-full bg-black"
+        style={{
+          borderRadius: 10,
+          filter: "blur(8px)",
+          transform: "scale(1.06)",
+        }}
+      />
+
+      {/* Overlay — click triggers full download */}
       <div
         onClick={handleOverlayClick}
-        style={{ position: "absolute", inset: 0, cursor: "pointer" }}
-      >
-        <Placeholder />
-        <div style={{
+        style={{
           position: "absolute", inset: 0,
           display: "flex", flexDirection: "column",
           alignItems: "center", justifyContent: "center",
-          gap: 6,
-        }}>
-          {state === "downloading" ? (
-            <>
-              <ProgressRing progress={progress} size={56} />
-              {progress && (
-                <span style={{ color: "rgba(255,255,255,0.72)", fontSize: 11, letterSpacing: 0.2 }}>
-                  {fmtBytes(progress.loaded)}{progress.total ? ` / ${fmtBytes(progress.total)}` : ""}
-                </span>
-              )}
-            </>
-          ) : state === "error" ? (
-            <div style={{
-              width: 52, height: 52, borderRadius: "50%",
-              background: "rgba(200,40,40,0.65)",
-              display: "flex", alignItems: "center", justifyContent: "center",
-            }}>
-              <AlertCircle size={22} color="#fff" />
-            </div>
-          ) : (
-            <div style={{
-              width: 56, height: 56, borderRadius: "50%",
-              background: "rgba(0,0,0,0.55)",
-              backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              boxShadow: "0 2px 14px rgba(0,0,0,0.5)",
-            }}>
-              <Play size={24} color="#fff" fill="#fff" style={{ marginLeft: 3 }} />
-            </div>
-          )}
-        </div>
+          gap: 6, cursor: "pointer",
+          background: "rgba(0,0,0,0.18)",
+        }}
+      >
+        {state === "downloading" ? (
+          <>
+            <ProgressRing progress={progress} size={56} />
+            {progress && (
+              <span style={{ color: "rgba(255,255,255,0.72)", fontSize: 11, letterSpacing: 0.2 }}>
+                {fmtBytes(progress.loaded)}{progress.total ? ` / ${fmtBytes(progress.total)}` : ""}
+              </span>
+            )}
+          </>
+        ) : state === "error" ? (
+          <div style={{
+            width: 52, height: 52, borderRadius: "50%",
+            background: "rgba(200,40,40,0.65)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <AlertCircle size={22} color="#fff" />
+          </div>
+        ) : (
+          <PlayBtn />
+        )}
       </div>
+    </div>
+  );
+}
+
+function PlayBtn() {
+  return (
+    <div style={{
+      width: 56, height: 56, borderRadius: "50%",
+      background: "rgba(0,0,0,0.6)",
+      backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      boxShadow: "0 2px 18px rgba(0,0,0,0.55)",
+    }}>
+      <Play size={24} color="#fff" fill="#fff" style={{ marginLeft: 3 }} />
     </div>
   );
 }
