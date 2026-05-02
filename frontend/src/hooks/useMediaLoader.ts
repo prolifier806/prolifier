@@ -27,13 +27,17 @@ export function useMediaLoader(fileId: string, url: string): UseMediaLoaderResul
   const stateRef = useRef(state);
   useEffect(() => { stateRef.current = state; }, [state]);
 
-  // On mount: check IDB for cached blob (avoids network on revisit)
+  // On mount: check IDB for cached blob (avoids network on revisit).
+  // Must run even when state="loaded" from wasDownloaded() — that case has no objectUrl yet.
   useEffect(() => {
-    if (stateRef.current === "loaded") return;
+    if (downloadManager.fromMemory(fileId)) return; // memory hit: objectUrl already set
     downloadManager.fromDb(fileId).then(cached => {
-      if (cached && stateRef.current !== "loaded") {
+      if (cached) {
         setObjectUrl(cached);
         setState("loaded");
+      } else if (stateRef.current === "loaded") {
+        // wasDownloaded flag was stale (IDB cleared) — reset to idle
+        setState("idle");
       }
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps

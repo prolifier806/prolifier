@@ -59,6 +59,14 @@ export function VideoMessage({ url, controlsList = "nodownload noplaybackrate no
     );
   }
 
+  // ── Restoring from IDB (state=loaded but objectUrl not ready yet) ─────────
+  // Don't fire a network request for preload="metadata" — IDB will resolve shortly.
+  if (state === "loaded" && !objectUrl) {
+    return (
+      <div ref={containerRef} style={{ width: "100%", paddingTop: "56.25%", borderRadius: 10, background: "#111" }} />
+    );
+  }
+
   // ── Before / during download ──────────────────────────────────────────────
   // Use preload="metadata" on the original URL so the browser fetches only
   // the video header (dimensions + first frame, typically < 100 KB).
