@@ -2,7 +2,7 @@ import { ReactNode, useEffect, useState, useRef } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useTheme } from "@/context/ThemeContext";
 import { useUser } from "@/context/UserContext";
-import { Home, Search, MessageCircle, Users, Bell, Settings, Leaf, Sun, Moon, MessageSquarePlus, Plus } from "lucide-react";
+import { Home, Search, MessageCircle, Users, Bell, Settings, Leaf, Sun, Moon, MessageSquarePlus, Plus, Handshake } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import UploadStatusBar from "@/components/UploadStatusBar";
@@ -12,6 +12,7 @@ const NAV_PATHS = [
   { to: "/discover",      icon: Search,        label: "Discover"      },
   { to: "/messages",      icon: MessageCircle, label: "Messages"      },
   { to: "/groups",        icon: Users,         label: "Communities"   },
+  { to: "/match",         icon: Handshake,     label: "Match"         },
   { to: "/notifications", icon: Bell,          label: "Notifications" },
   { to: "/settings",      icon: Settings,      label: "Settings"      },
 ];

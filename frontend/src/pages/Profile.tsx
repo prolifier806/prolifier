@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  MapPin, Github, Globe, Twitter, Edit, Check, X, Handshake, Camera,
+  MapPin, Github, Globe, Twitter, Edit, Check, X, Camera,
   Heart, MessageCircle, ChevronRight, ArrowLeft, Bookmark, Users,
   MoreHorizontal, Edit3, Trash2, AtSign, Loader2,
 } from "lucide-react";
@@ -24,7 +24,6 @@ import { isAbortError } from "@/api/client";
 import { uploadAvatar, removeAvatar } from "@/api/uploads";
 import { checkUsername, setUsername as apiSetUsername } from "@/api/users";
 import { updatePost, deletePost } from "@/api/posts";
-import { SKILL_CATEGORIES } from "@/lib/skills";
 import { LOCATIONS } from "@/lib/locations";
 
 export const TERMS_AND_PRIVACY = `TERMS OF SERVICE
@@ -115,7 +114,6 @@ function timeAgo(date: string) {
 
 type Connection  = { id: string; name: string; avatar: string; color: string; avatarUrl?: string; location?: string };
 type PostItem    = { id: string; tag: string; content: string; image?: string; video?: string; time: string; likes: number; commentCount: number; created_at: string; };
-type CollabItem  = { id: string; title: string; looking: string; description: string; skills: string[] };
 type SavedPost   = { id: string; tag: string; content: string; time: string; likes: number };
 type ViewType    = null | "connections" | "posts" | "saved" | "terms";
 
@@ -135,12 +133,9 @@ export default function Profile() {
   const [draftLocation, setDraftLocation] = useState("");
   const [draftBio, setDraftBio]           = useState("");
   const [draftProject, setDraftProject]   = useState("");
-  const [draftSkills, setDraftSkills]     = useState<string[]>([]);
-  const [customSkillInput, setCustomSkillInput] = useState("");
   const [draftGithub, setDraftGithub]     = useState("");
   const [draftWebsite, setDraftWebsite]   = useState("");
   const [draftTwitter, setDraftTwitter]   = useState("");
-  const [draftStartupStage, setDraftStartupStage] = useState("");
 
   // Name change cooldown timer (real-time countdown)
   const [nameCountdown, setNameCountdown] = useState<string | null>(null);
@@ -180,9 +175,7 @@ export default function Profile() {
   const [viewLoading, setViewLoading] = useState(false);
   const [connections, setConnections] = useState<Connection[]>([]);
   const [userPosts, setUserPosts]     = useState<PostItem[]>([]);
-  const [userCollabs, setUserCollabs] = useState<CollabItem[]>([]);
   const [savedPosts, setSavedPosts]   = useState<SavedPost[]>([]);
-  const [postsTab, setPostsTab]       = useState<"posts" | "collabs">("posts");
   const [editingPost, setEditingPost] = useState<PostItem | null>(null);
   const [editContent, setEditContent] = useState("");
   const [editTag, setEditTag] = useState("");
@@ -257,20 +250,13 @@ export default function Profile() {
       setViewLoading(false);
     } else if (v === "posts") {
       setViewLoading(true);
-      setPostsTab("posts");
       try {
-        const [postsRes, collabsRes] = await Promise.all([
-          (supabase as any).from("posts").select("id, tag, content, image_url, video_url, created_at, likes").eq("user_id", user.id).order("created_at", { ascending: false }).limit(30),
-          (supabase as any).from("collabs").select("id, title, looking, description, skills").eq("user_id", user.id).order("created_at", { ascending: false }).limit(20),
-        ]);
+        const postsRes = await (supabase as any).from("posts").select("id, tag, content, image_url, video_url, created_at, likes").eq("user_id", user.id).order("created_at", { ascending: false }).limit(30);
         setUserPosts((postsRes.data || []).map((p: any) => ({
           id: p.id, tag: p.tag, content: p.content,
           image: p.image_url || undefined, video: p.video_url || undefined,
           time: timeAgo(p.created_at), likes: p.likes || 0, commentCount: 0,
           created_at: p.created_at,
-        })));
-        setUserCollabs((collabsRes.data || []).map((c: any) => ({
-          id: c.id, title: c.title, looking: c.looking, description: c.description, skills: c.skills || [],
         })));
       } catch { /* silent */ }
       setViewLoading(false);
@@ -316,11 +302,9 @@ export default function Profile() {
     setLocationQuery(user.location);
     setDraftBio(user.bio);
     setDraftProject(user.project);
-    setDraftSkills([...user.skills]);
     setDraftGithub(user.github);
     setDraftWebsite(user.website);
     setDraftTwitter(user.twitter);
-    setDraftStartupStage(user.startupStage || "");
     setEditing(true);
   };
 
@@ -357,9 +341,8 @@ export default function Profile() {
     }
     await updateUser({
       name: draftName.trim(), location: draftLocation.trim(), bio: draftBio.trim(),
-      project: draftProject.trim(), skills: draftSkills,
+      project: draftProject.trim(),
       github: draftGithub.trim(), website: draftWebsite.trim(), twitter: draftTwitter.trim(),
-      startupStage: draftStartupStage || undefined,
     });
     setSaving(false);
     setEditing(false);
@@ -420,9 +403,6 @@ export default function Profile() {
     setDeletePostId(null);
     toast({ title: "Post deleted." });
   };
-
-  const toggleSkill = (s: string, list: string[], setList: (v: string[]) => void) =>
-    setList(list.includes(s) ? list.filter(x => x !== s) : [...list, s]);
 
   const locationSuggestions = locationQuery.length >= 1
     ? LOCATIONS.filter(l => l.toLowerCase().startsWith(locationQuery.toLowerCase())).slice(0, 6)
@@ -486,90 +466,54 @@ export default function Profile() {
           <h1 className="text-xl font-bold text-foreground mb-4">Your Posts</h1>
           {viewLoading ? (
             <div className="text-center py-12 text-sm text-muted-foreground">Loading…</div>
+          ) : userPosts.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <MessageCircle className="h-10 w-10 mx-auto mb-3 opacity-30" />
+              <p className="text-sm">No posts yet. Share something on the feed!</p>
+            </div>
           ) : (
-            <>
-              <div className="flex gap-2 mb-4">
-                {(["posts", "collabs"] as const).map(tab => (
-                  <button key={tab} onClick={() => setPostsTab(tab)}
-                    className={`px-4 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                      postsTab === tab ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-secondary"
-                    }`}>
-                    {tab === "posts" ? `Posts (${userPosts.length})` : `Collab Posts (${userCollabs.length})`}
-                  </button>
-                ))}
-              </div>
-              {postsTab === "posts" ? (
-                userPosts.length === 0 ? (
-                  <div className="text-center py-12 text-muted-foreground">
-                    <MessageCircle className="h-10 w-10 mx-auto mb-3 opacity-30" />
-                    <p className="text-sm">No posts yet. Share something on the feed!</p>
-                  </div>
-                ) : (
-                  <div className="rounded-xl border border-border bg-card overflow-hidden divide-y divide-border">
-                    {userPosts.map(post => (
-                      <div key={post.id} className="px-5 py-4">
-                        <div className="flex items-start justify-between gap-2 mb-2">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${TAG_COLORS[post.tag] ?? "bg-muted text-muted-foreground"}`}>
-                              {post.tag}
-                            </span>
-                            <span className="text-xs text-muted-foreground">{post.time}</span>
-                          </div>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <button className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors shrink-0">
-                                <MoreHorizontal className="h-4 w-4" />
-                              </button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-40">
-                              <DropdownMenuItem onClick={() => { setEditingPost(post); setEditContent(post.content); setEditTag(post.tag); }} className="gap-2">
-                                <Edit3 className="h-4 w-4" /> Edit
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem onClick={() => setDeletePostId(post.id)} className="gap-2 text-destructive focus:text-destructive">
-                                <Trash2 className="h-4 w-4" /> Delete
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </div>
-                        <button className="w-full text-left" onClick={() => navigate(`/feed?highlight=${post.id}`)}>
-                          <p className="text-sm text-foreground leading-relaxed mb-2 line-clamp-3">{post.content}</p>
-                          {post.image && (
-                            <div className="mb-2 rounded-xl overflow-hidden">
-                              <img src={post.image} alt="post" className="w-full max-h-48 object-cover rounded-xl" />
-                            </div>
-                          )}
-                          <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                            <span className="flex items-center gap-1.5"><Heart className="h-3.5 w-3.5" /> {post.likes}</span>
-                            <span className="flex items-center gap-1.5"><MessageCircle className="h-3.5 w-3.5" /> {post.commentCount}</span>
-                          </div>
+            <div className="rounded-xl border border-border bg-card overflow-hidden divide-y divide-border">
+              {userPosts.map(post => (
+                <div key={post.id} className="px-5 py-4">
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${TAG_COLORS[post.tag] ?? "bg-muted text-muted-foreground"}`}>
+                        {post.tag}
+                      </span>
+                      <span className="text-xs text-muted-foreground">{post.time}</span>
+                    </div>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors shrink-0">
+                          <MoreHorizontal className="h-4 w-4" />
                         </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-40">
+                        <DropdownMenuItem onClick={() => { setEditingPost(post); setEditContent(post.content); setEditTag(post.tag); }} className="gap-2">
+                          <Edit3 className="h-4 w-4" /> Edit
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={() => setDeletePostId(post.id)} className="gap-2 text-destructive focus:text-destructive">
+                          <Trash2 className="h-4 w-4" /> Delete
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                  <button className="w-full text-left" onClick={() => navigate(`/feed?highlight=${post.id}`)}>
+                    <p className="text-sm text-foreground leading-relaxed mb-2 line-clamp-3">{post.content}</p>
+                    {post.image && (
+                      <div className="mb-2 rounded-xl overflow-hidden">
+                        <img src={post.image} alt="post" className="w-full max-h-48 object-cover rounded-xl" />
                       </div>
-                    ))}
-                  </div>
-                )
-              ) : (
-                userCollabs.length === 0 ? (
-                  <div className="text-center py-12 text-muted-foreground">
-                    <Handshake className="h-10 w-10 mx-auto mb-3 opacity-30" />
-                    <p className="text-sm">No collabs yet. Post a collab on the feed!</p>
-                  </div>
-                ) : (
-                  <div className="rounded-xl border border-border bg-card overflow-hidden divide-y divide-border">
-                    {userCollabs.map(collab => (
-                      <button key={collab.id} onClick={() => navigate(`/feed?tab=collabs&collab=${collab.id}`)}
-                        className="w-full px-5 py-4 text-left hover:bg-muted transition-colors">
-                        <p className="text-sm font-semibold text-foreground mb-1">{collab.title}</p>
-                        <p className="text-xs text-muted-foreground mb-2 line-clamp-2">{collab.description}</p>
-                        <div className="flex flex-wrap gap-1.5">
-                          {collab.skills.map(s => <Badge key={s} variant="secondary" className="text-xs">{s}</Badge>)}
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                )
-              )}
-            </>
+                    )}
+                    <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                      <span className="flex items-center gap-1.5"><Heart className="h-3.5 w-3.5" /> {post.likes}</span>
+                      <span className="flex items-center gap-1.5"><MessageCircle className="h-3.5 w-3.5" /> {post.commentCount}</span>
+                    </div>
+                  </button>
+                </div>
+              ))}
+            </div>
           )}
           {editingPost && (
             <Dialog open={!!editingPost} onOpenChange={(v) => !v && setEditingPost(null)}>
@@ -843,92 +787,6 @@ export default function Profile() {
               ? <Input value={draftProject} onChange={e => setDraftProject(e.target.value)} className="h-9" placeholder="Project name — short description" maxLength={25} />
               : <p className="text-sm text-primary font-medium">{user.project || <span className="text-muted-foreground italic font-normal">Nothing listed yet</span>}</p>}
           </div>
-
-          {/* Skills */}
-          <div className="mb-4">
-            <div className="flex items-center justify-between mb-1.5">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Skills & expertise</p>
-              {editing && <span className={`text-xs font-medium ${draftSkills.length >= 3 ? "text-primary" : "text-muted-foreground"}`}>{draftSkills.length}/3</span>}
-            </div>
-            {editing ? (
-              <div className="space-y-2">
-                <div className="flex flex-wrap gap-1.5">
-                  {SKILL_CATEGORIES.map(s => {
-                    const selected = draftSkills.includes(s);
-                    const maxed = !selected && draftSkills.length >= 3;
-                    return (
-                      <Badge key={s}
-                        variant={selected ? "default" : "outline"}
-                        className={`text-xs transition-all ${maxed ? "opacity-40 cursor-not-allowed" : "cursor-pointer hover:scale-105"}`}
-                        onClick={() => { if (!maxed) toggleSkill(s, draftSkills, setDraftSkills); }}>
-                        {s}{selected && <X className="h-2.5 w-2.5 ml-1" />}
-                      </Badge>
-                    );
-                  })}
-                  {draftSkills.filter(s => !(SKILL_CATEGORIES as readonly string[]).includes(s)).map(s => (
-                    <Badge key={s} variant="default" className="text-xs cursor-pointer gap-1"
-                      onClick={() => setDraftSkills(prev => prev.filter(x => x !== s))}>
-                      {s} <X className="h-2.5 w-2.5" />
-                    </Badge>
-                  ))}
-                </div>
-                {draftSkills.length < 3 && (
-                  <div className="flex gap-2">
-                    <Input placeholder="Other skill…" value={customSkillInput}
-                      onChange={e => setCustomSkillInput(e.target.value)}
-                      className="h-8 text-sm"
-                      maxLength={20}
-                      onKeyDown={e => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          const val = customSkillInput.trim();
-                          if (val && !draftSkills.includes(val) && draftSkills.length < 3) setDraftSkills(prev => [...prev, val]);
-                          setCustomSkillInput("");
-                        }
-                      }} />
-                    <Button type="button" size="sm" variant="outline" className="h-8 px-3 shrink-0"
-                      onClick={() => {
-                        const val = customSkillInput.trim();
-                        if (val && !draftSkills.includes(val) && draftSkills.length < 3) setDraftSkills(prev => [...prev, val]);
-                        setCustomSkillInput("");
-                      }}>Add</Button>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="flex flex-wrap gap-1.5">
-                {user.skills.length > 0
-                  ? user.skills.slice(0, 3).map(s => <Badge key={s} variant="outline" className="text-xs">{s}</Badge>)
-                  : <span className="text-xs text-muted-foreground italic">No skills added yet</span>}
-              </div>
-            )}
-          </div>
-
-          {/* Startup Stage */}
-          {(editing || user.startupStage) && (
-            <div className="mb-4">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Startup Stage</p>
-              {editing ? (
-                <div className="flex flex-wrap gap-2">
-                  {["Ideation","MVP","Traction","Scaling","None"].map(stage => (
-                    <button key={stage} type="button"
-                      onClick={() => setDraftStartupStage(prev => prev === stage ? "" : stage)}
-                      className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                        draftStartupStage === stage
-                          ? "bg-primary text-primary-foreground border-primary"
-                          : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
-                      }`}>
-                      {stage}
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <span className="inline-flex items-center text-xs font-semibold px-2.5 py-1 rounded-full bg-primary/10 text-primary border border-primary/20">
-                  {user.startupStage}
-                </span>
-              )}
-            </div>
-          )}
 
           {/* Links */}
           <div className="mb-5">

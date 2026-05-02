@@ -5,17 +5,15 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { X, Plus, Camera, MapPin, AtSign, Check, Loader2 } from "lucide-react";
+import { X, Camera, MapPin, AtSign, Check, Loader2 } from "lucide-react";
 import { useUser } from "@/context/UserContext";
 import { toast } from "@/hooks/use-toast";
 import { uploadAvatar, removeAvatar } from "@/api/uploads";
 import CropModal from "@/components/CropModal";
 import { checkUsername, setUsername as apiSetUsername } from "@/api/users";
-import { SKILL_CATEGORIES } from "@/lib/skills";
 import { LOCATIONS } from "@/lib/locations";
 
-const TOTAL_STEPS = 4; // 0=username, 1=basic info, 2=skills, 3=links
-const MAX_SKILLS = 3;
+const TOTAL_STEPS = 3; // 0=username, 1=basic info, 2=links
 const USERNAME_RE = /^[a-z0-9_]{3,20}$/;
 
 export default function ProfileSetup() {
@@ -48,14 +46,10 @@ export default function ProfileSetup() {
   const [location, setLocation] = useState("");
   const [bio, setBio]           = useState("");
   const [building, setBuilding] = useState("");
-  const [skills, setSkills]     = useState<string[]>([]);
-  const [available, setAvailable] = useState(true);
   const [github, setGithub]     = useState("");
   const [website, setWebsite]   = useState("");
   const [twitter, setTwitter]   = useState("");
-  const [startupStage, setStartupStage] = useState("");
   const [finishing, setFinishing] = useState(false);
-  const [customSkillInput, setCustomSkillInput] = useState("");
   const [avatarUrl, setAvatarUrl] = useState(user.avatarUrl || "");
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [cropSrc, setCropSrc] = useState<string | null>(null);
@@ -73,22 +67,6 @@ export default function ProfileSetup() {
     } else {
       setShowLocationDrop(false);
     }
-  };
-
-  const toggleSkill = (s: string) => {
-    if (skills.includes(s)) {
-      setSkills(prev => prev.filter(x => x !== s));
-    } else if (skills.length < MAX_SKILLS) {
-      setSkills(prev => [...prev, s]);
-    }
-  };
-
-  const addCustomSkill = () => {
-    const val = customSkillInput.trim();
-    if (val && !skills.includes(val) && skills.length < MAX_SKILLS) {
-      setSkills(prev => [...prev, val]);
-    }
-    setCustomSkillInput("");
   };
 
   const ALLOWED_AVATAR_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
@@ -134,10 +112,7 @@ export default function ProfileSetup() {
       username: username.trim() || undefined,
       avatarUrl,
       location: location.trim(), bio: bio.trim(), project: building.trim(),
-      skills, lookingFor: [], roles: [],
       github: github.trim(), website: website.trim(), twitter: twitter.trim(),
-      openToCollab: available,
-      startupStage: startupStage || undefined,
     };
   };
 
@@ -185,9 +160,6 @@ export default function ProfileSetup() {
       if (!LOCATIONS.includes(location.trim())) { toast({ title: "Please select a location from the list", variant: "destructive" }); return; }
       if (!bio.trim()) { toast({ title: "Bio is required", variant: "destructive" }); return; }
     }
-    if (step === 2 && skills.length === 0) {
-      toast({ title: "Please select at least one skill", variant: "destructive" }); return;
-    }
     if (step < TOTAL_STEPS - 1) {
       setStep(step + 1);
     } else {
@@ -195,7 +167,7 @@ export default function ProfileSetup() {
     }
   };
 
-  const stepLabels = ["Username", "Basic info", "Skills", "Links"];
+  const stepLabels = ["Username", "Basic info", "Links"];
 
   const steps = [
     // ── Step 0: Username ──────────────────────────────────────
@@ -329,84 +301,10 @@ export default function ProfileSetup() {
         </div>
         <Input value={building} onChange={e => setBuilding(e.target.value)} placeholder="A ceramics shop, a podcast, an app…" className="h-11" maxLength={150} />
       </div>
-      <div>
-        <div className="flex items-center justify-between mb-1.5">
-          <label className="text-sm font-medium text-foreground">Startup Stage</label>
-          <span className="text-xs text-muted-foreground">Optional</span>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {["Ideation","MVP","Traction","Scaling","None"].map(stage => (
-            <button key={stage} type="button"
-              onClick={() => setStartupStage(prev => prev === stage ? "" : stage)}
-              className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                startupStage === stage
-                  ? "bg-primary text-primary-foreground border-primary"
-                  : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
-              }`}>
-              {stage}
-            </button>
-          ))}
-        </div>
-      </div>
     </div>,
 
-    // ── Step 2: Skills (max 3) ────────────────────────────────
-    <div className="space-y-4" key="s2">
-      <div>
-        <div className="flex items-center justify-between mb-1">
-          <label className="text-sm font-medium text-foreground">Skills & Expertise</label>
-          <span className={`text-xs font-medium ${skills.length >= MAX_SKILLS ? "text-primary" : "text-muted-foreground"}`}>
-            {skills.length}/{MAX_SKILLS} selected
-          </span>
-        </div>
-        <p className="text-xs text-muted-foreground mb-3">Pick up to {MAX_SKILLS} — these will show on your posts</p>
-        <div className="space-y-2">
-          <div className="flex flex-wrap gap-2">
-            {SKILL_CATEGORIES.map(s => {
-              const selected = skills.includes(s);
-              const maxed = !selected && skills.length >= MAX_SKILLS;
-              return (
-                <Badge key={s}
-                  variant={selected ? "default" : "outline"}
-                  className={`cursor-pointer transition-all ${maxed ? "opacity-40 cursor-not-allowed" : "hover:scale-105"}`}
-                  onClick={() => toggleSkill(s)}
-                >
-                  {s}{selected && <X className="h-3 w-3 ml-1" />}
-                </Badge>
-              );
-            })}
-            {skills.filter(s => !(SKILL_CATEGORIES as readonly string[]).includes(s)).map(s => (
-              <Badge key={s} variant="default" className="cursor-pointer gap-1 transition-all hover:scale-105"
-                onClick={() => setSkills(prev => prev.filter(x => x !== s))}>
-                {s} <X className="h-3 w-3" />
-              </Badge>
-            ))}
-          </div>
-          {skills.length < MAX_SKILLS && (
-            <div className="flex gap-2">
-              <Input placeholder="Other skill…" value={customSkillInput}
-                onChange={e => setCustomSkillInput(e.target.value)} className="h-9 text-sm"
-                maxLength={20}
-                onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addCustomSkill(); } }} />
-              <Button type="button" size="sm" variant="outline" className="h-9 px-3 shrink-0 gap-1" onClick={addCustomSkill}>
-                <Plus className="h-3.5 w-3.5" /> Add
-              </Button>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>,
-
-    // ── Step 3: Availability + social links ──────────────────
-    <div className="space-y-5" key="s3">
-      <div className="flex items-center justify-between p-4 rounded-xl bg-card border border-border">
-        <div>
-          <p className="font-medium text-foreground">Open to collaboration</p>
-          <p className="text-sm text-muted-foreground">Let others know you're available to team up</p>
-        </div>
-        <Switch checked={available} onCheckedChange={setAvailable} />
-      </div>
-
+    // ── Step 2: Social links ──────────────────────────────────
+    <div className="space-y-5" key="s2">
       <div className="rounded-xl border border-border bg-card p-4 space-y-4">
         <div className="flex items-center justify-between">
           <p className="text-sm font-medium text-foreground">Social links</p>
@@ -467,7 +365,6 @@ export default function ProfileSetup() {
             disabled={
               (step === 0 && (!username.trim() || usernameStatus === "taken" || usernameStatus === "checking" || usernameStatus === "invalid")) ||
               (step === 1 && (!name.trim() || !location.trim() || !bio.trim())) ||
-              (step === 2 && skills.length === 0) ||
               finishing
             }
             className="flex-1 h-11 font-semibold"
@@ -477,11 +374,6 @@ export default function ProfileSetup() {
         </div>
 
         {step === 2 && (
-          <button onClick={() => setStep(3)} className="w-full mt-3 text-center text-sm text-muted-foreground hover:text-foreground transition-colors">
-            Skip for now
-          </button>
-        )}
-        {step === 3 && (
           <button onClick={skipToFeed} disabled={finishing}
             className="w-full mt-3 text-center text-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50">
             Skip to feed

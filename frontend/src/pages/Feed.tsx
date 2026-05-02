@@ -5,7 +5,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
@@ -14,7 +13,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   Heart, MessageCircle, MapPin, Search, Plus, Send, MoreHorizontal,
-  Trash2, Edit3, Bookmark, Share2, Flag, EyeOff, Handshake,
+  Trash2, Edit3, Bookmark, Share2, Flag, EyeOff,
   X, Check, BookmarkCheck, ImageIcon, Link2, Video as VideoIcon, ZoomIn, Maximize2,
   SlidersHorizontal, ChevronLeft, ChevronRight, Loader2,
 } from "lucide-react";
@@ -33,9 +32,6 @@ import {
   likePost, unlikePost,
   savePost, unsavePost,
   getComments, addComment, deleteComment,
-  createCollab, updateCollab, deleteCollab,
-  expressInterest, removeInterest,
-  saveCollab, unsaveCollab,
 } from "@/api/posts";
 import { uploadPostImage, uploadVideo } from "@/api/uploads";
 import { createReport } from "@/api/reports";
@@ -48,25 +44,14 @@ type Comment = { id: string; user_id: string; author: string; username?: string;
 type MentionUser = { id: string; name: string; username?: string; color: string; avatarUrl?: string };
 type Post = {
   id: string; user_id: string; author: string; avatar: string; avatarUrl?: string; avatarColor: string; location: string;
-  authorSkills?: string[]; authorDeleted?: boolean; authorRole?: string;
+  authorDeleted?: boolean; authorRole?: string;
   tag: string; time: string; createdAt: string; content: string; images: string[]; video?: string; likes: number; commentCount: number; isOwn: boolean;
   comments: Comment[];
-};
-type Collab = {
-  id: string; user_id: string; author: string; avatar: string; avatarUrl?: string; avatarColor: string; location: string;
-  authorSkills?: string[]; authorDeleted?: boolean; authorRole?: string;
-  title: string; looking: string; description: string; skills: string[]; image?: string; video?: string; createdAt: string;
-  candidateLocation?: string;
-  isOwn: boolean;
 };
 
 // ── Constants ──────────────────────────────────────────────────────────────
 const AVATAR_COLORS = ["bg-primary","bg-accent","bg-emerald-600","bg-violet-600","bg-sky-500","bg-rose-500","bg-amber-500","bg-teal-600"];
 const POST_TAGS = ["General","Launch","Progress","Question","Idea","Milestone","Feedback","Story","Resource"];
-// Single source of truth — collab skills used everywhere (post creation + browse filters)
-import { SKILL_CATEGORIES, COLLAB_FILTERS as COLLAB_FILTERS_CONST } from "@/lib/skills";
-const COLLAB_FILTERS: string[] = [...COLLAB_FILTERS_CONST];
-const SKILL_OPTIONS: string[]  = [...SKILL_CATEGORIES];
 const REPORT_REASONS = [
   "Spam or misleading","Hate speech or discrimination","Harassment or bullying",
   "False information","Intellectual property violation","Inappropriate content","Other",
@@ -600,7 +585,7 @@ function MediaUploadBar({ images, onAddImage, onRemoveImage, onVideo, onUploadin
 function ShareDialog({ onClose, link, content }: {
   onClose: () => void;
   link: string;
-  content?: { text: string; authorName: string; type: "post" | "collab"; postId?: string; imageUrl?: string; collabTitle?: string };
+  content?: { text: string; authorName: string; type: "post"; postId?: string; imageUrl?: string };
 }) {
   const { user } = useUser();
   const [connections, setConnections] = useState<{ id: string; name: string; avatar: string; avatarUrl?: string; color: string }[]>([]);
@@ -640,7 +625,6 @@ function ShareDialog({ onClose, link, content }: {
       author: content.authorName,
       caption: content.text,
       image: content.imageUrl || null,
-      title: content.collabTitle || null,
     });
     const chatIds = [...selected].map(receiverId => {
       const sorted = [user.id, receiverId].sort();
@@ -782,7 +766,7 @@ function ShareDialog({ onClose, link, content }: {
 // ── Report Dialog ──────────────────────────────────────────────────────────
 function ReportDialog({ open, onClose, target, targetType, targetId }: {
   open: boolean; onClose: () => void; target: string;
-  targetType: "post" | "collab" | "comment"; targetId: string;
+  targetType: "post" | "comment"; targetId: string;
 }) {
   const { user } = useUser();
   const [reason, setReason] = useState("");
@@ -1225,147 +1209,6 @@ function EditPostDialog({ post, open, onClose, onSave, userId }: {
   );
 }
 
-// ── Collab Location Picker ─────────────────────────────────────────────────
-// Reuses the LOCATIONS list from lib/locations.ts — same dataset as onboarding
-import { LOCATIONS as ALL_LOCATIONS } from "@/lib/locations";
-
-function CollabLocationPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const [query, setQuery] = useState(value);
-  const [show, setShow] = useState(false);
-  // Ref: true while a list item mousedown is in progress so blur doesn't revert the selection
-  const selectingRef = useRef(false);
-
-  // Better matching: prefix matches first, then substring — both groups alphabetically sorted
-  const suggestions = (() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return [];
-    const prefix: string[] = [];
-    const contains: string[] = [];
-    for (const loc of ALL_LOCATIONS) {
-      const l = loc.toLowerCase();
-      if (l.startsWith(q)) prefix.push(loc);
-      else if (l.includes(q)) contains.push(loc);
-    }
-    return [...prefix, ...contains].slice(0, 20);
-  })();
-
-  const isValid = ALL_LOCATIONS.includes(query) || query === "";
-
-  const handleSelect = (loc: string) => {
-    selectingRef.current = false;
-    onChange(loc);
-    setQuery(loc);
-    setShow(false);
-  };
-  const handleClear = () => { onChange(""); setQuery(""); setShow(false); };
-
-  const handleBlur = () => {
-    // Short delay so the list item's mousedown can finish before we hide / revert
-    setTimeout(() => {
-      if (selectingRef.current) return;
-      setShow(false);
-      if (!ALL_LOCATIONS.includes(query) && query !== "") {
-        setQuery(value);
-      }
-    }, 200);
-  };
-
-  return (
-    // No portal — rendering inside the Dialog DOM prevents Radix from swallowing pointer events
-    <div className="relative">
-      <div className="relative">
-        <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-        <Input
-          value={query}
-          onChange={e => { setQuery(e.target.value); setShow(true); }}
-          onFocus={() => setShow(true)}
-          onBlur={handleBlur}
-          placeholder="No preference"
-          className={`h-10 pl-9 pr-8 ${!isValid && query ? "border-destructive focus-visible:ring-destructive" : ""}`}
-        />
-        {query && (
-          <button type="button" onMouseDown={e => { e.preventDefault(); handleClear(); }}
-            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-            <X className="h-3.5 w-3.5" />
-          </button>
-        )}
-      </div>
-      {!isValid && query && (
-        <p className="text-xs text-destructive mt-1">Select a country from the list or leave blank.</p>
-      )}
-      {show && suggestions.length > 0 && (
-        <div className="mt-1 bg-card border border-border rounded-lg shadow-lg max-h-44 overflow-y-auto">
-          <button type="button"
-            onMouseDown={e => { e.preventDefault(); selectingRef.current = true; handleSelect(""); }}
-            className="w-full text-left px-3 py-2.5 text-sm text-muted-foreground hover:bg-secondary transition-colors border-b border-border">
-            No preference
-          </button>
-          {suggestions.map(loc => (
-            <button key={loc} type="button"
-              onMouseDown={e => { e.preventDefault(); selectingRef.current = true; handleSelect(loc); }}
-              className="w-full text-left px-3 py-2.5 text-sm hover:bg-secondary transition-colors">
-              {loc}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Edit Collab Dialog ─────────────────────────────────────────────────────
-function EditCollabDialog({ collab, open, onClose, onSave }: {
-  collab: Collab; open: boolean; onClose: () => void; onSave: (id: string, updates: Partial<Collab>) => void;
-}) {
-  const [title, setTitle] = useState(collab.title);
-  const [looking, setLooking] = useState(collab.looking);
-  const [desc, setDesc] = useState(collab.description);
-  const [skills, setSkills] = useState(collab.skills);
-  const [candidateLocation, setCandidateLocation] = useState(collab.candidateLocation || "");
-  const [customSkillInput, setCustomSkillInput] = useState("");
-  const toggle = (s: string) => setSkills((p) => p.includes(s)?p.filter((x)=>x!==s):[...p,s]);
-
-  const addCustomSkill = () => {
-    const val = customSkillInput.trim();
-    if (val && !skills.includes(val)) setSkills(p => [...p, val]);
-    setCustomSkillInput("");
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
-        <DialogHeader><DialogTitle>Edit Collaboration</DialogTitle></DialogHeader>
-        <div className="space-y-4 py-2">
-          <div><label className="text-sm font-medium mb-1.5 block">Project title</label><Input value={title} onChange={(e)=>setTitle(e.target.value)} className="h-10"/></div>
-          <div><label className="text-sm font-medium mb-1.5 block">Co-founder role</label><Input value={looking} onChange={(e)=>setLooking(e.target.value)} className="h-10"/></div>
-          <div><label className="text-sm font-medium mb-1.5 block">Description</label><Textarea value={desc} onChange={(e)=>setDesc(e.target.value)} rows={3} placeholder="What are you building, what stage are you at, and what do you need from a co-founder?"/></div>
-          <div>
-            <label className="text-sm font-medium mb-1.5 block">Skills needed</label>
-            <div className="flex flex-wrap gap-2">
-              {SKILL_OPTIONS.map((s)=><Badge key={s} variant={skills.includes(s)?"default":"outline"} className="cursor-pointer" onClick={()=>toggle(s)}>{s}</Badge>)}
-              {skills.filter(s => !(SKILL_OPTIONS as readonly string[]).includes(s)).map(s => (
-                <Badge key={s} variant="default" className="cursor-pointer gap-1" onClick={() => setSkills(p => p.filter(x => x !== s))}>
-                  {s} <X className="h-2.5 w-2.5"/>
-                </Badge>
-              ))}
-            </div>
-            <div className="flex gap-2 mt-2">
-              <Input placeholder="Other skill" value={customSkillInput} onChange={e => setCustomSkillInput(e.target.value)}
-                className="h-8 text-sm" onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addCustomSkill(); } }}/>
-              <Button type="button" size="sm" variant="outline" className="h-8 px-3 shrink-0" onClick={addCustomSkill}>Add</Button>
-            </div>
-          </div>
-        </div>
-        <DialogFooter className="gap-2">
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={()=>{onSave(collab.id,{title,looking,description:desc,skills});onClose();}} disabled={!title.trim()} className="gap-1.5">
-            <Check className="h-4 w-4"/> Save
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 // ── Post Card ──────────────────────────────────────────────────────────────
 // OPT: wrapped in memo with a custom comparator — only re-renders when this
@@ -1412,11 +1255,6 @@ const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, onLike, 
                 </span>
               )}
             </span>
-            {!post.authorDeleted && post.authorSkills && post.authorSkills.length > 0 && (
-              <div className="flex flex-wrap gap-1 mt-0.5">
-                {post.authorSkills.map(s => <span key={s} className="text-xs font-medium bg-primary/10 text-primary px-2 py-0.5 rounded-full">{s}</span>)}
-              </div>
-            )}
             <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
               {!post.authorDeleted && <><MapPin className="h-3 w-3 shrink-0"/> {post.location} · </>}{post.time}
             </p>
@@ -1493,155 +1331,6 @@ const PostCard = memo(function PostCard({ post, likedPosts, savedPosts, onLike, 
   );
 });
 
-// ── Match label helper ─────────────────────────────────────────────────────
-
-// ── Collab Card ────────────────────────────────────────────────────────────
-// OPT: same memo treatment as PostCard
-const CollabCard = memo(function CollabCard({ collab, interestedSet, savedCollabs, matchLabel, onInterest, onMessage, onSave, onDelete, onEdit, onHide, onReport, onShare }: {
-  collab: Collab; interestedSet: Set<string>; savedCollabs: Set<string>;
-  matchLabel?: "strong" | "good" | "low";
-  onInterest:(id:string,name:string)=>void; onMessage:(name:string)=>void; onSave:(id:string)=>void;
-  onDelete:(id:string)=>void; onEdit:(c:Collab)=>void; onHide:(id:string)=>void;
-  onReport:(id:string)=>void; onShare:(id:string)=>void;
-}) {
-  const isInterested = interestedSet.has(collab.id);
-  const isSaved = savedCollabs.has(collab.id);
-  const navigate = useNavigate();
-  const [lightboxSrc, setLightboxSrc] = useState<string|null>(null);
-  const [descExpanded, setDescExpanded] = useState(false);
-  const DESC_PREVIEW = 100;
-  const descLong = collab.description.length > DESC_PREVIEW;
-  const displayDesc = !descExpanded && descLong ? collab.description.slice(0, DESC_PREVIEW) + "…" : collab.description;
-
-  const goToProfile = () => {
-    if (collab.authorDeleted) return;
-    if (collab.isOwn) { navigate("/profile"); return; }
-    navigate(`/profile/${collab.user_id}`);
-  };
-
-  return (
-    <>
-      <div data-collab-id={collab.id} className="rounded-xl border border-border bg-card hover:shadow-sm overflow-hidden">
-        <div className="flex items-center gap-3 px-5 pt-5 pb-3">
-          <div className={`shrink-0 ${!collab.authorDeleted ? "cursor-pointer hover:opacity-80 transition-opacity" : ""}`} onClick={goToProfile}>
-            <Avatar initials={collab.authorDeleted ? "?" : collab.avatar} color={collab.authorDeleted ? "bg-muted" : collab.avatarColor} url={collab.authorDeleted ? undefined : collab.avatarUrl}/>
-          </div>
-          <div className="flex-1 min-w-0">
-            <span className={`inline-flex items-center gap-1 font-semibold text-sm text-left ${collab.authorDeleted ? "text-muted-foreground italic" : "text-foreground cursor-pointer hover:underline"}`} onClick={goToProfile}>
-              {collab.author}
-              {!collab.authorDeleted && collab.authorRole === "admin" && (
-                <span title="Verified" className="shrink-0 h-4 w-4 rounded-full bg-blue-500 inline-flex items-center justify-center">
-                  <Check className="h-2.5 w-2.5 text-white stroke-[3]" />
-                </span>
-              )}
-            </span>
-            {!collab.authorDeleted && collab.authorSkills && collab.authorSkills.length > 0 && (
-              <div className="flex flex-wrap gap-1 mt-0.5">
-                {collab.authorSkills.map(s => <span key={s} className="text-xs font-medium bg-primary/10 text-primary px-2 py-0.5 rounded-full">{s}</span>)}
-              </div>
-            )}
-            <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-              {!collab.authorDeleted && <><MapPin className="h-3 w-3 shrink-0"/> {collab.location} · </>}{timeAgo(collab.createdAt)}
-            </p>
-          </div>
-          <div className="flex flex-col items-end gap-1 shrink-0">
-            <div className="flex items-center gap-1">
-            {matchLabel && !collab.isOwn && (
-              matchLabel === "strong"
-                ? <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400 whitespace-nowrap">🔥 Strong Match</span>
-                : matchLabel === "good"
-                  ? <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-400 whitespace-nowrap">👍 Good Match</span>
-                  : <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground whitespace-nowrap">⚠️ Low Match</span>
-            )}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors">
-                <MoreHorizontal className="h-4 w-4"/>
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-52">
-              <DropdownMenuItem onClick={()=>onSave(collab.id)} className="gap-2">
-                {isSaved?<BookmarkCheck className="h-4 w-4 text-primary"/>:<Bookmark className="h-4 w-4"/>}
-                {isSaved?"Saved":"Save collab"}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={()=>onShare(collab.id)} className="gap-2"><Share2 className="h-4 w-4"/> Share</DropdownMenuItem>
-              {collab.isOwn ? (
-                <>
-                  <DropdownMenuSeparator/>
-                  <DropdownMenuItem onClick={()=>onEdit(collab)} className="gap-2"><Edit3 className="h-4 w-4"/> Edit collab</DropdownMenuItem>
-                  <DropdownMenuItem onClick={()=>onDelete(collab.id)} className="gap-2 text-destructive focus:text-destructive"><Trash2 className="h-4 w-4"/> Delete collab</DropdownMenuItem>
-                </>
-              ) : (
-                <>
-                  <DropdownMenuSeparator/>
-                  <DropdownMenuItem onClick={()=>onHide(collab.id)} className="gap-2"><EyeOff className="h-4 w-4"/> Not interested</DropdownMenuItem>
-                  <DropdownMenuSeparator/>
-                  <DropdownMenuItem onClick={()=>onReport(collab.id)} className="gap-2 text-destructive focus:text-destructive"><Flag className="h-4 w-4"/> Report collab</DropdownMenuItem>
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-            </div>
-          </div>
-        </div>
-        <div className="px-5 pb-4 space-y-2">
-          <div className="flex items-start justify-between gap-2">
-            <p className="text-sm font-medium text-foreground/70 leading-snug truncate flex-1">{collab.title}</p>
-          </div>
-          <p className="text-[15px] leading-snug">
-            <span className="text-muted-foreground">Co-founder role: </span>
-            <span className="font-semibold text-primary">{collab.looking}</span>
-          </p>
-          <div>
-            <p className="text-xs text-muted-foreground/80 leading-relaxed break-words">{displayDesc}</p>
-            {descLong && (
-              <button onClick={e => { e.stopPropagation(); setDescExpanded(v => !v); }}
-                className="text-xs text-primary font-medium mt-0.5 hover:opacity-75 transition-opacity">
-                {descExpanded ? "Show less" : "Read more"}
-              </button>
-            )}
-          </div>
-          {collab.image && <SmartImage src={collab.image} alt="collab" onClick={() => setLightboxSrc(collab.image!)} />}
-          {collab.video && <SmartVideo src={collab.video} />}
-          {collab.skills.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {collab.skills.map((s)=><Badge key={s} variant="secondary" className="text-xs">{s}</Badge>)}
-            </div>
-          )}
-        </div>
-        {!collab.isOwn && (
-          <div className="flex gap-2 px-5 pb-5 pt-1 border-t border-border mt-1">
-            <Button size="sm" variant={isInterested?"outline":"default"} className={`flex-1 gap-1.5 ${isInterested?"border-primary text-primary":""}`} onClick={()=>onInterest(collab.id,collab.author)}>
-              <Handshake className="h-3.5 w-3.5"/>{isInterested?"Interested ✓":"I'm Interested"}
-            </Button>
-            <Button size="sm" variant="outline" className="flex-1 gap-1.5" onClick={()=>onMessage(collab.author)}>
-              <MessageCircle className="h-3.5 w-3.5"/> Message
-            </Button>
-            <Button size="sm" variant="outline" className="gap-1.5 px-3" onClick={()=>onShare(collab.id)} title="Share">
-              <Share2 className="h-3.5 w-3.5"/>
-            </Button>
-          </div>
-        )}
-        {collab.isOwn && (
-          <div className="flex gap-2 px-5 pb-5 pt-1 border-t border-border mt-1 justify-end">
-            <Button size="sm" variant="outline" className="gap-1.5" onClick={()=>onShare(collab.id)} title="Share">
-              <Share2 className="h-3.5 w-3.5"/> Share
-            </Button>
-          </div>
-        )}
-      </div>
-      {lightboxSrc && <ImageLightbox images={[lightboxSrc]} onClose={() => setLightboxSrc(null)} />}
-    </>
-  );
-}, (prev, next) => {
-  return (
-    prev.collab === next.collab &&
-    prev.matchLabel === next.matchLabel &&
-    prev.interestedSet.has(prev.collab.id) === next.interestedSet.has(next.collab.id) &&
-    prev.savedCollabs.has(prev.collab.id) === next.savedCollabs.has(next.collab.id)
-  );
-});
-
 // ── Send to Connections Dialog ─────────────────────────────────────────────
 
 
@@ -1679,34 +1368,24 @@ export default function Feed() {
   const [searchParams] = useSearchParams();
   const { user } = useUser();
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState(() => searchParams.get("tab") === "collabs" ? "collabs" : "feed");
-  const [search, setSearch] = useState("");
   const [postSearch, setPostSearch] = useState("");
-  const [activeFilter, setActiveFilter] = useState("All");
   const [activePostTag, setActivePostTag] = useState("All");
   const [connectedUserIds, setConnectedUserIds] = useState<Set<string>>(new Set());
 
   const [posts, setPosts] = useState<Post[]>([]);
-  const [collabs, setCollabs] = useState<Collab[]>([]);
   const [likedPosts, setLikedPosts] = useState<Set<string>>(new Set());
   const [savedPosts, setSavedPosts] = useState<Set<string>>(new Set());
   const [commentingPost, setCommentingPost] = useState<Post|null>(null);
   const [commentsLoading, setCommentsLoading] = useState(false);
   const [editingPost, setEditingPost] = useState<Post|null>(null);
-  const [shareTarget, setShareTarget] = useState<{type:"post"|"collab";id:string;content?:{text:string;authorName:string;type:"post"|"collab";postId?:string;imageUrl?:string;collabTitle?:string}}|null>(null);
-  const [reportTarget, setReportTarget] = useState<{type:"post"|"collab"|"comment";id:string}|null>(null);
-  const [interestedCollabs, setInterestedCollabs] = useState<Set<string>>(new Set());
-  const [savedCollabs, setSavedCollabs] = useState<Set<string>>(new Set());
-  const [editingCollab, setEditingCollab] = useState<Collab|null>(null);
+  const [shareTarget, setShareTarget] = useState<{type:"post";id:string;content?:{text:string;authorName:string;type:"post";postId?:string;imageUrl?:string}}|null>(null);
+  const [reportTarget, setReportTarget] = useState<{type:"post"|"comment";id:string}|null>(null);
   const [blockedUserIds, setBlockedUserIds] = useState<Set<string>>(new Set());
 
   // Pagination
   const [postsHasMore, setPostsHasMore] = useState(false);
-  const [collabsHasMore, setCollabsHasMore] = useState(false);
   const [loadingMorePosts, setLoadingMorePosts] = useState(false);
-  const [loadingMoreCollabs, setLoadingMoreCollabs] = useState(false);
   const postsCursorRef = useRef<string | null>(null);
-  const collabsCursorRef = useRef<string | null>(null);
   const deepLinkHandledRef = useRef<string | null>(null);
   const feedRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -1716,13 +1395,11 @@ export default function Feed() {
   const likeServerStateRef = useRef<Map<string, boolean>>(new Map()); // true = liked on server
   const likeDesiredRef = useRef<Map<string, boolean>>(new Map());     // true = user wants liked
   const postsEndRef = useRef<HTMLDivElement | null>(null);
-  const collabsEndRef = useRef<HTMLDivElement | null>(null);
 
   // OPT: grouped compose state — fewer useState hooks, fewer re-renders when
   // one compose field changes (only the compose area re-renders, not the whole feed)
   const [postDialog, setPostDialog] = useState({
     open: false, content: "", tag: "General",
-    postType: "feed" as "feed" | "collab",
     images: [] as string[],
     imageFiles: [] as File[],
     video: undefined as string|undefined,
@@ -1730,22 +1407,13 @@ export default function Feed() {
     uploading: false,
     publishing: false,
   });
-  const [collabDialog, setCollabDialog] = useState({
-    open: false, title: "", looking: "", desc: "", skills: [] as string[],
-    candidateLocation: "",
-    image: undefined as string|undefined,
-    video: undefined as string|undefined,
-    uploading: false,
-    publishing: false,
-    customSkillInput: "",
-  });
 
   // Open post dialog when triggered from sidebar "New Post" button on any page
   useEffect(() => {
-    const handler = () => setPostDialog(d => ({ ...d, open: true, postType: activeTab === "collabs" ? "collab" : "feed" }));
+    const handler = () => setPostDialog(d => ({ ...d, open: true }));
     window.addEventListener("prolifier:new-post", handler);
     return () => window.removeEventListener("prolifier:new-post", handler);
-  }, [activeTab]);
+  }, []);
 
   // ── Deep-link: scroll + highlight post when ?post=<id> or ?highlight=<id> is in the URL ──
   // Two-layer guard: ref stores the handled post ID (survives posts state changes)
@@ -1770,35 +1438,6 @@ export default function Feed() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [posts]);
 
-  // ── Deep-link: scroll + highlight collab when ?collab=<id> is in the URL ──
-  // Depends on both [collabs, searchParams] so it fires when:
-  //   • Collabs finish loading on first mount (URL already has ?collab=)
-  //   • User navigates here from a notification while Feed is already mounted
-  useEffect(() => {
-    const collabId = searchParams.get("collab");
-    if (!collabId) return;
-    // Reset ref when param changes so the same collab can be deep-linked again
-    if (deepLinkHandledRef.current !== collabId) {
-      deepLinkHandledRef.current = null;
-    }
-    if (collabs.length === 0) return;
-    if (deepLinkHandledRef.current === collabId) return;
-    const target = collabs.find(c => c.id === collabId);
-    if (target) {
-      deepLinkHandledRef.current = collabId;
-      setActiveTab("collabs");
-      navigate("/feed", { replace: true });
-      setTimeout(() => {
-        const el = document.querySelector(`[data-collab-id="${collabId}"]`) as HTMLElement | null;
-        if (!el) return;
-        el.scrollIntoView({ behavior: "smooth", block: "center" });
-        el.style.transition = "box-shadow 0.6s ease-out";
-        el.style.boxShadow = "0 0 0 2px hsl(var(--primary))";
-        setTimeout(() => { el.style.boxShadow = ""; }, 1000);
-      }, 300);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [collabs, searchParams]);
 
 
   // ── Feed stale cache — show last feed instantly on return visits ─────────────
@@ -1828,7 +1467,7 @@ export default function Feed() {
   }, [FEED_CACHE_KEY]);
 
 
-  const applyFeedData = useCallback((rawPosts: any[], rawCollabs: any[]) => {
+  const applyFeedData = useCallback((rawPosts: any[]) => {
     const mappedPosts: Post[] = (rawPosts || []).map((p: any) => ({
       id: p.id, user_id: p.user_id,
       author: p.profiles?.deleted_at ? "Deleted Account" : (p.profiles?.name || p.author || "Unknown"),
@@ -1836,7 +1475,6 @@ export default function Feed() {
       avatarUrl: p.profiles?.deleted_at ? undefined : (p.profiles?.avatar_url || p.avatarUrl || undefined),
       avatarColor: p.profiles?.deleted_at ? "bg-muted-foreground" : (p.profiles?.color || p.avatarColor || "bg-primary"),
       location: p.profiles?.deleted_at ? "" : (p.profiles?.location || p.location || ""),
-      authorSkills: p.profiles?.deleted_at ? [] : (p.profiles?.skills?.slice(0, 3) || p.authorSkills || []),
       authorDeleted: !!p.profiles?.deleted_at || !!p.authorDeleted,
       authorRole: p.profiles?.role || p.authorRole || "user",
       tag: p.tag, time: timeAgo(p.created_at), createdAt: p.created_at, content: p.content,
@@ -1846,24 +1484,7 @@ export default function Feed() {
       isOwn: p.isOwn ?? (p.user_id === user.id),
       comments: [],
     }));
-    const mappedCollabs: Collab[] = (rawCollabs || []).map((c: any) => ({
-      id: c.id, user_id: c.user_id,
-      author: c.profiles?.deleted_at ? "Deleted Account" : (c.profiles?.name || c.author || "Unknown"),
-      avatar: c.profiles?.deleted_at ? "?" : (c.profiles?.avatar || c.avatar || "?"),
-      avatarUrl: c.profiles?.deleted_at ? undefined : (c.profiles?.avatar_url || c.avatarUrl || undefined),
-      avatarColor: c.profiles?.deleted_at ? "bg-muted-foreground" : (c.profiles?.color || c.avatarColor || "bg-primary"),
-      location: c.profiles?.deleted_at ? "" : (c.profiles?.location || c.location || ""),
-      authorSkills: c.profiles?.deleted_at ? [] : (c.profiles?.skills?.slice(0, 3) || c.authorSkills || []),
-      authorDeleted: !!c.profiles?.deleted_at || !!c.authorDeleted,
-      authorRole: c.profiles?.role || c.authorRole || "user",
-      title: c.title, looking: c.looking, description: c.description, createdAt: c.created_at,
-      skills: c.skills || [], image: c.image_url || c.image || undefined,
-      video: c.video_url || c.video || undefined,
-      candidateLocation: c.candidate_location || c.candidateLocation || undefined,
-      isOwn: c.isOwn ?? (c.user_id === user.id),
-    }));
     setPosts(mappedPosts);
-    setCollabs(mappedCollabs);
     // Merge API liked state with local cache — local cache wins for any post the
     // user has liked/unliked since the last feed write (avoids 1-2s flicker).
     const apiLiked = new Set<string>((rawPosts || []).filter((p: any) => p.isLiked).map((p: any) => p.id));
@@ -1873,12 +1494,8 @@ export default function Feed() {
     } catch {}
     setLikedPosts(apiLiked);
     setSavedPosts(new Set((rawPosts || []).filter((p: any) => p.isSaved).map((p: any) => p.id)));
-    setSavedCollabs(new Set((rawCollabs || []).filter((c: any) => c.isSaved).map((c: any) => c.id)));
-    setInterestedCollabs(new Set((rawCollabs || []).filter((c: any) => c.isInterested).map((c: any) => c.id)));
     setPostsHasMore((rawPosts || []).length >= 15);
-    setCollabsHasMore((rawCollabs || []).length >= 15);
     if ((rawPosts || []).length > 0) postsCursorRef.current = rawPosts[rawPosts.length - 1].created_at;
-    if ((rawCollabs || []).length > 0) collabsCursorRef.current = rawCollabs[rawCollabs.length - 1].created_at;
   }, [user.id]);
 
   // ── Fetch directly from Supabase — no EC2 round trip ──────────────────────────
@@ -1890,14 +1507,14 @@ export default function Feed() {
     if (!user.id) return;
 
     // Show cached data immediately — always, regardless of age.
-    // Skip cache if both arrays are empty (would have been poisoned by a previous failed load).
+    // Skip cache if the array is empty (would have been poisoned by a previous failed load).
     let hadCache = false;
     try {
       const raw = localStorage.getItem(FEED_CACHE_KEY);
       if (raw) {
-        const { posts: cp, collabs: cc } = JSON.parse(raw);
-        if ((cp && cp.length > 0) || (cc && cc.length > 0)) {
-          applyFeedData(cp, cc);
+        const { posts: cp } = JSON.parse(raw);
+        if (cp && cp.length > 0) {
+          applyFeedData(cp);
           setLoading(false);
           hadCache = true;
         } else {
@@ -1911,14 +1528,10 @@ export default function Feed() {
     try {
       const PAGE_SIZE = 15;
 
-      // Round 1: posts + collabs + blocks in parallel (all public-readable via RLS)
-      const [postsRes, collabsRes, blockedRes, blockerRes] = await Promise.all([
+      // Round 1: posts + blocks in parallel (all public-readable via RLS)
+      const [postsRes, blockedRes, blockerRes] = await Promise.all([
         (supabase as any).from("posts")
           .select("id, user_id, content, tag, image_urls, video_url, created_at, likes, comment_count, profiles:user_id(id, name, avatar, color, avatar_url, location, skills, role, deleted_at)")
-          .order("created_at", { ascending: false })
-          .limit(PAGE_SIZE),
-        (supabase as any).from("collabs")
-          .select("id, user_id, title, description, looking, skills, image_url, video_url, created_at, candidate_location, profiles:user_id(id, name, avatar, color, avatar_url, location, skills, role, deleted_at)")
           .order("created_at", { ascending: false })
           .limit(PAGE_SIZE),
         (supabase as any).from("blocks").select("blocked_id").eq("blocker_id", user.id),
@@ -1927,8 +1540,8 @@ export default function Feed() {
 
       // Surface Supabase query errors explicitly instead of silently treating
       // null data as an empty array (which looks identical to "no posts exist")
-      if (postsRes.error || collabsRes.error) {
-        const errMsg = (postsRes.error || collabsRes.error)?.message ?? "Query failed";
+      if (postsRes.error) {
+        const errMsg = postsRes.error?.message ?? "Query failed";
         if (!isRetry) {
           if (feedRetryTimerRef.current) clearTimeout(feedRetryTimerRef.current);
           feedRetryTimerRef.current = setTimeout(() => fetchFeed(true), 2000);
@@ -1945,30 +1558,20 @@ export default function Feed() {
       ]);
 
       const posts = (postsRes.data || []).filter((p: any) => !blockedIds.has(p.user_id));
-      const collabs = (collabsRes.data || []).filter((c: any) => !blockedIds.has(c.user_id));
       const postIds = posts.map((p: any) => p.id);
-      const collabIds = collabs.map((c: any) => c.id);
 
       // Round 2: enrichment only for current page IDs (not full history)
-      const [likesRes, savedPostsRes, savedCollabsRes, collabInterestsRes] = await Promise.all([
+      const [likesRes, savedPostsRes] = await Promise.all([
         postIds.length > 0
           ? (supabase as any).from("post_likes").select("post_id").eq("user_id", user.id).in("post_id", postIds)
           : { data: [] },
         postIds.length > 0
           ? (supabase as any).from("saved_posts").select("post_id").eq("user_id", user.id).in("post_id", postIds)
           : { data: [] },
-        collabIds.length > 0
-          ? (supabase as any).from("saved_collabs").select("collab_id").eq("user_id", user.id).in("collab_id", collabIds)
-          : { data: [] },
-        collabIds.length > 0
-          ? (supabase as any).from("collab_interests").select("collab_id").eq("user_id", user.id).in("collab_id", collabIds)
-          : { data: [] },
       ]);
 
       const likedIds = new Set((likesRes.data || []).map((r: any) => r.post_id));
       const savedPostIds = new Set((savedPostsRes.data || []).map((r: any) => r.post_id));
-      const savedCollabIds = new Set((savedCollabsRes.data || []).map((r: any) => r.collab_id));
-      const interestedCollabIds = new Set((collabInterestsRes.data || []).map((r: any) => r.collab_id));
 
       const rawPosts = posts.map((p: any) => ({
         ...p,
@@ -1976,18 +1579,12 @@ export default function Feed() {
         isSaved: savedPostIds.has(p.id),
         isOwn: p.user_id === user.id,
       }));
-      const rawCollabs = collabs.map((c: any) => ({
-        ...c,
-        isInterested: interestedCollabIds.has(c.id),
-        isSaved: savedCollabIds.has(c.id),
-        isOwn: c.user_id === user.id,
-      }));
 
-      // If the first query returned 0 posts + 0 collabs, the Supabase auth session
+      // If the first query returned 0 posts, the Supabase auth session
       // may not have been ready (JWT not yet attached on hard refresh) or there was
       // a transient issue. Don't overwrite existing cached posts with empty — retry
       // silently instead. On the retry we trust whatever comes back.
-      if (!isRetry && rawPosts.length === 0 && rawCollabs.length === 0) {
+      if (!isRetry && rawPosts.length === 0) {
         if (feedRetryTimerRef.current) clearTimeout(feedRetryTimerRef.current);
         feedRetryTimerRef.current = setTimeout(() => fetchFeed(true), 2000);
         // Don't setLoading(false) here — keep skeleton (no cache) or cached posts
@@ -1995,17 +1592,17 @@ export default function Feed() {
         return;
       }
 
-      applyFeedData(rawPosts, rawCollabs);
+      applyFeedData(rawPosts);
 
       // Only persist non-empty results — never poison the cache with empty arrays
-      if (rawPosts.length > 0 || rawCollabs.length > 0) {
+      if (rawPosts.length > 0) {
         try {
-          localStorage.setItem(FEED_CACHE_KEY, JSON.stringify({ ts: Date.now(), posts: rawPosts, collabs: rawCollabs }));
+          localStorage.setItem(FEED_CACHE_KEY, JSON.stringify({ ts: Date.now(), posts: rawPosts }));
         } catch {}
       }
 
       setLoading(false);
-      logger.info("feed.load.done", { userId: user.id, postCount: rawPosts.length, collabCount: rawCollabs.length });
+      logger.info("feed.load.done", { userId: user.id, postCount: rawPosts.length });
     } catch (err: any) {
       if (isAbortError(err)) {
         if (!isRetry) {
@@ -2080,7 +1677,6 @@ export default function Feed() {
         avatarUrl: p.profiles?.deleted_at ? undefined : (p.profiles?.avatar_url || p.avatarUrl || undefined),
         avatarColor: p.profiles?.deleted_at ? "bg-muted-foreground" : (p.profiles?.color || p.avatarColor || "bg-primary"),
         location: p.profiles?.deleted_at ? "" : (p.profiles?.location || p.location || ""),
-        authorSkills: p.profiles?.deleted_at ? [] : (p.profiles?.skills?.slice(0, 3) || p.authorSkills || []),
         authorDeleted: !!p.profiles?.deleted_at || !!p.authorDeleted,
         authorRole: p.profiles?.role || p.authorRole || "user",
         tag: p.tag, time: timeAgo(p.created_at), createdAt: p.created_at, content: p.content,
@@ -2106,53 +1702,11 @@ export default function Feed() {
     setLoadingMorePosts(false);
   }, [loadingMorePosts, user.id]);
 
-  const fetchMoreCollabs = useCallback(async () => {
-    if (!collabsCursorRef.current || loadingMoreCollabs) return;
-    setLoadingMoreCollabs(true);
-    try {
-      const { collabs: rawCollabs } = await getFeed(collabsCursorRef.current);
-      const more: Collab[] = (rawCollabs || []).map((c: any) => ({
-        id: c.id, user_id: c.user_id,
-        author: c.profiles?.deleted_at ? "Deleted Account" : (c.profiles?.name || c.author || "Unknown"),
-        avatar: c.profiles?.deleted_at ? "?" : (c.profiles?.avatar || c.avatar || "?"),
-        avatarUrl: c.profiles?.deleted_at ? undefined : (c.profiles?.avatar_url || c.avatarUrl || undefined),
-        avatarColor: c.profiles?.deleted_at ? "bg-muted-foreground" : (c.profiles?.color || c.avatarColor || "bg-primary"),
-        location: c.profiles?.deleted_at ? "" : (c.profiles?.location || c.location || ""),
-        authorSkills: c.profiles?.deleted_at ? [] : (c.profiles?.skills?.slice(0, 3) || c.authorSkills || []),
-        authorDeleted: !!c.profiles?.deleted_at || !!c.authorDeleted,
-        authorRole: c.profiles?.role || c.authorRole || "user",
-        title: c.title, looking: c.looking, description: c.description, createdAt: c.created_at,
-        skills: c.skills || [], image: c.image_url || c.image || undefined,
-        video: c.video_url || c.video || undefined,
-        candidateLocation: c.candidate_location || c.candidateLocation || undefined,
-        isOwn: c.isOwn ?? (c.user_id === user.id),
-      }));
-      setSavedCollabs(prev => {
-        const n = new Set(prev);
-        (rawCollabs || []).filter((c: any) => c.isSaved).forEach((c: any) => n.add(c.id));
-        return n;
-      });
-      setInterestedCollabs(prev => {
-        const n = new Set(prev);
-        (rawCollabs || []).filter((c: any) => c.isInterested).forEach((c: any) => n.add(c.id));
-        return n;
-      });
-      setCollabs(prev => [...prev, ...more.filter(c => !blockedUserIds.has(c.user_id))]);
-      setCollabsHasMore((rawCollabs || []).length >= 15);
-      if ((rawCollabs || []).length > 0) collabsCursorRef.current = rawCollabs[rawCollabs.length - 1].created_at;
-    } catch { /* silent */ }
-    setLoadingMoreCollabs(false);
-  }, [loadingMoreCollabs, user.id]);
-
   // ── Infinite scroll — auto-load more when sentinel div enters viewport ───────
   const postsHasMoreRef = useRef(postsHasMore);
   const loadingMorePostsRef = useRef(loadingMorePosts);
-  const collabsHasMoreRef = useRef(collabsHasMore);
-  const loadingMoreCollabsRef = useRef(loadingMoreCollabs);
   useEffect(() => { postsHasMoreRef.current = postsHasMore; }, [postsHasMore]);
   useEffect(() => { loadingMorePostsRef.current = loadingMorePosts; }, [loadingMorePosts]);
-  useEffect(() => { collabsHasMoreRef.current = collabsHasMore; }, [collabsHasMore]);
-  useEffect(() => { loadingMoreCollabsRef.current = loadingMoreCollabs; }, [loadingMoreCollabs]);
 
   useEffect(() => {
     const el = postsEndRef.current;
@@ -2164,17 +1718,6 @@ export default function Feed() {
     observer.observe(el);
     return () => observer.disconnect();
   }, [fetchMorePosts]);
-
-  useEffect(() => {
-    const el = collabsEndRef.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => { if (entry.isIntersecting && collabsHasMoreRef.current && !loadingMoreCollabsRef.current) fetchMoreCollabs(); },
-      { rootMargin: "200px", threshold: 0 }
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [fetchMoreCollabs]);
 
   // Real-time removed to reduce Supabase Disk IO.
   // Feed refreshes on tab focus (90s throttle) and after own post/collab actions.
@@ -2455,7 +1998,7 @@ export default function Feed() {
     const optimisticPost: Post = {
       id: tempId, user_id: user.id, author: user.name, avatar: user.avatar,
       avatarUrl: user.avatarUrl || undefined, avatarColor: user.color,
-      location: user.location, authorSkills: user.skills?.slice(0, 3) || [],
+      location: user.location,
       authorDeleted: false, authorRole: user.role,
       tag, time: "Just now", createdAt: new Date().toISOString(), content, images, video,
       likes: 0, commentCount: 0, isOwn: true, comments: [],
@@ -2463,7 +2006,6 @@ export default function Feed() {
 
     // Show post immediately — user can navigate away freely
     setPosts(p => [optimisticPost, ...p]);
-    setActiveTab("feed");
     setPostDialog({ open: false, content: "", tag: "General", images: [], imageFiles: [], video: undefined, videoFile: undefined, uploading: false, publishing: false });
 
     const jobId = uploadQueue.addJob("Post");
@@ -2507,7 +2049,7 @@ export default function Feed() {
         const realPost: Post = {
           id: data.id, user_id: user.id, author: user.name, avatar: user.avatar,
           avatarUrl: user.avatarUrl || undefined, avatarColor: user.color,
-          location: user.location, authorSkills: user.skills?.slice(0, 3) || [],
+          location: user.location,
           authorDeleted: false, authorRole: user.role,
           tag, time: "Just now", createdAt: data.created_at || new Date().toISOString(),
           content, images: finalImages, video: finalVideo,
@@ -2518,7 +2060,7 @@ export default function Feed() {
           const updated = p.map(x => x.id === tempId ? realPost : x);
           try {
             const cached = localStorage.getItem(FEED_CACHE_KEY);
-            const existing = cached ? JSON.parse(cached) : { ts: Date.now(), posts: [], collabs: [] };
+            const existing = cached ? JSON.parse(cached) : { ts: Date.now(), posts: [] };
             const rawEntry = { id: realPost.id, user_id: user.id, created_at: realPost.createdAt, content, tag, image_urls: finalImages, video_url: finalVideo, likes: 0, comment_count: 0, isOwn: true, isSaved: false, isLiked: false, profiles: { name: user.name, avatar: user.avatar, avatar_url: user.avatarUrl, color: user.color, location: user.location, skills: user.skills, role: user.role } };
             existing.posts = [rawEntry, ...(existing.posts || []).filter((r: any) => r.id !== realPost.id)];
             existing.ts = Date.now();
@@ -2557,191 +2099,24 @@ export default function Feed() {
     setPostDialog(d => ({ ...d, video: undefined, videoFile: undefined }));
   };
 
-  // ── Collab Actions ────────────────────────────────────────────────────
-  const handleInterest = useCallback(async (id: string, name: string) => {
-    const was = interestedCollabs.has(id);
-    setInterestedCollabs(p => { const n = new Set(p); was ? n.delete(id) : n.add(id); return n; });
-    if (was) {
-      await removeInterest(id).catch(() => {});
-      toast({ title: "Interest withdrawn" });
-    } else {
-      await expressInterest(id).catch(() => {});
-      const collab = collabs.find(c => c.id === id);
-      if (collab && collab.user_id !== user.id) {
-        // Send notification linking directly to the collab post
-        createNotification({
-          userId: collab.user_id,
-          type: "collab",
-          text: `${user.name} is interested in your collab`,
-          subtext: collab.title,
-          action: `collab:${collab.id}`,
-          actorId: user.id,
-        });
-        // Silently send as a shared_post card so both sides see the collab
-        // and can tap it to navigate to the post. No redirect for the sender.
-        const sharePayload = JSON.stringify({
-          type: "collab",
-          id: collab.id,
-          title: collab.title,
-          caption: `Hi! I'm interested in your collab "${collab.title}" 🤝`,
-          image: collab.image || null,
-        });
-        (() => {
-          const sorted = [user.id, collab.user_id].sort();
-          const chatId = `${sorted[0]}_${sorted[1]}`;
-          sendMessage(sharePayload, chatId, { mediaType: "shared_post" }).then(() => {
-            // Fire a message notification so the receiver's badge increments
-            createNotification({
-              userId: collab.user_id,
-              type: "message",
-              text: `${user.name} sent you a message`,
-              subtext: `Interested in your collab "${collab.title}"`,
-              action: `message:${user.id}`,
-              actorId: user.id,
-            });
-          });
-        })();
-      }
-      toast({ title: `Interest sent to ${name}! 🤝` });
-    }
-  }, [interestedCollabs, collabs, user.id, user.name]);
-
-  const handleSaveCollab = useCallback(async (id: string) => {
-    const was = savedCollabs.has(id);
-    setSavedCollabs(p => { const n = new Set(p); was ? n.delete(id) : n.add(id); return n; });
-    if (was) {
-      await unsaveCollab(id).catch(() => {});
-      toast({ title: "Collab unsaved" });
-    } else {
-      await saveCollab(id).catch(() => {});
-      toast({ title: "Collab saved! 🔖" });
-    }
-  }, [savedCollabs, user.id]);
-
-  const handleDeleteCollab = useCallback(async (id: string) => {
-    await deleteCollab(id).catch(() => {});
-    setCollabs(p => p.filter(x => x.id !== id));
-    toast({ title: "Collab deleted" });
-  }, [collabs, user.id]);
-
-  const handleEditCollab = useCallback(async (id: string, updates: Partial<Collab>) => {
-    const textToCheck = [updates.title, updates.description].filter(Boolean).join(" ");
-    const pre = checkContent(textToCheck);
-    if (!pre.allowed) { toast({ title: pre.message!, variant: "destructive" }); return; }
-    try {
-      await updateCollab(id, {
-        title: updates.title,
-        looking: updates.looking,
-        description: updates.description,
-        skills: updates.skills,
-        image_url: updates.image || undefined,
-        video_url: updates.video || undefined,
-      });
-    } catch (err: any) {
-      const modMsg = parseModerationError(err);
-      toast({ title: modMsg ?? "Failed to update collab", variant: "destructive" });
-      return;
-    }
-    setCollabs(p => p.map(x => x.id === id ? { ...x, ...updates } : x));
-    toast({ title: "Collab updated ✓" });
-  }, [collabs, user.id]);
-
-  const handleHideCollab = useCallback((id: string) => {
-    setCollabs(p => p.filter(x => x.id !== id));
-    toast({ title: "Hidden" });
-  }, []);
-
-  const handleCreateCollab = useCallback(async () => {
-    if (!collabDialog.title.trim() || !collabDialog.looking.trim() || !collabDialog.desc.trim() || collabDialog.publishing) return;
-    const pre = checkContent(`${collabDialog.title} ${collabDialog.desc}`);
-    if (!pre.allowed) { toast({ title: pre.message!, variant: "destructive" }); return; }
-    setCollabDialog(d => ({ ...d, publishing: true }));
-    try {
-      let data: any;
-      try {
-        data = await createCollab({
-          title: collabDialog.title,
-          looking: collabDialog.looking,
-          description: collabDialog.desc,
-          skills: collabDialog.skills,
-          candidate_location: collabDialog.candidateLocation.trim() || undefined,
-          image_url: collabDialog.image || undefined,
-          video_url: collabDialog.video || undefined,
-        });
-      } catch (err: any) {
-        const modMsg = parseModerationError(err);
-        toast({ title: modMsg ?? "Failed to create collab", variant: "destructive" });
-        return;
-      }
-      setCollabs(p => [{
-        id: data.id, user_id: user.id, author: user.name, avatar: user.avatar,
-        avatarUrl: user.avatarUrl || undefined,
-        avatarColor: user.color, location: user.location,
-        authorSkills: user.skills?.slice(0, 3) || [],
-        authorDeleted: false, authorRole: user.role,
-        title: collabDialog.title,
-        looking: collabDialog.looking, description: collabDialog.desc, skills: collabDialog.skills,
-        candidateLocation: collabDialog.candidateLocation.trim() || undefined,
-        image: collabDialog.image, video: collabDialog.video, isOwn: true, createdAt: new Date().toISOString(),
-      }, ...p]);
-      setActiveTab("collabs");
-      setCollabDialog({ open: false, title: "", looking: "", desc: "", skills: [], candidateLocation: "", image: undefined, video: undefined, uploading: false, publishing: false, customSkillInput: "" });
-      localStorage.removeItem(FEED_CACHE_KEY);
-      const { posts: rawPosts, collabs: rawCollabs } = await getFeed();
-      applyFeedData(rawPosts, rawCollabs);
-      try { localStorage.setItem(FEED_CACHE_KEY, JSON.stringify({ ts: Date.now(), posts: rawPosts, collabs: rawCollabs })); } catch { /* ignore */ }
-      toast({ title: "Collab posted! 🤝" });
-    } finally {
-      setCollabDialog(d => ({ ...d, publishing: false }));
-    }
-  }, [collabDialog, user]);
-
-  const handleRemoveCollabImage = async () => {
-    if (collabDialog.image) await deleteFromStorage(collabDialog.image);
-    setCollabDialog(d => ({ ...d, image: undefined }));
-  };
-  const handleRemoveCollabVideo = async () => {
-    if (collabDialog.video) await deleteFromStorage(collabDialog.video);
-    setCollabDialog(d => ({ ...d, video: undefined }));
-  };
-
-  const openShareWithContent = (type: "post" | "collab", id: string) => {
-    if (type === "post") {
-      const p = posts.find(x => x.id === id);
-      if (!p) return;
-      setShareTarget({
+  const openShareWithContent = (id: string) => {
+    const p = posts.find(x => x.id === id);
+    if (!p) return;
+    setShareTarget({
+      type: "post",
+      id: p.id,
+      content: {
         type: "post",
-        id: p.id,
-        content: {
-          type: "post",
-          postId: p.id,
-          authorName: p.author,
-          text: p.content.slice(0, 300) + (p.content.length > 300 ? "…" : ""),
-          imageUrl: p.images?.[0] || undefined,
-        },
-      });
-    } else {
-      const c = collabs.find(x => x.id === id);
-      if (!c) return;
-      setShareTarget({
-        type: "collab",
-        id: c.id,
-        content: {
-          type: "collab",
-          postId: c.id,
-          authorName: c.author,
-          collabTitle: c.title,
-          text: c.description.slice(0, 200) + (c.description.length > 200 ? "…" : ""),
-          imageUrl: c.image || undefined,
-        },
-      });
-    }
+        postId: p.id,
+        authorName: p.author,
+        text: p.content.slice(0, 300) + (p.content.length > 300 ? "…" : ""),
+        imageUrl: p.images?.[0] || undefined,
+      },
+    });
   };
 
   const shareLink = shareTarget
-    ? shareTarget.type === "post"
-      ? `${window.location.origin}/feed?post=${shareTarget.id}`
-      : `${window.location.origin}/feed?tab=collabs`
+    ? `${window.location.origin}/feed?post=${shareTarget.id}`
     : "";
   const filteredPosts = useMemo(() => {
     const base = posts.filter(p => {
@@ -2754,137 +2129,65 @@ export default function Feed() {
     return [...base].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }, [posts, activePostTag, postSearch, blockedUserIds]);
 
-  const filteredCollabs = useMemo(() => {
-    const base = collabs.filter(c => {
-      if (blockedUserIds.has(c.user_id)) return false;
-      const q = search.toLowerCase();
-      const ms = !search || c.author.toLowerCase().includes(q) || c.title.toLowerCase().includes(q) || c.looking.toLowerCase().includes(q) || c.description.toLowerCase().includes(q) || c.skills.some(s => s.toLowerCase().includes(q));
-      const mf = activeFilter === "All"
-        ? true
-        : activeFilter === "Other"
-          ? c.skills.some(s => !(SKILL_OPTIONS as readonly string[]).includes(s))
-          : c.skills.some(s => s.toLowerCase().includes(activeFilter.toLowerCase())) || c.looking.toLowerCase().includes(activeFilter.toLowerCase());
-      return ms && mf;
-    });
-    return [...base].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  }, [collabs, search, activeFilter, blockedUserIds]);
 
   return (
     <Layout>
       <div className="max-w-2xl mx-auto px-4 py-6">
         <h1 className="text-2xl font-bold mb-6 text-foreground">Prolifier Feed</h1>
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="w-full mb-6">
-            <TabsTrigger value="feed" className="flex-1">Posts</TabsTrigger>
-            <TabsTrigger value="collabs" className="flex-1">Collab</TabsTrigger>
-          </TabsList>
-
-          {/* ── FEED ── */}
-          <TabsContent value="feed" className="space-y-4">
-            {/* Post search + filter */}
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground"/>
-                <Input placeholder="Search posts…" value={postSearch} onChange={e => setPostSearch(e.target.value)} className="pl-10 h-10"/>
-              </div>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant={activePostTag !== "All" ? "default" : "outline"} size="icon" className="h-10 w-10 shrink-0">
-                    <SlidersHorizontal className="h-4 w-4"/>
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-44">
-                  {["All", ...POST_TAGS].map(t => (
-                    <DropdownMenuItem key={t} onClick={() => setActivePostTag(t)} className="flex items-center gap-2">
-                      {activePostTag === t ? <Check className="h-3.5 w-3.5 shrink-0"/> : <span className="h-3.5 w-3.5 shrink-0"/>}
-                      {t}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
+        <div className="space-y-4">
+          {/* Post search + filter */}
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground"/>
+              <Input placeholder="Search posts…" value={postSearch} onChange={e => setPostSearch(e.target.value)} className="pl-10 h-10"/>
             </div>
-
-            {loading ? <FeedSkeleton /> : filteredPosts.length === 0 ? (
-                <div className="text-center py-14 text-muted-foreground">
-                  <p className="text-sm font-medium mb-1">
-                    {postSearch ? `No results for "${postSearch}"` : activePostTag !== "All" ? `No "${activePostTag}" posts yet` : "No posts yet"}
-                  </p>
-                  <p className="text-xs">
-                    {postSearch || activePostTag !== "All" ? "Try a different search or filter." : "Be the first to share something with the community!"}
-                  </p>
-                  {(postSearch || activePostTag !== "All") && (
-                    <button className="text-xs text-primary hover:underline mt-1" onClick={() => { setPostSearch(""); setActivePostTag("All"); }}>Clear</button>
-                  )}
-                </div>
-              ) : filteredPosts.map(post => (
-                <PostCard key={post.id} post={post} likedPosts={likedPosts} savedPosts={savedPosts}
-                  onLike={handleLike} onSave={handleSavePost} onComment={handleOpenComments}
-                  onDelete={handleDeletePost} onEdit={setEditingPost} onHide={handleHidePost}
-                  onReport={id => setReportTarget({type:"post",id})}
-                  onShare={id => openShareWithContent("post", id)}
-                />
-              ))}
-            <div ref={postsEndRef} className="h-4" />
-            {loadingMorePosts && (
-              <div className="flex justify-center pb-4">
-                <div className="h-5 w-5 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-              </div>
-            )}
-          </TabsContent>
-
-          {/* ── COLLABS ── */}
-          <TabsContent value="collabs" className="space-y-4">
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground"/>
-                <Input placeholder="Search collaborations…" value={search} onChange={e => setSearch(e.target.value)} className="pl-10 h-10"/>
-              </div>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant={activeFilter !== "All" ? "default" : "outline"} size="icon" className="h-10 w-10 shrink-0">
-                    <SlidersHorizontal className="h-4 w-4"/>
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-44">
-                  {COLLAB_FILTERS.map(f => (
-                    <DropdownMenuItem key={f} onClick={() => setActiveFilter(f)} className="flex items-center gap-2">
-                      {activeFilter === f ? <Check className="h-3.5 w-3.5 shrink-0"/> : <span className="h-3.5 w-3.5 shrink-0"/>}
-                      {f}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-            {filteredCollabs.length === 0 ? (
-              <div className="text-center py-14 text-muted-foreground">
-                <p className="text-sm font-medium mb-1">No collaborations found</p>
-                <button className="text-xs text-primary hover:underline mt-1" onClick={() => { setSearch(""); setActiveFilter("All"); }}>Clear filters</button>
-              </div>
-            ) : (
-              <>
-                {filteredCollabs.map(c => (
-                  <CollabCard key={c.id} collab={c} interestedSet={interestedCollabs} savedCollabs={savedCollabs}
-                    matchLabel={undefined}
-                    onInterest={handleInterest} onMessage={() => navigate("/messages")}
-                    onSave={handleSaveCollab} onDelete={handleDeleteCollab} onEdit={setEditingCollab}
-                    onHide={handleHideCollab}
-                    onReport={id => setReportTarget({type:"collab",id})}
-                    onShare={id => openShareWithContent("collab", id)}
-                  />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant={activePostTag !== "All" ? "default" : "outline"} size="icon" className="h-10 w-10 shrink-0">
+                  <SlidersHorizontal className="h-4 w-4"/>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44">
+                {["All", ...POST_TAGS].map(t => (
+                  <DropdownMenuItem key={t} onClick={() => setActivePostTag(t)} className="flex items-center gap-2">
+                    {activePostTag === t ? <Check className="h-3.5 w-3.5 shrink-0"/> : <span className="h-3.5 w-3.5 shrink-0"/>}
+                    {t}
+                  </DropdownMenuItem>
                 ))}
-              </>
-            )}
-            <div ref={collabsEndRef} className="h-4" />
-            {loadingMoreCollabs && (
-              <div className="flex justify-center pb-4">
-                <div className="h-5 w-5 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+
+          {loading ? <FeedSkeleton /> : filteredPosts.length === 0 ? (
+              <div className="text-center py-14 text-muted-foreground">
+                <p className="text-sm font-medium mb-1">
+                  {postSearch ? `No results for "${postSearch}"` : activePostTag !== "All" ? `No "${activePostTag}" posts yet` : "No posts yet"}
+                </p>
+                <p className="text-xs">
+                  {postSearch || activePostTag !== "All" ? "Try a different search or filter." : "Be the first to share something with the community!"}
+                </p>
+                {(postSearch || activePostTag !== "All") && (
+                  <button className="text-xs text-primary hover:underline mt-1" onClick={() => { setPostSearch(""); setActivePostTag("All"); }}>Clear</button>
+                )}
               </div>
-            )}
-          </TabsContent>
-        </Tabs>
+            ) : filteredPosts.map(post => (
+              <PostCard key={post.id} post={post} likedPosts={likedPosts} savedPosts={savedPosts}
+                onLike={handleLike} onSave={handleSavePost} onComment={handleOpenComments}
+                onDelete={handleDeletePost} onEdit={setEditingPost} onHide={handleHidePost}
+                onReport={id => setReportTarget({type:"post",id})}
+                onShare={id => openShareWithContent(id)}
+              />
+            ))}
+          <div ref={postsEndRef} className="h-4" />
+          {loadingMorePosts && (
+            <div className="flex justify-center pb-4">
+              <div className="h-5 w-5 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* ── New Post / Collab dialog — outside Tabs so it works on any tab ── */}
+      {/* ── New Post dialog ── */}
       <Dialog open={postDialog.open} onOpenChange={async (v) => {
         if (!v) {
           for (const url of postDialog.images) await deleteFromStorage(url);
@@ -2895,265 +2198,53 @@ export default function Feed() {
       }}>
         <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{postDialog.postType === "feed" ? "New Post" : "Post a collaboration"}</DialogTitle>
-            <DialogDescription>{postDialog.postType === "feed" ? "Share your journey, ask a question, or celebrate a milestone." : "Share what you're building and the co-founder you're looking for."}</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            {/* Where to post toggle */}
-            <div>
-              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1.5 block">Where to post</label>
-              <div className="flex rounded-lg border border-border overflow-hidden">
-                <button
-                  onClick={() => setPostDialog(d => ({ ...d, postType: "feed" }))}
-                  className={`flex-1 py-2 text-sm font-medium transition-colors ${postDialog.postType === "feed" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
-                >
-                  Posts
-                </button>
-                <button
-                  onClick={() => setPostDialog(d => ({ ...d, postType: "collab" }))}
-                  className={`flex-1 py-2 text-sm font-medium transition-colors ${postDialog.postType === "collab" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
-                >
-                  Collab
-                </button>
-              </div>
-            </div>
-
-            {/* Feed fields */}
-            {postDialog.postType === "feed" && (<>
-              <div>
-                <label className="text-sm font-medium mb-1.5 block">What's on your mind?</label>
-                <Textarea
-                  value={postDialog.content}
-                  onChange={e => setPostDialog(d => ({ ...d, content: e.target.value }))}
-                  maxLength={500}
-                  placeholder="Share what you're working on, ask for advice, or celebrate a win..." rows={4}/>
-                <p className="text-xs text-muted-foreground text-right mt-1">
-                  {postDialog.content.length}/500
-                </p>
-              </div>
-              <div>
-                <label className="text-sm font-medium mb-1.5 block">Category</label>
-                <div className="flex flex-wrap gap-2">
-                  {POST_TAGS.map(t => <Badge key={t} variant={postDialog.tag===t?"default":"outline"} className="cursor-pointer" onClick={() => setPostDialog(d => ({ ...d, tag: t }))}>{t}</Badge>)}
-                </div>
-              </div>
-              {postDialog.video && (
-                <div className="relative rounded-xl overflow-hidden">
-                  <video src={postDialog.video} controls disablePictureInPicture
-                    controlsList="nodownload nopictureinpicture noplaybackrate"
-                    className="w-full max-h-48 rounded-xl" style={{backgroundColor:"#000"}}/>
-                  <button onClick={handleRemovePostVideo} className="absolute top-2 right-2 h-7 w-7 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-black/70"><X className="h-3.5 w-3.5"/></button>
-                </div>
-              )}
-              {!postDialog.video && (
-                <MediaUploadBar
-                  images={postDialog.images}
-                  onAddImage={url => setPostDialog(d => ({ ...d, images: [...d.images, url] }))}
-                  onRemoveImage={handleRemovePostImageAt}
-                  onVideo={url => setPostDialog(d => ({ ...d, video: url }))}
-                  onUploadingChange={v => setPostDialog(d => ({ ...d, uploading: v }))}
-                  hasVideo={!!postDialog.video}
-                  userId={user.id}
-                  deferred
-                  onImageFile={f => setPostDialog(d => ({ ...d, imageFiles: [...d.imageFiles, f] }))}
-                  onVideoFile={f => setPostDialog(d => ({ ...d, videoFile: f }))}
-                />
-              )}
-            </>)}
-
-            {/* Collab fields */}
-            {postDialog.postType === "collab" && (<>
-              <div>
-                <label className="text-sm font-medium mb-1.5 block">Project / idea name</label>
-                <Input value={collabDialog.title}
-                  onChange={e => setCollabDialog(d => ({ ...d, title: e.target.value }))}
-                  maxLength={20}
-                  placeholder="e.g. Community Book Club" className="h-10"/>
-              </div>
-              <div>
-                <label className="text-sm font-medium mb-1.5 block">Co-founder role</label>
-                <Input value={collabDialog.looking}
-                  onChange={e => setCollabDialog(d => ({ ...d, looking: e.target.value }))}
-                  maxLength={50}
-                  placeholder="e.g. Technical Co-founder, Designer Co-founder" className="h-10"/>
-              </div>
-              <div>
-                <label className="text-sm font-medium mb-1.5 block">Describe your project</label>
-                <Textarea value={collabDialog.desc}
-                  onChange={e => setCollabDialog(d => ({ ...d, desc: e.target.value }))}
-                  maxLength={500}
-                  placeholder="What are you building, what stage are you at, and what do you need from a co-founder?" rows={3}/>
-              </div>
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-sm font-medium">Relevant skills / areas</label>
-                  <span className={`text-xs font-medium ${collabDialog.skills.length >= 3 ? "text-primary" : "text-muted-foreground"}`}>{collabDialog.skills.length}/3</span>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {SKILL_OPTIONS.map(s => {
-                    const selected = collabDialog.skills.includes(s);
-                    const maxed = !selected && collabDialog.skills.length >= 3;
-                    return (
-                      <Badge key={s} variant={selected ? "default" : "outline"}
-                        className={`cursor-pointer transition-all ${maxed ? "opacity-40 cursor-not-allowed" : "hover:scale-105"}`}
-                        onClick={() => { if (maxed) return; setCollabDialog(d => ({ ...d, skills: selected ? d.skills.filter(x => x !== s) : [...d.skills, s] })); }}>
-                        {s}
-                      </Badge>
-                    );
-                  })}
-                  {collabDialog.skills.filter(s => !(SKILL_OPTIONS as readonly string[]).includes(s)).map(s => (
-                    <Badge key={s} variant="default" className="cursor-pointer gap-1"
-                      onClick={() => setCollabDialog(d => ({ ...d, skills: d.skills.filter(x => x !== s) }))}>
-                      {s} <X className="h-2.5 w-2.5"/>
-                    </Badge>
-                  ))}
-                </div>
-                <div className="flex gap-2 mt-2">
-                  <Input
-                    placeholder="Other skill (type and press Enter)"
-                    value={collabDialog.customSkillInput}
-                    onChange={e => setCollabDialog(d => ({ ...d, customSkillInput: e.target.value }))}
-                    className="h-8 text-sm"
-                    maxLength={20}
-                    onKeyDown={e => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        const val = collabDialog.customSkillInput.trim();
-                        if (val && !collabDialog.skills.includes(val) && collabDialog.skills.length < 3) {
-                          setCollabDialog(d => ({ ...d, skills: [...d.skills, val], customSkillInput: "" }));
-                        } else {
-                          setCollabDialog(d => ({ ...d, customSkillInput: "" }));
-                        }
-                      }
-                    }}
-                  />
-                  <Button type="button" size="sm" variant="outline" className="h-8 px-3 shrink-0"
-                    disabled={collabDialog.skills.length >= 3}
-                    onClick={() => {
-                      const val = collabDialog.customSkillInput.trim();
-                      if (val && !collabDialog.skills.includes(val) && collabDialog.skills.length < 3) {
-                        setCollabDialog(d => ({ ...d, skills: [...d.skills, val], customSkillInput: "" }));
-                      } else {
-                        setCollabDialog(d => ({ ...d, customSkillInput: "" }));
-                      }
-                    }}>
-                    Add
-                  </Button>
-                </div>
-              </div>
-            </>)}
-          </div>
-          <DialogFooter>
-            {postDialog.postType === "feed" ? (
-              <Button onClick={handleCreatePost} disabled={!postDialog.content.trim()} className="gap-2">
-                <Send className="h-4 w-4"/> Publish
-              </Button>
-            ) : (
-              <Button
-                onClick={() => { setPostDialog(d => ({ ...d, open: false })); handleCreateCollab(); }}
-                disabled={!collabDialog.title.trim()||!collabDialog.looking.trim()||!collabDialog.desc.trim()||collabDialog.uploading||collabDialog.publishing}
-                className="gap-2"
-              >
-                <Send className="h-4 w-4"/> {collabDialog.uploading ? "Uploading..." : collabDialog.publishing ? "Posting..." : "Post collab"}
-              </Button>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── Dedicated collab creation dialog (from Collabs tab button) ── */}
-      <Dialog open={collabDialog.open} onOpenChange={(v) => {
-        if (!v) { handleRemoveCollabImage(); handleRemoveCollabVideo(); }
-        setCollabDialog(d => ({ ...d, open: v }));
-      }}>
-        <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Post a collaboration</DialogTitle>
-            <DialogDescription>Share what you're building and the co-founder you're looking for.</DialogDescription>
+            <DialogTitle>New Post</DialogTitle>
+            <DialogDescription>Share your journey, ask a question, or celebrate a milestone.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div>
-              <label className="text-sm font-medium mb-1.5 block">Project / idea name</label>
-              <Input value={collabDialog.title}
-                onChange={e => setCollabDialog(d => ({ ...d, title: e.target.value }))}
-                maxLength={20}
-                placeholder="e.g. Community Book Club" className="h-10"/>
-            </div>
-            <div>
-              <label className="text-sm font-medium mb-1.5 block">Co-founder role</label>
-              <Input value={collabDialog.looking}
-                onChange={e => setCollabDialog(d => ({ ...d, looking: e.target.value }))}
-                maxLength={50}
-                placeholder="e.g. Technical Co-founder, Designer Co-founder" className="h-10"/>
-            </div>
-            <div>
-              <label className="text-sm font-medium mb-1.5 block">Describe your project</label>
-              <Textarea value={collabDialog.desc}
-                onChange={e => setCollabDialog(d => ({ ...d, desc: e.target.value }))}
+              <label className="text-sm font-medium mb-1.5 block">What's on your mind?</label>
+              <Textarea
+                value={postDialog.content}
+                onChange={e => setPostDialog(d => ({ ...d, content: e.target.value }))}
                 maxLength={500}
-                placeholder="What are you building, what stage are you at, and what do you need from a co-founder?" rows={3}/>
+                placeholder="Share what you're working on, ask for advice, or celebrate a win..." rows={4}/>
+              <p className="text-xs text-muted-foreground text-right mt-1">
+                {postDialog.content.length}/500
+              </p>
             </div>
             <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="text-sm font-medium">Relevant skills / areas</label>
-                <span className={`text-xs font-medium ${collabDialog.skills.length >= 3 ? "text-primary" : "text-muted-foreground"}`}>{collabDialog.skills.length}/3</span>
-              </div>
+              <label className="text-sm font-medium mb-1.5 block">Category</label>
               <div className="flex flex-wrap gap-2">
-                {SKILL_OPTIONS.map(s => {
-                  const selected = collabDialog.skills.includes(s);
-                  const maxed = !selected && collabDialog.skills.length >= 3;
-                  return (
-                    <Badge key={s} variant={selected ? "default" : "outline"}
-                      className={`cursor-pointer transition-all ${maxed ? "opacity-40 cursor-not-allowed" : "hover:scale-105"}`}
-                      onClick={() => { if (maxed) return; setCollabDialog(d => ({ ...d, skills: selected ? d.skills.filter(x => x !== s) : [...d.skills, s] })); }}>
-                      {s}
-                    </Badge>
-                  );
-                })}
-                {collabDialog.skills.filter(s => !(SKILL_OPTIONS as readonly string[]).includes(s)).map(s => (
-                  <Badge key={s} variant="default" className="cursor-pointer gap-1"
-                    onClick={() => setCollabDialog(d => ({ ...d, skills: d.skills.filter(x => x !== s) }))}>
-                    {s} <X className="h-2.5 w-2.5"/>
-                  </Badge>
-                ))}
-              </div>
-              <div className="flex gap-2 mt-2">
-                <Input
-                  placeholder="Other skill (type and press Enter)"
-                  value={collabDialog.customSkillInput}
-                  onChange={e => setCollabDialog(d => ({ ...d, customSkillInput: e.target.value }))}
-                  className="h-8 text-sm"
-                  maxLength={20}
-                  onKeyDown={e => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      const val = collabDialog.customSkillInput.trim();
-                      if (val && !collabDialog.skills.includes(val) && collabDialog.skills.length < 3) {
-                        setCollabDialog(d => ({ ...d, skills: [...d.skills, val], customSkillInput: "" }));
-                      } else {
-                        setCollabDialog(d => ({ ...d, customSkillInput: "" }));
-                      }
-                    }
-                  }}
-                />
-                <Button type="button" size="sm" variant="outline" className="h-8 px-3 shrink-0"
-                  disabled={collabDialog.skills.length >= 3}
-                  onClick={() => {
-                    const val = collabDialog.customSkillInput.trim();
-                    if (val && !collabDialog.skills.includes(val) && collabDialog.skills.length < 3) {
-                      setCollabDialog(d => ({ ...d, skills: [...d.skills, val], customSkillInput: "" }));
-                    } else {
-                      setCollabDialog(d => ({ ...d, customSkillInput: "" }));
-                    }
-                  }}>
-                  Add
-                </Button>
+                {POST_TAGS.map(t => <Badge key={t} variant={postDialog.tag===t?"default":"outline"} className="cursor-pointer" onClick={() => setPostDialog(d => ({ ...d, tag: t }))}>{t}</Badge>)}
               </div>
             </div>
+            {postDialog.video && (
+              <div className="relative rounded-xl overflow-hidden">
+                <video src={postDialog.video} controls disablePictureInPicture
+                  controlsList="nodownload nopictureinpicture noplaybackrate"
+                  className="w-full max-h-48 rounded-xl" style={{backgroundColor:"#000"}}/>
+                <button onClick={handleRemovePostVideo} className="absolute top-2 right-2 h-7 w-7 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-black/70"><X className="h-3.5 w-3.5"/></button>
+              </div>
+            )}
+            {!postDialog.video && (
+              <MediaUploadBar
+                images={postDialog.images}
+                onAddImage={url => setPostDialog(d => ({ ...d, images: [...d.images, url] }))}
+                onRemoveImage={handleRemovePostImageAt}
+                onVideo={url => setPostDialog(d => ({ ...d, video: url }))}
+                onUploadingChange={v => setPostDialog(d => ({ ...d, uploading: v }))}
+                hasVideo={!!postDialog.video}
+                userId={user.id}
+                deferred
+                onImageFile={f => setPostDialog(d => ({ ...d, imageFiles: [...d.imageFiles, f] }))}
+                onVideoFile={f => setPostDialog(d => ({ ...d, videoFile: f }))}
+              />
+            )}
           </div>
           <DialogFooter>
-            <Button onClick={handleCreateCollab} disabled={!collabDialog.title.trim()||!collabDialog.looking.trim()||!collabDialog.desc.trim()||collabDialog.uploading||collabDialog.publishing} className="gap-2">
-              <Send className="h-4 w-4"/> {collabDialog.uploading ? "Uploading..." : collabDialog.publishing ? "Posting..." : "Post collab"}
+            <Button onClick={handleCreatePost} disabled={!postDialog.content.trim()} className="gap-2">
+              <Send className="h-4 w-4"/> Publish
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -3161,9 +2252,8 @@ export default function Feed() {
 
       {commentingPost && <CommentSheet post={commentingPost} currentUserId={user.id} isLoading={commentsLoading} connectedUserIds={connectedUserIds} onClose={() => setCommentingPost(null)} onAddComment={handleAddComment} onDeleteComment={handleDeleteComment} onEditComment={handleEditComment} onReportComment={handleReportComment}/>}
       {editingPost && <EditPostDialog post={editingPost} open={!!editingPost} onClose={() => setEditingPost(null)} onSave={handleEditPost} userId={user.id}/>}
-      {editingCollab && <EditCollabDialog collab={editingCollab} open={!!editingCollab} onClose={() => setEditingCollab(null)} onSave={handleEditCollab}/>}
       {shareTarget && <ShareDialog onClose={() => setShareTarget(null)} link={shareLink} content={shareTarget.content}/>}
-      {reportTarget && <ReportDialog open={!!reportTarget} onClose={() => setReportTarget(null)} target={reportTarget.type==="post"?"this post":reportTarget.type==="collab"?"this collab":"this comment"} targetType={reportTarget.type} targetId={reportTarget.id}/>}
+      {reportTarget && <ReportDialog open={!!reportTarget} onClose={() => setReportTarget(null)} target={reportTarget.type==="post"?"this post":"this comment"} targetType={reportTarget.type} targetId={reportTarget.id}/>}
 
     </Layout>
   );

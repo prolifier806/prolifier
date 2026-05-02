@@ -52,6 +52,7 @@ const UserProfile     = lazyWithReload(() => import("./pages/UserProfile"));
 const Settings        = lazyWithReload(() => import("./pages/Settings"));
 const Feedback        = lazyWithReload(() => import("./pages/Feedback"));
 const AccountRecovery = lazyWithReload(() => import("./pages/AccountRecovery"));
+const Match           = lazyWithReload(() => import("./pages/Match"));
 const NotFound        = lazyWithReload(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient({
@@ -164,6 +165,7 @@ function AppRoutes() {
         <Route path="/profile/:id"   element={<ProtectedRoute><UserProfile /></ProtectedRoute>} />
         <Route path="/settings"      element={<ProtectedRoute><Settings /></ProtectedRoute>} />
         <Route path="/feedback"      element={<ProtectedRoute><Feedback /></ProtectedRoute>} />
+        <Route path="/match"         element={<ProtectedRoute><Match /></ProtectedRoute>} />
         <Route path="/recover"       element={<RecoverRoute><AccountRecovery /></RecoverRoute>} />
 
         {/* Admin panel — /admin/* only for admin/moderator roles */}
